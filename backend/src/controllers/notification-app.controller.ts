@@ -1,0 +1,425 @@
+import { Request, Response } from 'express';
+import prisma from '../config/database';
+import { randomUUID } from 'crypto';
+import { WebClient } from '@slack/web-api';
+
+interface AuthRequest extends Request {
+  user?: {
+    userId: string;
+    username: string;
+    role: string;
+  };
+}
+
+// Platform-specific config interfaces
+interface SlackConfig {
+  botToken: string;
+  userToken?: string;
+  signingSecret?: string;
+  verificationToken?: string;
+  appId?: string;
+  clientId?: string;
+  clientSecret?: string;
+}
+
+interface TelegramConfig {
+  botToken: string;
+  chatId?: string;
+}
+
+interface DiscordConfig {
+  webhookUrl?: string;
+  botToken?: string;
+  channelId?: string;
+}
+
+interface LineConfig {
+  channelAccessToken: string;
+  channelSecret?: string;
+}
+
+interface KakaoTalkConfig {
+  apiKey: string;
+  adminKey?: string;
+}
+
+// Get all notification apps
+export const getAllNotificationApps = async (req: AuthRequest, res: Response) => {
+  try {
+    const apps = await prisma.notificationApp.findMany({
+      orderBy: { createdAt: 'desc' },
+    });
+
+    // Sanitize sensitive data
+    const sanitizedApps = apps.map(app => {
+      const config = JSON.parse(app.config);
+      let sanitizedConfig: any = {};
+
+      switch (app.type) {
+        case 'SLACK':
+          sanitizedConfig = {
+            ...config,
+            botToken: config.botToken ? '••••••••' + config.botToken.slice(-8) : '',
+            userToken: config.userToken ? '••••••••' + config.userToken.slice(-8) : '',
+            clientSecret: config.clientSecret ? '••••••••' + config.clientSecret.slice(-8) : '',
+            signingSecret: config.signingSecret ? '••••••••' + config.signingSecret.slice(-8) : '',
+          };
+          break;
+        case 'TELEGRAM':
+          sanitizedConfig = {
+            ...config,
+            botToken: config.botToken ? '••••••••' + config.botToken.slice(-8) : '',
+          };
+          break;
+        case 'DISCORD':
+          sanitizedConfig = {
+            ...config,
+            botToken: config.botToken ? '••••••••' + config.botToken.slice(-8) : '',
+            webhookUrl: config.webhookUrl ? config.webhookUrl.replace(/\/[\w-]+\/[\w-]+$/, '/••••••••/••••••••') : '',
+          };
+          break;
+        case 'LINE':
+          sanitizedConfig = {
+            ...config,
+            channelAccessToken: config.channelAccessToken ? '••••••••' + config.channelAccessToken.slice(-8) : '',
+            channelSecret: config.channelSecret ? '••••••••' + config.channelSecret.slice(-8) : '',
+          };
+          break;
+        case 'KAKAOTALK':
+          sanitizedConfig = {
+            ...config,
+            apiKey: config.apiKey ? '••••••••' + config.apiKey.slice(-8) : '',
+            adminKey: config.adminKey ? '••••••••' + config.adminKey.slice(-8) : '',
+          };
+          break;
+      }
+
+      return {
+        ...app,
+        config: JSON.stringify(sanitizedConfig),
+      };
+    });
+
+    res.json(sanitizedApps);
+  } catch (error: any) {
+    console.error('Error fetching notification apps:', error);
+    res.status(500).json({ error: error.message || 'Failed to fetch notification apps' });
+  }
+};
+
+// Get notification app by ID
+export const getNotificationAppById = async (req: AuthRequest, res: Response) => {
+  try {
+    const { id } = req.params;
+
+    const app = await prisma.notificationApp.findUnique({
+      where: { id },
+    });
+
+    if (!app) {
+      return res.status(404).json({ error: 'Notification app not found' });
+    }
+
+    res.json(app);
+  } catch (error: any) {
+    console.error('Error fetching notification app:', error);
+    res.status(500).json({ error: error.message || 'Failed to fetch notification app' });
+  }
+};
+
+// Create notification app
+export const createNotificationApp = async (req: AuthRequest, res: Response) => {
+  try {
+    const { name, type, config, isActive } = req.body;
+
+    if (!name || !type || !config) {
+      return res.status(400).json({ error: 'Name, type, and config are required' });
+    }
+
+    // Validate config is valid JSON
+    try {
+      JSON.parse(config);
+    } catch (e) {
+      return res.status(400).json({ error: 'Config must be valid JSON' });
+    }
+
+    // Check if name already exists
+    const existing = await prisma.notificationApp.findFirst({
+      where: { name },
+    });
+
+    if (existing) {
+      return res.status(400).json({ error: 'App with this name already exists' });
+    }
+
+    // If isActive is true, deactivate all other apps of the same type
+    if (isActive) {
+      await prisma.notificationApp.updateMany({
+        where: { type, isActive: true },
+        data: { isActive: false, updatedAt: new Date() },
+      });
+    }
+
+    const app = await prisma.notificationApp.create({
+      data: {
+        id: randomUUID(),
+        name,
+        type,
+        config,
+        isActive: isActive ?? true,
+        updatedAt: new Date(),
+      },
+    });
+
+    res.status(201).json(app);
+  } catch (error: any) {
+    console.error('Error creating notification app:', error);
+    res.status(500).json({ error: error.message || 'Failed to create notification app' });
+  }
+};
+
+// Update notification app
+export const updateNotificationApp = async (req: AuthRequest, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { name, type, config, isActive } = req.body;
+
+    const existing = await prisma.notificationApp.findUnique({
+      where: { id },
+    });
+
+    if (!existing) {
+      return res.status(404).json({ error: 'Notification app not found' });
+    }
+
+    // Validate config if provided
+    if (config) {
+      try {
+        JSON.parse(config);
+      } catch (e) {
+        return res.status(400).json({ error: 'Config must be valid JSON' });
+      }
+    }
+
+    // If isActive is true, deactivate all other apps of the same type
+    if (isActive) {
+      await prisma.notificationApp.updateMany({
+        where: {
+          type: type || existing.type,
+          isActive: true,
+          id: { not: id }
+        },
+        data: { isActive: false, updatedAt: new Date() },
+      });
+    }
+
+    const app = await prisma.notificationApp.update({
+      where: { id },
+      data: {
+        name,
+        type,
+        config,
+        isActive,
+        updatedAt: new Date(),
+      },
+    });
+
+    res.json(app);
+  } catch (error: any) {
+    console.error('Error updating notification app:', error);
+    res.status(500).json({ error: error.message || 'Failed to update notification app' });
+  }
+};
+
+// Delete notification app
+export const deleteNotificationApp = async (req: AuthRequest, res: Response) => {
+  try {
+    const { id } = req.params;
+
+    const existing = await prisma.notificationApp.findUnique({
+      where: { id },
+    });
+
+    if (!existing) {
+      return res.status(404).json({ error: 'Notification app not found' });
+    }
+
+    await prisma.notificationApp.delete({
+      where: { id },
+    });
+
+    res.json({ message: 'Notification app deleted successfully' });
+  } catch (error: any) {
+    console.error('Error deleting notification app:', error);
+    res.status(500).json({ error: error.message || 'Failed to delete notification app' });
+  }
+};
+
+// Test connection
+export const testConnection = async (req: AuthRequest, res: Response) => {
+  try {
+    const { type, config } = req.body;
+
+    if (!type || !config) {
+      return res.status(400).json({ error: 'Type and config are required' });
+    }
+
+    let configObj: any;
+    try {
+      configObj = typeof config === 'string' ? JSON.parse(config) : config;
+    } catch (e) {
+      return res.status(400).json({ error: 'Invalid config JSON' });
+    }
+
+    switch (type) {
+      case 'SLACK': {
+        const slackConfig = configObj as SlackConfig;
+        if (!slackConfig.botToken) {
+          return res.status(400).json({ error: 'Bot token is required for Slack' });
+        }
+
+        const client = new WebClient(slackConfig.botToken);
+        const authTest = await client.auth.test();
+
+        if (!authTest.ok) {
+          return res.status(400).json({ success: false, error: 'Failed to authenticate with Slack' });
+        }
+
+        return res.json({
+          success: true,
+          platform: 'Slack',
+          workspace: authTest.team,
+          botUser: authTest.user,
+          userId: authTest.user_id,
+        });
+      }
+
+      case 'TELEGRAM': {
+        const telegramConfig = configObj as TelegramConfig;
+        if (!telegramConfig.botToken) {
+          return res.status(400).json({ error: 'Bot token is required for Telegram' });
+        }
+
+        // Test Telegram bot
+        const response = await fetch(`https://api.telegram.org/bot${telegramConfig.botToken}/getMe`);
+        const data: any = await response.json();
+
+        if (!data.ok) {
+          return res.status(400).json({ success: false, error: 'Failed to authenticate with Telegram' });
+        }
+
+        return res.json({
+          success: true,
+          platform: 'Telegram',
+          botUsername: data.result.username,
+          botName: data.result.first_name,
+        });
+      }
+
+      case 'DISCORD': {
+        const discordConfig = configObj as DiscordConfig;
+
+        if (discordConfig.webhookUrl) {
+          // Test webhook
+          const response = await fetch(discordConfig.webhookUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ content: '✅ PSTA 연결 테스트 성공' }),
+          });
+
+          if (!response.ok) {
+            return res.status(400).json({ success: false, error: 'Failed to send test message' });
+          }
+
+          return res.json({
+            success: true,
+            platform: 'Discord',
+            method: 'Webhook',
+          });
+        }
+
+        return res.status(400).json({ error: 'Webhook URL or Bot Token is required for Discord' });
+      }
+
+      default:
+        return res.status(400).json({ error: `Testing not implemented for ${type}` });
+    }
+  } catch (error: any) {
+    console.error('Connection test error:', error);
+    res.status(400).json({
+      success: false,
+      error: error.message || 'Failed to test connection',
+    });
+  }
+};
+
+// Send message by email (unified interface)
+export const sendMessageByEmail = async (req: AuthRequest, res: Response) => {
+  try {
+    const { email, message, type } = req.body;
+
+    if (!email || !message) {
+      return res.status(400).json({ error: 'Email and message are required' });
+    }
+
+    // Get active app of specified type (or first active app)
+    const query: any = { isActive: true };
+    if (type) {
+      query.type = type;
+    }
+
+    const app = await prisma.notificationApp.findFirst({ where: query });
+
+    if (!app) {
+      return res.status(404).json({ error: 'No active notification app found' });
+    }
+
+    const config = JSON.parse(app.config);
+
+    switch (app.type) {
+      case 'SLACK': {
+        const slackConfig = config as SlackConfig;
+        const client = new WebClient(slackConfig.botToken);
+
+        // Lookup user by email
+        const userResult = await client.users.lookupByEmail({ email });
+
+        if (!userResult.ok || !userResult.user) {
+          return res.status(404).json({ error: 'User not found in Slack workspace' });
+        }
+
+        const userId = userResult.user.id as string;
+
+        // Open DM channel
+        const dmChannel = await client.conversations.open({ users: userId });
+
+        if (!dmChannel.ok || !dmChannel.channel) {
+          return res.status(400).json({ error: 'Failed to open DM channel' });
+        }
+
+        // Send message
+        const result = await client.chat.postMessage({
+          channel: dmChannel.channel.id as string,
+          text: message,
+        });
+
+        if (!result.ok) {
+          return res.status(400).json({ error: 'Failed to send message' });
+        }
+
+        return res.json({
+          success: true,
+          platform: 'Slack',
+          userId,
+          timestamp: result.ts,
+        });
+      }
+
+      default:
+        return res.status(400).json({ error: `Sending messages not implemented for ${app.type}` });
+    }
+  } catch (error: any) {
+    console.error('Error sending message:', error);
+    res.status(500).json({ error: error.message || 'Failed to send message' });
+  }
+};

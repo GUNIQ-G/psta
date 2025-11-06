@@ -1,0 +1,59 @@
+# Dependencies
+node_modules/
+package-lock.json
+
+# Build outputs
+dist/
+build/
+*.tsbuildinfo
+
+# Environment variables
+.env
+.env.local
+.env.production
+.env.development
+.env.*.local
+
+# Security: Never commit secrets
+**/secrets/
+**/*secret*.txt
+**/*credentials*.txt
+**/*token*.txt
+**/config/secrets.ts
+**/config/credentials.ts
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+/tmp/*.log
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Database
+/data/psta/database/
+*.db
+*.sqlite
+
+# Uploads (user data)
+/data/psta/uploads/
+
+# Temp files
+aaa.png
+*.tmp
+
+# PM2
+.pm2/
+
+# Prisma
+backend/prisma/migrations/migration_lock.toml
