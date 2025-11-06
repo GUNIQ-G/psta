@@ -1,0 +1,474 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Client {
+  id             String   @id
+  name           String
+  code           String   @unique
+  phone          String?
+  email          String?
+  businessNumber String?
+  representative String?
+  address        String?
+  description    String?
+  logoUrl        String?
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime
+  Item           Item[]
+}
+
+model Item {
+  id                          String     @id
+  type                        ItemType
+  name                        String
+  status                      ItemStatus @default(NOT_STARTED)
+  progress                    Float      @default(0)
+  isOnHold                    Boolean    @default(false)
+  startDate                   DateTime?
+  endDate                     DateTime?
+  timeSpent                   Float      @default(0)
+  description                 String?
+  order                       Int        @default(0)
+  clientId                    String?
+  parentId                    String?
+  assigneeId                  String?
+  createdById                 String
+  createdAt                   DateTime   @default(now())
+  updatedAt                   DateTime
+  User_Item_assigneeIdToUser  User?      @relation("Item_assigneeIdToUser", fields: [assigneeId], references: [id])
+  Client                      Client?    @relation(fields: [clientId], references: [id])
+  User_Item_createdByIdToUser User          @relation("Item_createdByIdToUser", fields: [createdById], references: [id])
+  Item                        Item?         @relation("ItemToItem", fields: [parentId], references: [id], onDelete: Cascade)
+  other_Item                  Item[]        @relation("ItemToItem")
+  Comment                     Comment[]
+  File                        File[]
+  Link                        Link[]
+  WorkRequest                 WorkRequest?  @relation("WorkRequestAction")
+  WorkRequestAsProject        WorkRequest[] @relation("WorkRequestProject")
+  WorkRequestAsService        WorkRequest[] @relation("WorkRequestService")
+  WorkRequestAsTeam           WorkRequest[] @relation("WorkRequestTeam")
+  WorkRequestCreatedItem      WorkRequest[] @relation("WorkRequestCreatedItem")
+
+  @@index([assigneeId])
+  @@index([clientId])
+  @@index([parentId])
+  @@index([status])
+  @@index([type])
+}
+
+model Project {
+  id          String   @id
+  name        String
+  description String?
+  ownerId     String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime
+  User        User     @relation(fields: [ownerId], references: [id])
+
+  @@index([ownerId])
+}
+
+model SlackNotification {
+  id      String   @id
+  channel String
+  message String
+  itemId  String?
+  sentAt  DateTime @default(now())
+  success Boolean  @default(true)
+  error   String?
+}
+
+model WorkRequest {
+  id             String              @id
+  title          String
+  description    String
+  priority       WorkRequestPriority @default(MEDIUM)
+  status         WorkRequestStatus   @default(PENDING)
+  dueDate        DateTime?
+  projectId      String?
+  serviceId      String?
+  teamId         String?
+  requesterId    String
+  assigneeId     String?
+  assigneeTeamId String?
+  isRecalled          Boolean             @default(false)
+  isApproved          Boolean             @default(false)
+  approvedAt          DateTime?
+  approvedById        String?
+  rejectedAt          DateTime?
+  rejectedById        String?
+  rejectionMessage    String?
+  negotiationMessage  String?
+  negotiationAt       DateTime?
+  negotiationById     String?
+  actionId            String?             @unique
+
+  // Hierarchical workflow fields
+  requestType         WorkRequestType     @default(ACTION_REQUEST)
+  parentWorkRequestId String?
+  targetItemType      ItemType?
+  createdItemId       String?
+
+  createdAt           DateTime            @default(now())
+  updatedAt           DateTime
+
+  Requester      User                @relation("WorkRequestRequester", fields: [requesterId], references: [id])
+  Assignee       User?               @relation("WorkRequestAssignee", fields: [assigneeId], references: [id])
+  AssigneeTeam   Team?               @relation("WorkRequestAssigneeTeam", fields: [assigneeTeamId], references: [id])
+  ApprovedBy     User?               @relation("WorkRequestApprovedBy", fields: [approvedById], references: [id])
+  Action         Item?               @relation("WorkRequestAction", fields: [actionId], references: [id])
+  Project        Item?               @relation("WorkRequestProject", fields: [projectId], references: [id], onDelete: SetNull)
+  Service        Item?               @relation("WorkRequestService", fields: [serviceId], references: [id], onDelete: SetNull)
+  Team           Item?               @relation("WorkRequestTeam", fields: [teamId], references: [id], onDelete: SetNull)
+
+  // Hierarchical workflow relations
+  ParentWorkRequest  WorkRequest?        @relation("WorkRequestChain", fields: [parentWorkRequestId], references: [id], onDelete: SetNull)
+  ChildWorkRequests  WorkRequest[]       @relation("WorkRequestChain")
+  CreatedItem        Item?               @relation("WorkRequestCreatedItem", fields: [createdItemId], references: [id], onDelete: SetNull)
+
+  @@index([requesterId])
+  @@index([assigneeId])
+  @@index([assigneeTeamId])
+  @@index([approvedById])
+  @@index([actionId])
+  @@index([status])
+  @@index([priority])
+  @@index([projectId])
+  @@index([serviceId])
+  @@index([teamId])
+  @@index([parentWorkRequestId])
+  @@index([requestType])
+  @@index([createdItemId])
+}
+
+enum WorkRequestPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum WorkRequestStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+  REJECTED
+  IN_NEGOTIATION
+}
+
+enum WorkRequestType {
+  ACTION_REQUEST
+  SERVICE_CREATE
+  TEAM_CREATE
+  IN_NEGOTIATION
+}
+
+model SystemSetting {
+  id          String   @id
+  key         String   @unique
+  value       String
+  category    String   @default("general")
+  isEncrypted Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime
+
+  @@index([category])
+  @@index([key])
+}
+
+model User {
+  id                          String         @id
+  username                    String         @unique
+  email                       String         @unique
+  displayName                 String
+  phoneNumber                 String?
+  ldapDn                      String?
+  role                        UserRole       @default(MEMBER)
+  teamId                      String?
+  organizationId              String?
+  isVerified                  Boolean        @default(false)
+  isActive                    Boolean        @default(true)
+  approvalRequested           Boolean        @default(false)
+  approvalRequestedAt         DateTime?
+  approvalMessage             String?
+  createdAt                   DateTime       @default(now())
+  updatedAt                   DateTime
+  Item_Item_assigneeIdToUser  Item[]         @relation("Item_assigneeIdToUser")
+  Item_Item_createdByIdToUser Item[]         @relation("Item_createdByIdToUser")
+  Project                     Project[]
+  Comment                     Comment[]
+  NotificationsFrom           Notification[] @relation("NotificationFrom")
+  NotificationsTo             Notification[] @relation("NotificationTo")
+  MessagesFrom                Message[]      @relation("MessageFrom")
+  MessagesTo                  Message[]      @relation("MessageTo")
+  UploadedFiles               File[]         @relation("FileUploadedBy")
+  CreatedLinks                Link[]         @relation("LinkCreatedBy")
+  RequestedWorks              WorkRequest[]    @relation("WorkRequestRequester")
+  AssignedWorks               WorkRequest[]    @relation("WorkRequestAssignee")
+  ApprovedWorks               WorkRequest[]    @relation("WorkRequestApprovedBy")
+  CreatedSnapshots            ReportSnapshot[] @relation("SnapshotCreatedBy")
+  Team                        Team?            @relation(fields: [teamId], references: [id])
+  Organization                Organization?    @relation(fields: [organizationId], references: [id])
+
+  @@index([teamId])
+  @@index([organizationId])
+  @@index([role])
+  @@index([isVerified])
+  @@index([approvalRequested])
+}
+
+enum ItemStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  COMPLETED
+  ON_HOLD
+}
+
+enum ItemType {
+  PROJECT
+  SERVICE
+  TEAM
+  ACTION
+}
+
+enum UserRole {
+  ADMIN
+  PO
+  PM
+  MEMBER
+}
+
+model Team {
+  id                      String        @id
+  name                    String        @unique
+  ldapDn                  String?       @unique
+  description             String?
+  isActive                Boolean       @default(true)
+  createdAt               DateTime      @default(now())
+  updatedAt               DateTime
+  User                    User[]
+  AssignedWorkRequests    WorkRequest[] @relation("WorkRequestAssigneeTeam")
+}
+
+model LdapConfig {
+  id                        String   @id
+  name                      String   @unique
+  host                      String
+  port                      Int      @default(389)
+  protocol                  String   @default("LDAP")
+  bindDn                    String
+  bindPassword              String
+  searchBase                String
+  searchFilter              String?
+  timeout                   Int      @default(30)
+  enableDynamicUserCreation Boolean  @default(true)
+  attributeLoginId          String   @default("uid")
+  attributeName             String   @default("cn")
+  attributeSurname          String   @default("sn")
+  attributeEmail            String   @default("Email")
+  isActive                  Boolean  @default(true)
+  createdAt                 DateTime @default(now())
+  updatedAt                 DateTime
+
+  @@index([name])
+}
+
+model SlackConfig {
+  id                String   @id
+  name              String   @unique
+  botToken          String
+  userToken         String?
+  signingSecret     String?
+  verificationToken String?
+  appId             String?
+  clientId          String?
+  clientSecret      String?
+  isActive          Boolean  @default(true)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime
+
+  @@index([name])
+}
+
+enum NotificationAppType {
+  SLACK
+  TELEGRAM
+  DISCORD
+  LINE
+  KAKAOTALK
+}
+
+model NotificationApp {
+  id           String              @id
+  name         String              @unique
+  type         NotificationAppType
+  config       String              // JSON string for platform-specific config
+  isActive     Boolean             @default(true)
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime
+
+  @@index([name])
+  @@index([type])
+}
+
+model Permission {
+  id        String   @id
+  role      UserRole
+  resource  String
+  canView   Boolean  @default(false)
+  canCreate Boolean  @default(false)
+  canUpdate Boolean  @default(false)
+  canDelete Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime
+
+  @@unique([role, resource])
+  @@index([role])
+  @@index([resource])
+}
+
+model Comment {
+  id        String   @id
+  content   String
+  itemId    String
+  userId    String
+  reactions String?  @default("{}")  // JSON: {"👍": ["userId1", "userId2"], "❤️": ["userId3"]}
+  createdAt DateTime @default(now())
+  updatedAt DateTime
+  Item      Item     @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  User      User     @relation(fields: [userId], references: [id])
+
+  @@index([itemId])
+  @@index([userId])
+}
+
+model Notification {
+  id        String   @id
+  type      String   // 'comment_mention', 'comment_reply', etc.
+  content   String
+  itemId    String?
+  commentId String?
+  fromUserId String
+  toUserId  String
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+  FromUser  User     @relation("NotificationFrom", fields: [fromUserId], references: [id])
+  ToUser    User     @relation("NotificationTo", fields: [toUserId], references: [id])
+
+  @@index([toUserId])
+  @@index([isRead])
+}
+
+model Message {
+  id         String    @id
+  subject    String
+  content    String
+  fromUserId String
+  toUserId   String
+  isRead     Boolean   @default(false)
+  readAt     DateTime?
+  createdAt  DateTime  @default(now())
+  FromUser   User      @relation("MessageFrom", fields: [fromUserId], references: [id])
+  ToUser     User      @relation("MessageTo", fields: [toUserId], references: [id])
+
+  @@index([fromUserId])
+  @@index([toUserId])
+  @@index([isRead])
+}
+
+model File {
+  id           String   @id
+  filename     String
+  originalName String
+  filepath     String
+  filesize     Int
+  mimetype     String
+  itemId       String
+  projectId    String?
+  serviceId    String?
+  teamId       String?
+  uploadedById String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime
+  Item         Item     @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  UploadedBy   User     @relation("FileUploadedBy", fields: [uploadedById], references: [id])
+
+  @@index([itemId])
+  @@index([uploadedById])
+  @@index([projectId])
+  @@index([serviceId])
+  @@index([teamId])
+}
+
+model Link {
+  id           String   @id
+  url          String
+  displayName  String
+  itemId       String
+  projectId    String?
+  serviceId    String?
+  teamId       String?
+  createdById  String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime
+  Item         Item     @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  CreatedBy    User     @relation("LinkCreatedBy", fields: [createdById], references: [id])
+
+  @@index([itemId])
+  @@index([createdById])
+  @@index([projectId])
+  @@index([serviceId])
+  @@index([teamId])
+}
+
+model Organization {
+  id          String         @id
+  name        String
+  type        OrgType
+  description String?
+  ldapDn      String?        @unique
+  parentId    String?
+  order       Int            @default(0)
+  isActive    Boolean        @default(true)
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime
+  Parent      Organization?  @relation("OrgHierarchy", fields: [parentId], references: [id], onDelete: Cascade)
+  Children    Organization[] @relation("OrgHierarchy")
+  Members     User[]
+
+  @@index([parentId])
+  @@index([type])
+}
+
+enum OrgType {
+  COMPANY
+  DIVISION
+  DEPARTMENT
+  TEAM
+}
+
+model ReportSnapshot {
+  id          String   @id
+  title       String   // Report title (e.g., "2025-01-15 프로젝트 현황")
+  clientId    String
+  clientName  String   // Denormalized for historical accuracy
+  startDate   DateTime // Report date range start
+  endDate     DateTime // Report date range end
+  data        String   // JSON stringified report data (items array)
+  statistics  String   // JSON stringified statistics (total, completed, etc.)
+  createdById String
+  createdAt   DateTime @default(now())
+  CreatedBy   User     @relation("SnapshotCreatedBy", fields: [createdById], references: [id])
+
+  @@index([clientId])
+  @@index([createdById])
+  @@index([createdAt])
+}
