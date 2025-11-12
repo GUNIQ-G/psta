@@ -35,7 +35,9 @@
 ## 주요 기능
 
 - ✅ 4단계 계층 구조 (Project → Service → Team → Action)
-- ✅ LDAP 인증 + 4단계 권한 (ADMIN/PO/PM/MEMBER)
+- ✅ LDAP 인증 + 조직 관리 통합 (v1.1.5)
+- ✅ 자동 LDAP 동기화 (매일 02:00 KST)
+- ✅ 4단계 권한 관리 (ADMIN/PO/PM/MEMBER)
 - ✅ WBS Gantt 차트 + Excel Import/Export
 - ✅ 작업 요청 시스템 + 파일 첨부
 - ✅ 멀티 플랫폼 알림 (Slack, Telegram, Discord)
@@ -64,4 +66,4 @@ MIT License
 
 ---
 
-**PSTA v1.1.4 - Project Management Made Easy**
+**PSTA v1.1.5 - Project Management Made Easy**

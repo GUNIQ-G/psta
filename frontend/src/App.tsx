@@ -25,6 +25,8 @@ import { UserApproval } from './pages/UserApproval';
 import PermissionManagement from './pages/PermissionManagement';
 import { IntegratedFileList } from './pages/IntegratedFileList';
 import { GeneralSettings } from './pages/GeneralSettings';
+import LdapSyncManagement from './pages/LdapSyncManagement';
+import OrganizationManagement from './pages/OrganizationManagement';
 import { MainLayout } from './components/MainLayout';
 import { useAuthStore } from './store/authStore';
 import { usePermissionStore } from './store/permissionStore';
@@ -44,10 +46,12 @@ const ROUTE_RESOURCE_MAP: { [key: string]: string } = {
   '/actions': 'actions',
   '/teams': 'teams',
   '/users': 'users',
+  '/organization': 'organization',
   '/ldap-auth': 'ldap-auth',
   '/notification-apps': 'notification-apps',
   '/permissions': 'permissions',
   '/general-settings': 'general-settings',
+  '/ldap-sync': 'ldap-sync',
 };
 
 const ProtectedRoute: React.FC<{ children: React.ReactNode; resource?: string }> = ({
@@ -299,6 +303,22 @@ function App() {
             element={
               <ProtectedRoute resource="permissions">
                 <PermissionManagement />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/ldap-sync"
+            element={
+              <ProtectedRoute resource="ldap-sync">
+                <LdapSyncManagement />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/organization"
+            element={
+              <ProtectedRoute resource="organization">
+                <OrganizationManagement />
               </ProtectedRoute>
             }
           />

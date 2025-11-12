@@ -22,6 +22,7 @@ import {
   MailOutlined,
   FileSearchOutlined,
   ApiOutlined,
+  SyncOutlined,
 } from '@ant-design/icons';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
@@ -51,7 +52,9 @@ const ROUTE_RESOURCE_MAP: { [key: string]: string } = {
   '/actions': 'actions',
   '/teams': 'teams',
   '/users': 'users',
+  '/organization': 'organization',
   '/ldap-auth': 'ldap-auth',
+  '/ldap-sync': 'ldap-sync',
   '/permissions': 'permissions',
   '/notification-apps': 'notification-apps',
   '/general-settings': 'general-settings',
@@ -294,16 +297,10 @@ export const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
       label: '조직 관리',
       children: [
         {
-          key: '/teams',
+          key: '/organization',
           icon: <TeamOutlined />,
-          label: '팀 관리',
-          onClick: () => navigate('/teams'),
-        },
-        {
-          key: '/users',
-          icon: <UsergroupAddOutlined />,
-          label: '회원 관리',
-          onClick: () => navigate('/users'),
+          label: '조직 관리',
+          onClick: () => navigate('/organization'),
         },
       ],
     },
@@ -322,6 +319,12 @@ export const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
           icon: <SafetyOutlined />,
           label: 'LDAP 인증',
           onClick: () => navigate('/ldap-auth'),
+        },
+        {
+          key: '/ldap-sync',
+          icon: <SyncOutlined />,
+          label: 'LDAP 동기화',
+          onClick: () => navigate('/ldap-sync'),
         },
         {
           key: '/notification-apps',

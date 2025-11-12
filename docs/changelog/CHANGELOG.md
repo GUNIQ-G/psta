@@ -4,6 +4,77 @@
 
 ---
 
+## v1.1.5 - 2025-11-12
+
+### ✨ 조직 관리 통합 페이지 추가
+
+#### 팀/사용자 통합 트리 뷰
+- ✅ **단일 통합 페이지**
+  - 기존 "팀 관리", "회원 관리" 분리된 2개 메뉴 → "조직 관리" 1개로 통합
+  - 좌측: 트리 구조 조직도 (팀 + 사용자)
+  - 우측: 선택한 팀/사용자 상세 정보
+- ✅ **트리 구조 기능**
+  - 팀 확장 시 소속 사용자 목록 자동 표시
+  - 실시간 검색 (팀명, 사용자명, 아이디, 이메일)
+  - 아이콘 기반 시각화 (TeamOutlined, UserOutlined)
+- ✅ **통계 대시보드**
+  - 활성 팀/사용자 수 (전체 대비)
+  - LDAP 연동 팀/사용자 수
+  - 더존테크윌 브랜드 색상 적용 (rgb(0, 140, 214))
+- **변경된 파일**:
+  - `frontend/src/pages/OrganizationManagement.tsx` (신규)
+  - `frontend/src/App.tsx` (라우트 추가)
+  - `frontend/src/components/MainLayout.tsx` (메뉴 통합)
+
+#### LDAP 자동 동기화 시스템
+- ✅ **자동 스케줄 동기화**
+  - node-cron으로 매일 02:00 KST 자동 실행
+  - 동기화 작업 중복 실행 방지 (isJobRunning 플래그)
+  - systemd 서버 재시작 시 자동 스케줄 등록
+- ✅ **수동 동기화 UI**
+  - ADMIN 권한 사용자만 "LDAP 동기화" 버튼 표시
+  - Dry-run 모드 지원 (실제 변경 없이 미리보기)
+  - 동기화 결과 모달 (생성/비활성화/업데이트 통계)
+- ✅ **동기화 로직**
+  - LDAP를 단일 진실 공급원(Single Source of Truth)으로 사용
+  - 팀 동기화: LDAP 그룹 → PSTA 팀 생성/비활성화
+  - 사용자 비활성화: LDAP에 없는 사용자 자동 비활성화
+  - 멤버십 업데이트: LDAP 그룹 멤버 → PSTA 팀 멤버십
+  - Soft delete 패턴: 삭제 대신 isActive=false 처리
+- ✅ **동기화 이력 저장**
+  - LdapSyncHistory 테이블에 매 동기화 기록 저장
+  - 통계 API (`/api/ldap-sync/stats`)
+  - 마지막 동기화 결과 조회 (`/api/ldap-sync/last-result`)
+- **변경된 파일**:
+  - `backend/src/services/ldap-sync.service.ts` (신규)
+  - `backend/src/controllers/ldap-sync.controller.ts` (신규)
+  - `backend/src/routes/ldap-sync.routes.ts` (신규)
+  - `backend/src/jobs/ldap-sync.job.ts` (신규)
+  - `backend/src/index.ts` (cron job 시작)
+  - `backend/prisma/schema.prisma` (LdapSyncHistory 모델 추가)
+  - `frontend/src/api/ldap-sync.ts` (신규)
+  - `frontend/src/pages/LdapSyncManagement.tsx` (신규)
+
+#### 권한 및 디자인
+- ✅ **권한 제어**
+  - organization 리소스 추가 (15개 리소스로 확장)
+  - ADMIN만 LDAP 동기화 버튼 표시
+  - PM/PO/MEMBER는 읽기 전용
+- ✅ **심플 디자인**
+  - 화려한 그라데이션 제거 → 더존테크윌 블루 단색
+  - 불필요한 레이어 제거 (액션 관리와 동일한 구조)
+  - 수정/삭제 버튼 제거 (읽기 전용 인터페이스)
+  - 타이틀 제거로 공간 효율 극대화
+
+**기술 세부사항**:
+- node-cron: `'0 2 * * *'` (매일 02:00), timezone: 'Asia/Seoul'
+- 동기화 서비스: Promise.all로 병렬 처리
+- Dry-run: 모든 DB 쓰기 작업 조건부 실행
+- Winston 로깅: ldapLogger로 모든 동기화 작업 기록
+- Ant Design Tree: DataNode 타입으로 계층 구조 표현
+
+---
+
 ## v1.1.4 - 2025-11-04
 
 ### 🐛 버그 수정

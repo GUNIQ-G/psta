@@ -711,6 +711,50 @@ if (!canUserEdit(req.user, item)) {
 }
 ```
 
+### 7.4 LDAP 동기화 시스템 (v1.1.5)
+
+**자동 스케줄 동기화**:
+```typescript
+// backend/src/jobs/ldap-sync.job.ts
+import cron from 'node-cron';
+
+cron.schedule('0 2 * * *', async () => {
+  const result = await ldapSyncService.syncFromLdap(false);
+  // 매일 02:00 KST 자동 실행
+}, { timezone: 'Asia/Seoul' });
+```
+
+**동기화 플로우**:
+```
+1. LDAP 그룹 조회
+   ↓
+2. PSTA 팀과 비교
+   ↓
+3. 새 팀 생성 (LDAP에만 존재)
+   ↓
+4. 팀 비활성화 (PSTA에만 존재)
+   ↓
+5. LDAP 사용자 조회
+   ↓
+6. 사용자 비활성화 (LDAP에 없음)
+   ↓
+7. 팀 멤버십 업데이트
+   ↓
+8. 동기화 이력 저장 (LdapSyncHistory)
+```
+
+**Dry-run 패턴**:
+```typescript
+async syncFromLdap(dryRun: boolean = false) {
+  // DB 쓰기 작업을 조건부로 실행
+  if (!dryRun) {
+    await prisma.team.create({ data });
+  }
+  // 결과는 항상 반환 (미리보기용)
+  return { teamsCreated: count, ... };
+}
+```
+
 ---
 
 ## 8. 코드 스타일 가이드
