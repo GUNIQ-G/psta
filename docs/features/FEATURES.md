@@ -1,7 +1,7 @@
 # PSTA 기능 소개서
 
-**버전**: v1.1.4
-**작성일**: 2025-11-03
+**버전**: v1.1.5
+**작성일**: 2025-11-12
 **대상**: 관리자, 의사결정자, 신규 사용자
 
 ---
@@ -83,7 +83,7 @@ Project (프로젝트)
 
 ---
 
-### 4. LDAP 인증 통합
+### 4. LDAP 인증 및 조직 관리
 
 **기존 사내 계정 연동**:
 - ✅ LDAP 서버 통합
@@ -101,6 +101,24 @@ Project (프로젝트)
 2. 자동으로 승인 요청 페이지
 3. 관리자가 승인/거부
 4. 승인 후 → 시스템 접근 가능
+
+**조직 관리 통합 페이지** ⭐ NEW (v1.1.5):
+- ✅ **트리 구조 조직도**
+  - 팀과 사용자를 하나의 트리로 통합 표시
+  - 팀 확장 시 소속 사용자 목록 표시
+  - 실시간 검색 기능
+- ✅ **LDAP 동기화**
+  - LDAP를 단일 진실 공급원(Single Source of Truth)으로 사용
+  - 수동/자동(매일 02:00 KST) 동기화
+  - Dry-run 모드 지원
+  - 동기화 이력 및 통계
+- ✅ **통합 대시보드**
+  - 활성 팀/사용자 통계
+  - LDAP 연동 현황
+  - 심플한 더존테크윌 디자인
+- ✅ **권한 관리**
+  - ADMIN만 LDAP 동기화 가능
+  - 읽기 전용 인터페이스 (LDAP 기반 관리)
 
 ---
 
@@ -197,12 +215,12 @@ Client | Level | Type | Name | Path | Status | Progress | Start Date | End Date 
 3. **PM** (프로젝트 관리자): PO + 클라이언트/프로젝트 읽기 전용
 4. **MEMBER** (일반 사용자): 대시보드/작업요청 전체, PSTA 읽기 전용
 
-**14개 리소스**:
+**15개 리소스**:
 - 개인 작업: dashboard, requests
 - 프로젝트 일정: psta, wbs, report
 - 데이터 관리: clients, projects, services, actions
-- 조직 관리: teams, users, user-approval
-- 시스템 설정: ldap-auth, permissions
+- 조직 관리: teams, users, organization, user-approval
+- 시스템 설정: ldap-auth, ldap-sync, permissions
 
 **페이지별 CRUD 권한**:
 - ✅ View (보기)
@@ -321,4 +339,4 @@ Client | Level | Type | Name | Path | Status | Progress | Start Date | End Date 
 
 ---
 
-**PSTA v1.1.3 - 프로젝트 관리를 더 쉽게**
+**PSTA v1.1.5 - 프로젝트 관리를 더 쉽게**

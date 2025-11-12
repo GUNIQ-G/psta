@@ -25,6 +25,7 @@ import {
 } from '@ant-design/icons';
 import { userApi } from '../api/user';
 import { teamApi } from '../api/team';
+import { ldapSyncApi } from '../api/ldap-sync';
 import { User, UserRole, Team } from '../types/user';
 
 const { Option } = Select;
@@ -121,22 +122,83 @@ export const UserManagement: React.FC = () => {
   };
 
   const handleSyncAllLDAP = async () => {
-    setLoading(true);
-    try {
-      const result = await userApi.syncAllFromLDAP();
-      message.success(
-        `LDAP 사용자 동기화 완료: ${result.synced}/${result.total}명 동기화됨`
-      );
-      if (result.errors.length > 0) {
-        message.warning(`${result.errors.length}명 동기화 실패`);
-        console.error('동기화 실패 목록:', result.errors);
-      }
-      fetchData();
-    } catch (error: any) {
-      message.error('LDAP 동기화 실패: ' + error.message);
-    } finally {
-      setLoading(false);
-    }
+    Modal.confirm({
+      title: 'LDAP 전체 동기화',
+      content: (
+        <div>
+          <p>LDAP 서버의 팀(그룹)과 사용자 정보를 PSTA와 동기화합니다.</p>
+          <ul style={{ marginTop: 8, paddingLeft: 20 }}>
+            <li>LDAP에 없는 팀은 비활성화됩니다</li>
+            <li>LDAP에 없는 사용자는 비활성화됩니다</li>
+            <li>팀 멤버십이 자동으로 업데이트됩니다</li>
+          </ul>
+          <p style={{ marginTop: 8, color: '#ff4d4f' }}>
+            <strong>주의:</strong> 이 작업은 실제 데이터를 변경합니다.
+          </p>
+        </div>
+      ),
+      okText: '동기화 실행',
+      cancelText: '취소',
+      onOk: async () => {
+        setLoading(true);
+        try {
+          const response = await ldapSyncApi.triggerSync(false);
+          const result = response.result;
+
+          if (result.success) {
+            const changes = [
+              result.teamsCreated > 0 && `팀 ${result.teamsCreated}개 생성`,
+              result.teamsDeactivated > 0 && `팀 ${result.teamsDeactivated}개 비활성화`,
+              result.usersDeactivated > 0 && `사용자 ${result.usersDeactivated}명 비활성화`,
+              result.teamMembershipsUpdated > 0 && `팀 멤버십 ${result.teamMembershipsUpdated}건 업데이트`,
+            ].filter(Boolean).join(', ');
+
+            message.success(`LDAP 동기화 완료: ${changes || '변경사항 없음'}`);
+
+            // Show details if there are changes
+            if (result.teamsCreated + result.teamsDeactivated + result.usersDeactivated > 0) {
+              Modal.info({
+                title: '동기화 상세 결과',
+                width: 600,
+                content: (
+                  <div>
+                    {result.details.teamsCreated.length > 0 && (
+                      <>
+                        <p><strong>생성된 팀:</strong></p>
+                        <ul>{result.details.teamsCreated.map((name: string, idx: number) => <li key={idx}>{name}</li>)}</ul>
+                      </>
+                    )}
+                    {result.details.teamsDeactivated.length > 0 && (
+                      <>
+                        <p><strong>비활성화된 팀:</strong></p>
+                        <ul>{result.details.teamsDeactivated.map((name: string, idx: number) => <li key={idx}>{name}</li>)}</ul>
+                      </>
+                    )}
+                    {result.details.usersDeactivated.length > 0 && (
+                      <>
+                        <p><strong>비활성화된 사용자:</strong></p>
+                        <ul>{result.details.usersDeactivated.map((name: string, idx: number) => <li key={idx}>{name}</li>)}</ul>
+                      </>
+                    )}
+                  </div>
+                ),
+              });
+            }
+          } else {
+            message.error('LDAP 동기화 실패');
+            if (result.errors.length > 0) {
+              console.error('동기화 오류:', result.errors);
+            }
+          }
+
+          fetchData();
+        } catch (error: any) {
+          message.error('LDAP 동기화 실패: ' + error.message);
+        } finally {
+          setLoading(false);
+        }
+      },
+    });
   };
 
   const handleSyncUserLDAP = async (user: User) => {

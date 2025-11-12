@@ -23,6 +23,8 @@ import slackRoutes from './routes/slack.routes';
 import notificationAppRoutes from './routes/notification-app.routes';
 import workRequestRoutes from './routes/work-request.routes';
 import reportSnapshotRoutes from './routes/report-snapshot.routes';
+import ldapSyncRoutes from './routes/ldap-sync.routes';
+import { startLdapSyncJob } from './jobs/ldap-sync.job';
 
 dotenv.config();
 
@@ -68,6 +70,7 @@ app.use('/api/slack-configs', slackRoutes);
 app.use('/api/notification-apps', notificationAppRoutes);
 app.use('/api/work-requests', workRequestRoutes);
 app.use('/api/report-snapshots', reportSnapshotRoutes);
+app.use('/api/ldap-sync', ldapSyncRoutes);
 
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
@@ -97,4 +100,8 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Server running on http://0.0.0.0:${PORT}`);
   console.log(`📍 Environment: ${process.env.NODE_ENV || 'development'}`);
   console.log(`🌐 Network: accessible from external IPs`);
+
+  // Start LDAP sync job
+  startLdapSyncJob();
+  console.log(`⏰ LDAP sync job scheduled (daily at 2:00 AM KST)`);
 });
