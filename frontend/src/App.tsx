@@ -27,10 +27,13 @@ import { IntegratedFileList } from './pages/IntegratedFileList';
 import { GeneralSettings } from './pages/GeneralSettings';
 import LdapSyncManagement from './pages/LdapSyncManagement';
 import OrganizationManagement from './pages/OrganizationManagement';
+import { TeamStatusOverview } from './pages/TeamStatusOverview';
+import { FeedbackList } from './pages/FeedbackList';
 import { MainLayout } from './components/MainLayout';
 import { useAuthStore } from './store/authStore';
 import { usePermissionStore } from './store/permissionStore';
 import { Result, Button } from 'antd';
+import { systemSettingsApi } from './api/system-settings';
 
 // Map routes to resource names for permission checking
 const ROUTE_RESOURCE_MAP: { [key: string]: string } = {
@@ -40,9 +43,11 @@ const ROUTE_RESOURCE_MAP: { [key: string]: string } = {
   '/wbs': 'wbs',
   '/report': 'report',
   '/integrated-files': 'integrated-files',
+  '/feedback': 'feedback',
   '/clients': 'clients',
   '/projects': 'projects',
   '/services': 'services',
+  '/team-status': 'team-status',
   '/actions': 'actions',
   '/teams': 'teams',
   '/users': 'users',
@@ -109,6 +114,41 @@ function App() {
 
   useEffect(() => {
     fetchUser();
+  }, []);
+
+  // 시스템 설정에서 사이트 제목 및 파비콘 불러오기
+  useEffect(() => {
+    const loadSiteSettings = async () => {
+      try {
+        const settings = await systemSettingsApi.getSettings();
+        // 사이트 제목 적용
+        if (settings.systemName) {
+          document.title = settings.systemName;
+        }
+        // 파비콘 적용
+        if (settings.favicon) {
+          const link = document.querySelector("link[rel='icon']") as HTMLLinkElement
+            || document.createElement('link');
+          link.rel = 'icon';
+          // 파일 확장자에 따라 타입 설정
+          if (settings.favicon.endsWith('.png')) {
+            link.type = 'image/png';
+          } else if (settings.favicon.endsWith('.svg')) {
+            link.type = 'image/svg+xml';
+          } else if (settings.favicon.endsWith('.gif')) {
+            link.type = 'image/gif';
+          } else {
+            link.type = 'image/x-icon';
+          }
+          link.href = settings.favicon;
+          document.head.appendChild(link);
+        }
+      } catch (error) {
+        // 설정 로드 실패 시 기본값 유지
+        console.error('Failed to load system settings:', error);
+      }
+    };
+    loadSiteSettings();
   }, []);
 
   return (
@@ -187,6 +227,14 @@ function App() {
             }
           />
           <Route
+            path="/team-status"
+            element={
+              <ProtectedRoute resource="team-status">
+                <TeamStatusOverview />
+              </ProtectedRoute>
+            }
+          />
+          <Route
             path="/actions"
             element={
               <ProtectedRoute resource="actions">
@@ -223,6 +271,14 @@ function App() {
             element={
               <ProtectedRoute resource="integrated-files">
                 <IntegratedFileList />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/feedback"
+            element={
+              <ProtectedRoute resource="feedback">
+                <FeedbackList />
               </ProtectedRoute>
             }
           />

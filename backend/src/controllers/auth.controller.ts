@@ -62,35 +62,13 @@ export const login = async (req: Request, res: Response) => {
     try {
       const ldapUser = await ldapService.authenticate(username, password);
 
-      // Get user's LDAP groups
-      let userGroups: string[] = [];
-      try {
-        userGroups = await ldapService.getUserGroups(ldapUser.dn);
-        console.log(`[LDAP] User ${ldapUser.username} groups:`, userGroups);
-      } catch (groupErr: any) {
-        console.error('[LDAP] Failed to get user groups:', groupErr.message);
-      }
-
-      // Find the first matching team
-      let teamId: string | null = null;
-      if (userGroups.length > 0) {
-        const team = await prisma.team.findFirst({
-          where: {
-            name: { in: userGroups },
-            isActive: true,
-          },
-        });
-        if (team) {
-          teamId = team.id;
-          console.log(`[LDAP] User assigned to team: ${team.name}`);
-        }
-      }
-
+      // 로그인 시 팀 배정하지 않음 - 조직도는 관리자가 수동으로 관리
       let user = await prisma.user.findUnique({
         where: { username: ldapUser.username },
       });
 
       if (!user) {
+        // 신규 사용자: teamId = null로 생성 (관리자가 수동 배정)
         const { randomUUID } = require('crypto');
         user = await prisma.user.create({
           data: {
@@ -101,12 +79,13 @@ export const login = async (req: Request, res: Response) => {
             phoneNumber: ldapUser.phoneNumber,
             ldapDn: ldapUser.dn,
             role: 'MEMBER',
-            teamId: teamId,
+            teamId: null,
             isVerified: false,
             updatedAt: new Date(),
           },
         });
       } else {
+        // 기존 사용자: teamId 유지, 기본 정보만 업데이트
         user = await prisma.user.update({
           where: { id: user.id },
           data: {
@@ -114,7 +93,6 @@ export const login = async (req: Request, res: Response) => {
             displayName: ldapUser.displayName,
             phoneNumber: ldapUser.phoneNumber,
             ldapDn: ldapUser.dn,
-            teamId: teamId,
             updatedAt: new Date(),
           },
         });

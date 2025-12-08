@@ -20,8 +20,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
     ├── guides/
     │   ├── development/DEVELOPMENT_GUIDE.md
     │   ├── installation/INSTALLATION_GUIDE.md
+    │   ├── migration/LDAP_HIERARCHICAL_MIGRATION.md
     │   └── user/USER_GUIDE.md
-    ├── features/FEATURES.md
+    ├── features/
+    │   ├── FEATURES.md
+    │   ├── BACKLOG.md
+    │   └── HIERARCHICAL_WORKFLOW.md
+    ├── security/SECURITY_GUIDE.md
     └── changelog/CHANGELOG.md
 ```
 
@@ -62,11 +67,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 PSTA is a **Project-Service-Team-Action** hierarchical project management system.
 
-**Key Features**: 4-level hierarchy, Item move, Multi-select filters, LDAP auth, Multi-platform notifications, Excel import/export, WBS/Gantt, File attachments, Role-based permissions
+**Key Features**: 3-level hierarchy (Project→Service→Action), Team status overview, Soft delete + restore, Item move, Multi-select filters, LDAP auth, Multi-platform notifications, Excel import/export, WBS/Gantt, File attachments, Role-based permissions
 
 **Architecture**: Monorepo with backend (Express + TypeScript) and frontend (React + TypeScript + Ant Design)
 
-**Latest (v1.1.4)**: Item move feature, Multi-select schedule filters
+**Latest (v1.1.27)**: 버그/건의 게시판, 팀별 그룹화, 조회 모드 UX 개선 - 텍스트 렌더링 + 좌측 세로선 디자인 👁️
+
+**Recent (v1.1.26)**: 3단계 구조 완성 - ServiceTeam 완전 제거, 팀별 현황 조회 메뉴 신규 추가 📊
+
+**Complete**: WBS 타임라인 전체 리팩토링 완료 (Phase 1~3), 목표 550줄 → 실제 509줄 달성
 
 **자세한 내용**: [기능 소개](docs/features/FEATURES.md) | [변경 이력](docs/changelog/CHANGELOG.md)
 
@@ -162,4 +171,4 @@ PSTA is a **Project-Service-Team-Action** hierarchical project management system
 
 ---
 
-**PSTA v1.1.2 - Project Management Made Easy**
+**PSTA v1.1.27 - Project Management Made Easy**

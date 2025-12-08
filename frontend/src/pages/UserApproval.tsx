@@ -26,6 +26,8 @@ interface PendingUser {
   displayName: string;
   ldapDn?: string;
   role: string;
+  title?: string;
+  position?: string;
   isVerified: boolean;
   approvalRequested: boolean;
   approvalRequestedAt?: string;
@@ -96,6 +98,17 @@ export const UserApproval: React.FC = () => {
       title: '이메일',
       dataIndex: 'email',
       key: 'email',
+    },
+    {
+      title: '직위/직책',
+      key: 'job',
+      render: (_, record) => (
+        <Space size={4}>
+          {record.position && <Tag color="blue">{record.position}</Tag>}
+          {record.title && <Tag color="cyan">{record.title}</Tag>}
+          {!record.position && !record.title && <span style={{ color: '#999' }}>-</span>}
+        </Space>
+      ),
     },
     {
       title: '인증 방식',
@@ -254,6 +267,13 @@ export const UserApproval: React.FC = () => {
             <Descriptions.Item label="이름">{selectedUser.displayName}</Descriptions.Item>
             <Descriptions.Item label="이메일">{selectedUser.email}</Descriptions.Item>
             <Descriptions.Item label="역할">{selectedUser.role}</Descriptions.Item>
+            <Descriptions.Item label="직위/직책">
+              <Space size={4}>
+                {selectedUser.position && <Tag color="blue">{selectedUser.position}</Tag>}
+                {selectedUser.title && <Tag color="cyan">{selectedUser.title}</Tag>}
+                {!selectedUser.position && !selectedUser.title && <Tag>없음</Tag>}
+              </Space>
+            </Descriptions.Item>
             <Descriptions.Item label="인증 방식">
               <Tag color={selectedUser.ldapDn ? 'blue' : 'default'}>
                 {selectedUser.ldapDn ? 'LDAP' : 'Local'}

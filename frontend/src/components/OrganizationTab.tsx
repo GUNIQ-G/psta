@@ -431,7 +431,9 @@ export const OrganizationTab: React.FC = () => {
                         title={`${member.displayName} (${member.username})`}
                         description={
                           <Space size={4}>
-                            <Tag color="blue">{member.role}</Tag>
+                            {member.position && <Tag color="blue">{member.position}</Tag>}
+                            {member.title && <Tag color="cyan">{member.title}</Tag>}
+                            <Tag color="geekblue">{member.role}</Tag>
                             <span style={{ fontSize: 12, color: '#888' }}>{member.email}</span>
                           </Space>
                         }

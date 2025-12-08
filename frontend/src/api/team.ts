@@ -47,4 +47,9 @@ export const teamApi = {
     const response = await axiosInstance.get(`/teams/${teamId}/members`);
     return response.data;
   },
+
+  getHierarchy: async (): Promise<any[]> => {
+    const response = await axiosInstance.get('/teams/hierarchy');
+    return response.data;
+  },
 };

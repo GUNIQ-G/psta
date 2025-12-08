@@ -47,8 +47,11 @@ export const IntegratedFileList: React.FC = () => {
       const linkList = await linksApi.getAllLinks();
 
       // Transform files
+      // 3단계 구조: PROJECT → SERVICE → ACTION
+      // team은 업로더(생성자)의 팀에서 가져옴
       const transformedFiles: IntegratedFile[] = fileList.map((file: FileAttachment) => {
         const hierarchy = getHierarchyNames(file.Item);
+        const uploaderTeam = (file.UploadedBy as any)?.Team?.name || '-';
         return {
           id: file.id,
           type: 'file',
@@ -56,7 +59,7 @@ export const IntegratedFileList: React.FC = () => {
           client: hierarchy.client,
           project: hierarchy.project,
           service: hierarchy.service,
-          team: hierarchy.team,
+          team: uploaderTeam,
           action: hierarchy.action,
           uploader: file.UploadedBy?.displayName || '-',
           createdAt: file.createdAt,
@@ -67,8 +70,11 @@ export const IntegratedFileList: React.FC = () => {
       });
 
       // Transform links
+      // 3단계 구조: PROJECT → SERVICE → ACTION
+      // team은 생성자의 팀에서 가져옴
       const transformedLinks: IntegratedFile[] = linkList.map((link: Link) => {
         const hierarchy = getHierarchyNames(link.Item);
+        const creatorTeam = (link.CreatedBy as any)?.Team?.name || '-';
         return {
           id: link.id,
           type: 'link',
@@ -76,7 +82,7 @@ export const IntegratedFileList: React.FC = () => {
           client: hierarchy.client,
           project: hierarchy.project,
           service: hierarchy.service,
-          team: hierarchy.team,
+          team: creatorTeam,
           action: hierarchy.action,
           uploader: link.CreatedBy?.displayName || '-',
           createdAt: link.createdAt,
@@ -100,13 +106,13 @@ export const IntegratedFileList: React.FC = () => {
   const getHierarchyNames = (item: any) => {
     let project = '-';
     let service = '-';
-    let team = '-';
     let action = '-';
     let client = '-';
 
-    if (!item) return { project, service, team, action, client };
+    if (!item) return { project, service, action, client };
 
-    // Determine item type and navigate hierarchy
+    // 3단계 구조: PROJECT → SERVICE → ACTION
+    // TEAM은 업로더/생성자의 팀 정보에서 별도로 가져옴
     switch (item.type) {
       case 'PROJECT':
         project = item.name;
@@ -119,32 +125,22 @@ export const IntegratedFileList: React.FC = () => {
           client = item.Item.Client?.name || '-';
         }
         break;
-      case 'TEAM':
-        team = item.name;
+      case 'ACTION':
+        // 3단계 구조: ACTION → SERVICE → PROJECT
+        action = item.name;
         if (item.Item) {
+          // item.Item = SERVICE (부모)
           service = item.Item.name;
           if (item.Item.Item) {
+            // item.Item.Item = PROJECT (부모의 부모)
             project = item.Item.Item.name;
             client = item.Item.Item.Client?.name || '-';
           }
         }
         break;
-      case 'ACTION':
-        action = item.name;
-        if (item.Item) {
-          team = item.Item.name;
-          if (item.Item.Item) {
-            service = item.Item.Item.name;
-            if (item.Item.Item.Item) {
-              project = item.Item.Item.Item.name;
-              client = item.Item.Item.Item.Client?.name || '-';
-            }
-          }
-        }
-        break;
     }
 
-    return { project, service, team, action, client };
+    return { project, service, action, client };
   };
 
   const handleDownload = (file: IntegratedFile) => {
@@ -236,28 +232,37 @@ export const IntegratedFileList: React.FC = () => {
       sorter: (a: IntegratedFile, b: IntegratedFile) => a.type.localeCompare(b.type),
     },
     {
-      title: '프로젝트',
-      dataIndex: 'project',
-      key: 'project',
-      width: 250,
-      render: (text: string) => text || '-',
-      filters: getUniqueValues('project'),
-      onFilter: (value: any, record: IntegratedFile) => record.project === value,
-      sorter: (a: IntegratedFile, b: IntegratedFile) =>
-        (a.project || '').localeCompare(b.project || ''),
-    },
-    {
       title: '문서명',
       dataIndex: 'name',
       key: 'name',
-      ellipsis: true,
+      ellipsis: false,
       render: (text: string, record: IntegratedFile) => (
-        <Space>
-          {record.type === 'file' ? <FileOutlined /> : <LinkOutlined />}
-          <Button type="link" onClick={() => handleShowDetail(record)} style={{ padding: 0 }}>
-            {text}
-          </Button>
-        </Space>
+        <div>
+          {/* PSTA 태그 - 문서명 위에 표시 */}
+          <div style={{ marginBottom: 4 }}>
+            <Space size={4} wrap>
+              {record.project && record.project !== '-' && (
+                <Tag color="#722ed1" style={{ margin: 0, fontSize: '11px' }}>P: {record.project}</Tag>
+              )}
+              {record.service && record.service !== '-' && (
+                <Tag color="#1890ff" style={{ margin: 0, fontSize: '11px' }}>S: {record.service}</Tag>
+              )}
+              {record.team && record.team !== '-' && (
+                <Tag color="#52c41a" style={{ margin: 0, fontSize: '11px' }}>T: {record.team}</Tag>
+              )}
+              {record.action && record.action !== '-' && (
+                <Tag color="#fa8c16" style={{ margin: 0, fontSize: '11px' }}>A: {record.action}</Tag>
+              )}
+            </Space>
+          </div>
+          {/* 문서명 */}
+          <Space>
+            {record.type === 'file' ? <FileOutlined /> : <LinkOutlined />}
+            <Button type="link" onClick={() => handleShowDetail(record)} style={{ padding: 0 }}>
+              {text}
+            </Button>
+          </Space>
+        </div>
       ),
       sorter: (a: IntegratedFile, b: IntegratedFile) =>
         a.name.localeCompare(b.name),
@@ -285,7 +290,7 @@ export const IntegratedFileList: React.FC = () => {
       title: '작업',
       key: 'action',
       width: 80,
-      align: 'center',
+      align: 'center' as const,
       render: (_: any, record: IntegratedFile) => (
         <Space size={8}>
           <Tooltip title="상세 정보">
@@ -320,10 +325,7 @@ export const IntegratedFileList: React.FC = () => {
 
   return (
     <div style={{ padding: 24 }}>
-      <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <Title level={2} style={{ margin: 0 }}>
-          통합 파일 관리
-        </Title>
+      <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'flex-end', alignItems: 'center' }}>
         <Space>
           <Input
             placeholder="문서명, 프로젝트, 담당자 검색..."

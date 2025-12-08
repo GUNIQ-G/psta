@@ -98,3 +98,23 @@ export const uploadSystemLogo = multer({
     fileSize: 5 * 1024 * 1024, // 5MB limit
   },
 });
+
+// Storage configuration for feedback images (inline editor images)
+const feedbackImageStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, path.join(UPLOAD_BASE_DIR, 'feedback-images'));
+  },
+  filename: (req, file, cb) => {
+    const uniqueName = `${randomUUID()}${path.extname(file.originalname)}`;
+    cb(null, uniqueName);
+  },
+});
+
+// Upload configuration for feedback images
+export const uploadFeedbackImage = multer({
+  storage: feedbackImageStorage,
+  fileFilter: fileFilter, // Images only
+  limits: {
+    fileSize: 10 * 1024 * 1024, // 10MB limit
+  },
+});

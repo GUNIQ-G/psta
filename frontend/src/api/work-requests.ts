@@ -7,6 +7,7 @@ export const workRequestsApi = {
     status?: string;
     priority?: string;
     assigneeId?: string;
+    requesterId?: string;
   }): Promise<WorkRequest[]> => {
     const response = await apiClient.get('/work-requests', { params });
     return response.data;
@@ -88,18 +89,6 @@ export const workRequestsApi = {
     await apiClient.delete(`/work-requests/${id}`);
   },
 
-  // Get my work requests
-  getMyWorkRequests: async (): Promise<WorkRequest[]> => {
-    const response = await apiClient.get('/work-requests/my');
-    return response.data;
-  },
-
-  // Get assigned work requests
-  getAssignedWorkRequests: async (): Promise<WorkRequest[]> => {
-    const response = await apiClient.get('/work-requests/assigned');
-    return response.data;
-  },
-
   // Get team work requests
   getTeamWorkRequests: async (): Promise<WorkRequest[]> => {
     const response = await apiClient.get('/work-requests/team');
@@ -165,5 +154,22 @@ export const workRequestsApi = {
   forwardWorkRequest: async (id: string, newAssigneeId: string): Promise<WorkRequest> => {
     const response = await apiClient.post(`/work-requests/${id}/forward`, { newAssigneeId });
     return response.data;
+  },
+
+  // Get all work requests (Admin only)
+  getAllWorkRequests: async (): Promise<WorkRequest[]> => {
+    const response = await apiClient.get('/work-requests/all');
+    return response.data;
+  },
+
+  // Cancel work request (assignee only)
+  cancelWorkRequest: async (id: string): Promise<WorkRequest> => {
+    const response = await apiClient.post(`/work-requests/${id}/cancel`);
+    return response.data;
+  },
+
+  // Admin force delete work request
+  adminDeleteWorkRequest: async (id: string): Promise<void> => {
+    await apiClient.delete(`/work-requests/${id}/admin`);
   },
 };

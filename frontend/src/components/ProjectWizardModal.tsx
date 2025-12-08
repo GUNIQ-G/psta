@@ -84,13 +84,6 @@ export const ProjectWizardModal: React.FC<ProjectWizardModalProps> = ({
     if (open && !item && currentUserId) {
       const userExists = allUsers.find(u => u.id === currentUserId);
 
-      console.log('Auto-assign Debug:', {
-        currentUserId,
-        userExists: !!userExists,
-        allUsersCount: allUsers.length,
-        originalUsersCount: users.length
-      });
-
       // 담당자 자동 설정
       form.setFieldsValue({
         assigneeId: currentUserId,
@@ -102,14 +95,9 @@ export const ProjectWizardModal: React.FC<ProjectWizardModalProps> = ({
     try {
       if (currentStep === 0) {
         await form.validateFields(['clientId']);
-        console.log('Step 0 validated. clientId:', form.getFieldValue('clientId'));
       } else if (currentStep === 1) {
         await form.validateFields(['assigneeId']);
-        console.log('Step 1 validated. assigneeId:', form.getFieldValue('assigneeId'));
       }
-
-      // Check all form values before moving to next step
-      console.log('All form values before next step:', form.getFieldsValue());
 
       setCurrentStep(currentStep + 1);
     } catch (error) {
@@ -129,18 +117,9 @@ export const ProjectWizardModal: React.FC<ProjectWizardModalProps> = ({
       // Get ALL form values with true flag
       const allValues = form.getFieldsValue(true);
 
-      // Debug logging
-      console.log('=== ProjectWizard handleFinish ===');
-      console.log('All form values (with true flag):', allValues);
-      console.log('clientId:', allValues.clientId);
-      console.log('assigneeId:', allValues.assigneeId);
-      console.log('name:', allValues.name);
-
       // Manually get individual values if needed
       const clientId = form.getFieldValue('clientId');
       const assigneeId = form.getFieldValue('assigneeId');
-      console.log('Manual clientId:', clientId);
-      console.log('Manual assigneeId:', assigneeId);
 
       const submitData = {
         clientId: clientId || allValues.clientId,
@@ -150,9 +129,6 @@ export const ProjectWizardModal: React.FC<ProjectWizardModalProps> = ({
         endDate: allValues.endDate?.toISOString(),
         description: allValues.description,
       };
-
-      console.log('Submit data:', submitData);
-      console.log('=================================');
 
       onSubmit(submitData);
       form.resetFields();

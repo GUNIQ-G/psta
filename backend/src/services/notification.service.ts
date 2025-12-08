@@ -351,4 +351,121 @@ export class NotificationService {
       link: `/requests?workRequestId=${params.workRequestId}`,
     });
   }
+
+  /**
+   * 계층 생성 요청 알림 (서비스/팀 생성 필요)
+   */
+  public static async notifyHierarchyRequest(params: {
+    workRequestId: string;
+    requestType: string;
+    targetItemType: string;
+    requesterId: string;
+    assigneeId: string;
+    parentWorkRequestId: string;
+    projectName?: string;
+    serviceName?: string;
+  }): Promise<void> {
+    const itemTypeKo = params.targetItemType === 'SERVICE' ? '서비스' : '팀';
+    const contextName = params.targetItemType === 'SERVICE'
+      ? params.projectName || '프로젝트'
+      : params.serviceName || '서비스';
+
+    await this.createNotification({
+      type: 'hierarchy_request',
+      content: `[자동] ${contextName} - ${itemTypeKo} 생성이 요청되었습니다.`,
+      itemId: params.workRequestId,
+      fromUserId: params.requesterId,
+      toUserId: params.assigneeId,
+      link: `/requests?workRequestId=${params.workRequestId}`,
+      extraContent: `연결된 작업 요청: #${params.parentWorkRequestId.substring(0, 8)}`,
+    });
+  }
+
+  /**
+   * 계층 생성 완료 알림 (서비스/팀 생성됨)
+   */
+  public static async notifyHierarchyCreated(params: {
+    itemType: string;
+    itemName: string;
+    originalRequesterId: string;
+    originalWorkRequestId: string;
+    createdById: string;
+  }): Promise<void> {
+    const itemTypeKo = params.itemType === 'SERVICE' ? '서비스' : '팀';
+    const nextStep = params.itemType === 'SERVICE'
+      ? '다음 단계: 팀 선택이 필요할 수 있습니다.'
+      : '이제 액션을 생성할 수 있습니다.';
+
+    await this.createNotification({
+      type: 'hierarchy_created',
+      content: `${itemTypeKo} "${params.itemName}"이(가) 생성되었습니다. ${nextStep}`,
+      itemId: params.originalWorkRequestId,
+      fromUserId: params.createdById,
+      toUserId: params.originalRequesterId,
+      link: `/requests?workRequestId=${params.originalWorkRequestId}`,
+    });
+  }
+
+  /**
+   * 미정 액션 생성 알림 (팀장에게)
+   * 미정 프로젝트 또는 미정 서비스에 액션이 생성되었을 때 팀장에게 알림
+   */
+  public static async notifyUndecidedActionCreated(params: {
+    actionId: string;
+    actionName: string;
+    isProjectUndecided: boolean;
+    isServiceUndecided: boolean;
+    createdById: string;
+    teamId: string;
+  }): Promise<void> {
+    // 팀장 찾기: positionType이 TEAM_LEADER 또는 PART_LEADER, 또는 role이 PM/PO인 사용자
+    const teamLeaders = await prisma.user.findMany({
+      where: {
+        teamId: params.teamId,
+        isVerified: true,
+        isActive: true,
+        OR: [
+          { positionType: { in: ['TEAM_LEADER', 'PART_LEADER'] } },
+          { role: { in: ['PM', 'PO'] } },
+        ],
+      },
+      select: { id: true },
+    });
+
+    // 팀장이 없으면 ADMIN에게 알림
+    let notifyUserIds = teamLeaders.map(u => u.id);
+    if (notifyUserIds.length === 0) {
+      const admins = await prisma.user.findMany({
+        where: {
+          role: 'ADMIN',
+          isVerified: true,
+          isActive: true,
+        },
+        select: { id: true },
+      });
+      notifyUserIds = admins.map(u => u.id);
+    }
+
+    // 생성자는 알림에서 제외
+    notifyUserIds = notifyUserIds.filter(id => id !== params.createdById);
+
+    if (notifyUserIds.length === 0) return;
+
+    // 미정 유형 메시지 생성
+    const undecidedTypes: string[] = [];
+    if (params.isProjectUndecided) undecidedTypes.push('프로젝트');
+    if (params.isServiceUndecided) undecidedTypes.push('서비스');
+    const undecidedMessage = undecidedTypes.join(', ') + '가 미정';
+
+    await this.createBulkNotifications(
+      {
+        type: 'undecided_action_created',
+        content: `[미정 액션] "${params.actionName}" - ${undecidedMessage}입니다. 확인이 필요합니다.`,
+        itemId: params.actionId,
+        fromUserId: params.createdById,
+        link: `/actions`,
+      },
+      notifyUserIds
+    );
+  }
 }

@@ -30,12 +30,17 @@ export interface User {
   username: string;
   email: string;
   displayName: string;
+  phoneNumber?: string;
+  ldapDn?: string;
   isVerified: boolean;
-  approvalRequested: boolean;
+  isActive?: boolean;
+  approvalRequested?: boolean;
   approvalRequestedAt?: string;
   approvalMessage?: string;
   role: UserRole;
   teamId?: string;
+  createdAt?: string;
+  updatedAt?: string;
   Team?: Team | null;
 }
 
@@ -76,6 +81,16 @@ export interface Client {
   updatedAt?: string;
 }
 
+export interface ServiceTeam {
+  id: string;
+  serviceId: string;
+  teamId: string;
+  Team?: Team;
+  Item?: any; // Service Item
+  createdAt?: string;
+  updatedAt?: string;
+}
+
 export interface Item {
   id: string;
   type: ItemType;
@@ -91,6 +106,8 @@ export interface Item {
   clientId?: string;
   Client?: Client;
   parentId?: string;
+  serviceTeamId?: string;
+  ServiceTeam?: ServiceTeam;
   Item?: Item;
   parent?: Item;
   children?: Item[];
@@ -99,6 +116,7 @@ export interface Item {
   User_Item_assigneeIdToUser?: User;
   createdById: string;
   createdBy?: User;
+  User_Item_createdByIdToUser?: User;
   createdAt: string;
   updatedAt: string;
   _count?: {

@@ -1,0 +1,284 @@
+/* Tiptap Editor Styles */
+.tiptap-editor-wrapper {
+  border: 1px solid #d9d9d9;
+  border-radius: 6px;
+  overflow: hidden;
+  transition: border-color 0.3s;
+}
+
+.tiptap-editor-wrapper:focus-within {
+  border-color: #1890ff;
+  box-shadow: 0 0 0 2px rgba(24, 144, 255, 0.1);
+}
+
+/* Toolbar */
+.tiptap-toolbar {
+  padding: 8px 12px;
+  background: #fafafa;
+  border-bottom: 1px solid #d9d9d9;
+}
+
+.tiptap-toolbar .ant-btn {
+  color: #666;
+}
+
+.tiptap-toolbar .ant-btn:hover {
+  color: #1890ff;
+  background: rgba(24, 144, 255, 0.1);
+}
+
+.tiptap-toolbar .ant-btn-primary {
+  color: #fff;
+  background: #1890ff;
+}
+
+/* Editor Content */
+.tiptap-editor-content {
+  padding: 12px 16px;
+  outline: none;
+  font-size: 14px;
+  line-height: 1.6;
+  color: #333;
+}
+
+.tiptap-editor-content:focus {
+  outline: none;
+}
+
+/* Placeholder */
+.tiptap-editor-content p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: left;
+  color: #aaa;
+  pointer-events: none;
+  height: 0;
+}
+
+/* Typography */
+.tiptap-editor-content p {
+  margin: 0 0 0.75em 0;
+}
+
+.tiptap-editor-content p:last-child {
+  margin-bottom: 0;
+}
+
+.tiptap-editor-content strong {
+  font-weight: 600;
+}
+
+.tiptap-editor-content em {
+  font-style: italic;
+}
+
+.tiptap-editor-content s {
+  text-decoration: line-through;
+}
+
+/* Lists */
+.tiptap-editor-content ul,
+.tiptap-editor-content ol {
+  margin: 0.5em 0;
+  padding-left: 1.5em;
+}
+
+.tiptap-editor-content li {
+  margin: 0.25em 0;
+}
+
+.tiptap-editor-content ul {
+  list-style-type: disc;
+}
+
+.tiptap-editor-content ol {
+  list-style-type: decimal;
+}
+
+/* Links */
+.tiptap-editor-content a,
+.tiptap-link {
+  color: #1890ff;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.tiptap-editor-content a:hover,
+.tiptap-link:hover {
+  text-decoration: underline;
+}
+
+/* Images */
+.tiptap-editor-content img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 4px;
+  margin: 8px 0;
+  display: block;
+}
+
+.tiptap-editor-content img.ProseMirror-selectednode {
+  outline: 2px solid #1890ff;
+  outline-offset: 2px;
+}
+
+/* Blockquote */
+.tiptap-editor-content blockquote {
+  margin: 0.5em 0;
+  padding-left: 1em;
+  border-left: 3px solid #d9d9d9;
+  color: #666;
+}
+
+/* Code */
+.tiptap-editor-content code {
+  background: #f5f5f5;
+  padding: 2px 4px;
+  border-radius: 3px;
+  font-family: 'Consolas', 'Monaco', monospace;
+  font-size: 0.9em;
+}
+
+.tiptap-editor-content pre {
+  background: #f5f5f5;
+  padding: 12px;
+  border-radius: 4px;
+  overflow-x: auto;
+}
+
+.tiptap-editor-content pre code {
+  background: none;
+  padding: 0;
+}
+
+/* Bubble Menu */
+.tiptap-bubble-menu {
+  display: flex;
+  background: #fff;
+  padding: 4px;
+  border-radius: 6px;
+  box-shadow: 0 3px 12px rgba(0, 0, 0, 0.15);
+  gap: 2px;
+}
+
+.tiptap-bubble-menu .ant-btn {
+  color: #666;
+}
+
+.tiptap-bubble-menu .ant-btn:hover {
+  color: #1890ff;
+}
+
+.tiptap-bubble-menu .ant-btn-primary {
+  color: #fff;
+  background: #1890ff;
+}
+
+/* Read-only mode */
+.tiptap-editor-wrapper.readonly {
+  border: none;
+  background: transparent;
+}
+
+.tiptap-editor-wrapper.readonly .tiptap-editor-content {
+  padding: 0;
+}
+
+/* Responsive */
+@media (max-width: 576px) {
+  .tiptap-toolbar {
+    padding: 6px 8px;
+  }
+
+  .tiptap-editor-content {
+    padding: 10px 12px;
+  }
+}
+
+/* Feedback Content View (for displaying saved HTML content) */
+.feedback-content-view {
+  font-size: 14px;
+  line-height: 1.6;
+  color: #333;
+}
+
+.feedback-content-view p {
+  margin: 0 0 0.75em 0;
+}
+
+.feedback-content-view p:last-child {
+  margin-bottom: 0;
+}
+
+.feedback-content-view strong {
+  font-weight: 600;
+}
+
+.feedback-content-view em {
+  font-style: italic;
+}
+
+.feedback-content-view s {
+  text-decoration: line-through;
+}
+
+.feedback-content-view ul,
+.feedback-content-view ol {
+  margin: 0.5em 0;
+  padding-left: 1.5em;
+}
+
+.feedback-content-view li {
+  margin: 0.25em 0;
+}
+
+.feedback-content-view ul {
+  list-style-type: disc;
+}
+
+.feedback-content-view ol {
+  list-style-type: decimal;
+}
+
+.feedback-content-view a {
+  color: #1890ff;
+  text-decoration: none;
+}
+
+.feedback-content-view a:hover {
+  text-decoration: underline;
+}
+
+.feedback-content-view img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 4px;
+  margin: 8px 0;
+  display: block;
+}
+
+.feedback-content-view blockquote {
+  margin: 0.5em 0;
+  padding-left: 1em;
+  border-left: 3px solid #d9d9d9;
+  color: #666;
+}
+
+.feedback-content-view code {
+  background: #f5f5f5;
+  padding: 2px 4px;
+  border-radius: 3px;
+  font-family: 'Consolas', 'Monaco', monospace;
+  font-size: 0.9em;
+}
+
+.feedback-content-view pre {
+  background: #f5f5f5;
+  padding: 12px;
+  border-radius: 4px;
+  overflow-x: auto;
+}
+
+.feedback-content-view pre code {
+  background: none;
+  padding: 0;
+}

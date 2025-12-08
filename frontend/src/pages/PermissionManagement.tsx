@@ -250,19 +250,11 @@ const PermissionManagement: React.FC = () => {
       <div
         style={{
           display: 'flex',
-          justifyContent: 'space-between',
+          justifyContent: 'flex-end',
           alignItems: 'center',
           marginBottom: 16,
         }}
       >
-        <div>
-          <Title level={2} style={{ margin: 0 }}>
-            권한 관리
-          </Title>
-          <Text type="secondary">
-            역할별 페이지 접근 권한 및 CRUD 권한을 설정합니다.
-          </Text>
-        </div>
         <Space>
           <Button
             icon={<ReloadOutlined />}

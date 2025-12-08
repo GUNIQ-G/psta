@@ -5,16 +5,16 @@ import type { ColumnsType } from 'antd/es/table';
 import { useNavigate } from 'react-router-dom';
 import EmojiPicker, { EmojiClickData } from 'emoji-picker-react';
 import { itemsApi } from '../api/items';
-import { clientsApi } from '../api/clients';
-import { userApi } from '../api/user';
 import { workRequestsApi } from '../api/work-requests';
 import { commentsApi } from '../api/comments';
 import { filesApi } from '../api/files';
 import { linksApi } from '../api/links';
-import { Item, ItemStatus, WorkRequest, WorkRequestPriority, WorkRequestStatus, Comment, FileAttachment, Link, User } from '../types';
+import { Item, ItemType, ItemStatus, WorkRequest, WorkRequestPriority, WorkRequestStatus, Comment, FileAttachment, Link, User } from '../types';
 import { useAuthStore } from '../store/authStore';
 import { useNotificationStore } from '../store/notificationStore';
 import { ItemFormModal } from '../components/ItemFormModal';
+import { useActionItemModal } from '../hooks/useActionItemModal';
+import { userApi } from '../api/user';
 
 const { Title, Text } = Typography;
 
@@ -33,13 +33,11 @@ export const Dashboard: React.FC = () => {
   const [workRequestsLoading, setWorkRequestsLoading] = useState(false);
   const [selectedTask, setSelectedTask] = useState<TaskWithHierarchy | null>(null);
   const [detailModalOpen, setDetailModalOpen] = useState(false);
-  const [editModalOpen, setEditModalOpen] = useState(false);
-  const [clients, setClients] = useState<any[]>([]);
-  const [users, setUsers] = useState<any[]>([]);
   const [comments, setComments] = useState<Comment[]>([]);
   const [commentContent, setCommentContent] = useState('');
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [relatedDocs, setRelatedDocs] = useState<Array<{ type: 'file' | 'link', data: FileAttachment | Link }>>([]);
+  const [users, setUsers] = useState<any[]>([]);
   const user = useAuthStore((state) => state.user);
   const { unreadCount, notifications } = useNotificationStore();
 
@@ -48,32 +46,46 @@ export const Dashboard: React.FC = () => {
       fetchMyTasks();
       fetchMyWorkRequests();
       fetchAssignedWorkRequests();
-      fetchClientsAndUsers();
+      fetchUsers();
     }
   }, [user]);
 
-  const fetchClientsAndUsers = async () => {
+  const fetchUsers = async () => {
     try {
-      const [clientsData, usersData] = await Promise.all([
-        clientsApi.getClients(),
-        userApi.getAll(),
-      ]);
-      setClients(clientsData);
+      const usersData = await userApi.getAll();
       setUsers(usersData);
     } catch (error: any) {
-      console.error('Failed to fetch clients or users:', error);
+      console.error('Failed to fetch users:', error);
     }
   };
 
   const fetchMyTasks = async () => {
+    if (!user?.id) return;
+
     setLoading(true);
     try {
-      const tasks = await itemsApi.getMyTasks();
-      console.log('===== MyTasks Data =====');
-      console.log('First task:', tasks[0]);
-      console.log('First task _count:', tasks[0]?._count);
-      console.log('========================');
-      setMyTasks(tasks as TaskWithHierarchy[]);
+      const tasks = await itemsApi.getItems({
+        type: ItemType.ACTION,
+        assigneeId: user.id,
+      });
+
+      // Extract hierarchy names (3단계 구조: parentId → 서비스 → 프로젝트)
+      const enrichedTasks = tasks.map(task => {
+        const taskAny = task as any;
+        // Item = 서비스 (parentId가 가리킴), Item.Item = 프로젝트
+        const service = taskAny.Item;
+        const project = service?.Item;
+        // 생성자의 팀
+        const creatorTeam = taskAny.User_Item_createdByIdToUser?.Team;
+        return {
+          ...task,
+          projectName: project?.name || null,
+          serviceName: service?.name || null,
+          teamName: creatorTeam?.name || null,
+        } as TaskWithHierarchy;
+      });
+
+      setMyTasks(enrichedTasks);
     } catch (error: any) {
       message.error('작업 조회 실패: ' + error.message);
     } finally {
@@ -82,9 +94,13 @@ export const Dashboard: React.FC = () => {
   };
 
   const fetchMyWorkRequests = async () => {
+    if (!user?.id) return;
+
     setWorkRequestsLoading(true);
     try {
-      const workRequests = await workRequestsApi.getMyWorkRequests();
+      const workRequests = await workRequestsApi.getWorkRequests({
+        requesterId: user.id,
+      });
       setMyWorkRequests(workRequests);
     } catch (error: any) {
       message.error('작업 요청 조회 실패: ' + error.message);
@@ -94,9 +110,13 @@ export const Dashboard: React.FC = () => {
   };
 
   const fetchAssignedWorkRequests = async () => {
+    if (!user?.id) return;
+
     setWorkRequestsLoading(true);
     try {
-      const workRequests = await workRequestsApi.getAssignedWorkRequests();
+      const workRequests = await workRequestsApi.getWorkRequests({
+        assigneeId: user.id,
+      });
       setAssignedWorkRequests(workRequests);
     } catch (error: any) {
       message.error('할당된 작업 요청 조회 실패: ' + error.message);
@@ -104,6 +124,12 @@ export const Dashboard: React.FC = () => {
       setWorkRequestsLoading(false);
     }
   };
+
+  // Custom hook for action item modal
+  const { modalProps, openModal } = useActionItemModal({
+    onSuccess: fetchMyTasks,
+    enableHierarchyEdit: true,
+  });
 
   const getStatusColor = (status: ItemStatus) => {
     switch (status) {
@@ -486,8 +512,9 @@ export const Dashboard: React.FC = () => {
   };
 
   const handleEdit = () => {
+    if (!selectedTask) return;
     setDetailModalOpen(false);
-    setEditModalOpen(true);
+    openModal(selectedTask);
   };
 
   const handleDelete = async () => {
@@ -505,20 +532,6 @@ export const Dashboard: React.FC = () => {
       } else {
         message.error('삭제 실패: ' + (error.response?.data?.error || error.message));
       }
-    }
-  };
-
-  const handleEditSubmit = async (values: any) => {
-    if (!selectedTask) return;
-
-    try {
-      await itemsApi.updateItem(selectedTask.id, values);
-      message.success('작업이 수정되었습니다');
-      setEditModalOpen(false);
-      setSelectedTask(null);
-      fetchMyTasks(); // 목록 새로고침
-    } catch (error: any) {
-      message.error('수정 실패: ' + error.message);
     }
   };
 
@@ -628,16 +641,6 @@ export const Dashboard: React.FC = () => {
 
   return (
     <div>
-      <Title level={2}>
-        <Space>
-          <TeamOutlined />
-          내 작업 대시보드
-        </Space>
-      </Title>
-      <Text type="secondary" style={{ fontSize: 14 }}>
-        {user?.displayName}님의 작업 현황
-      </Text>
-
       {/* 알림 카드 */}
       {unreadCount > 0 && (
         <Card
@@ -902,8 +905,8 @@ export const Dashboard: React.FC = () => {
       >
         {selectedTask && (
           <div style={{ display: 'flex', gap: '20px' }}>
-            {/* 왼쪽 영역 (70%) - 기본 정보 */}
-            <div style={{ flex: '0 0 70%' }}>
+            {/* 왼쪽 영역 (65%) - 기본 정보 */}
+            <div style={{ flex: '0 0 65%' }}>
               <Divider orientation="left">기본 정보</Divider>
             <Descriptions bordered column={2} size="small">
               <Descriptions.Item label="작업명" span={2}>
@@ -1116,11 +1119,12 @@ export const Dashboard: React.FC = () => {
             )}
             </div>
 
-            {/* 오른쪽 영역 (30%) - 댓글 */}
+            {/* 오른쪽 영역 (35%) - 댓글 */}
             <div style={{
-              flex: '0 0 30%',
+              flex: '0 0 35%',
               borderLeft: '1px solid #f0f0f0',
               paddingLeft: '20px',
+              paddingRight: '20px',
               display: 'flex',
               flexDirection: 'column',
               maxHeight: '600px'
@@ -1318,9 +1322,7 @@ export const Dashboard: React.FC = () => {
                         backgroundColor: '#fffbe6',
                         fontWeight: 500,
                       }}
-                    >
-                      이모지
-                    </Button>
+                    />
                   </Popover>
                 </div>
                 <Button
@@ -1340,19 +1342,7 @@ export const Dashboard: React.FC = () => {
       </Modal>
 
       {/* 수정 모달 */}
-      {selectedTask && (
-        <ItemFormModal
-          open={editModalOpen}
-          item={selectedTask}
-          onCancel={() => {
-            setEditModalOpen(false);
-            setSelectedTask(null);
-          }}
-          onSubmit={handleEditSubmit}
-          clients={clients}
-          users={users}
-        />
-      )}
+      <ItemFormModal {...modalProps} />
     </div>
   );
 };

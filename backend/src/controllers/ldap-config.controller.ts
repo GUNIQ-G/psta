@@ -58,6 +58,24 @@ export const getAllLdapConfigs = async (req: AuthRequest, res: Response) => {
           attributeSurname: config.attributeSurname,
           attributeEmail: config.attributeEmail,
           isActive: config.isActive,
+          rootOu: config.rootOu,
+          description: config.description,
+          lastTestedAt: config.lastTestedAt,
+          lastTestSuccess: config.lastTestSuccess,
+          // v1.1.19: 확장된 설정 필드
+          userBaseDn: config.userBaseDn,
+          orgBaseDn: config.orgBaseDn,
+          searchScope: config.searchScope,
+          filterActiveOnly: config.filterActiveOnly,
+          filterEmailRequired: config.filterEmailRequired,
+          hiddenOrgs: config.hiddenOrgs,
+          maxDepth: config.maxDepth,
+          showRootOu: config.showRootOu,
+          sortOrder: config.sortOrder,
+          displayNameFormat: config.displayNameFormat,
+          attributeTitle: config.attributeTitle,
+          attributeDepartment: config.attributeDepartment,
+          attributeDeptNumber: config.attributeDeptNumber,
           userCount,
           createdAt: config.createdAt,
           updatedAt: config.updatedAt,
@@ -97,6 +115,24 @@ export const getLdapConfig = async (req: AuthRequest, res: Response) => {
       attributeSurname: config.attributeSurname,
       attributeEmail: config.attributeEmail,
       isActive: config.isActive,
+      rootOu: config.rootOu,
+      description: config.description,
+      lastTestedAt: config.lastTestedAt,
+      lastTestSuccess: config.lastTestSuccess,
+      // v1.1.19: 확장된 설정 필드
+      userBaseDn: config.userBaseDn,
+      orgBaseDn: config.orgBaseDn,
+      searchScope: config.searchScope,
+      filterActiveOnly: config.filterActiveOnly,
+      filterEmailRequired: config.filterEmailRequired,
+      hiddenOrgs: config.hiddenOrgs,
+      maxDepth: config.maxDepth,
+      showRootOu: config.showRootOu,
+      sortOrder: config.sortOrder,
+      displayNameFormat: config.displayNameFormat,
+      attributeTitle: config.attributeTitle,
+      attributeDepartment: config.attributeDepartment,
+      attributeDeptNumber: config.attributeDeptNumber,
       createdAt: config.createdAt,
       updatedAt: config.updatedAt,
     });
@@ -122,6 +158,22 @@ export const createLdapConfig = async (req: AuthRequest, res: Response) => {
       attributeName,
       attributeSurname,
       attributeEmail,
+      rootOu,
+      description,
+      // v1.1.19: 확장된 설정 필드
+      userBaseDn,
+      orgBaseDn,
+      searchScope,
+      filterActiveOnly,
+      filterEmailRequired,
+      hiddenOrgs,
+      maxDepth,
+      showRootOu,
+      sortOrder,
+      displayNameFormat,
+      attributeTitle,
+      attributeDepartment,
+      attributeDeptNumber,
     } = req.body;
 
     if (!name || !host || !bindDn || !bindPassword || !searchBase) {
@@ -153,6 +205,22 @@ export const createLdapConfig = async (req: AuthRequest, res: Response) => {
         attributeName: attributeName || 'cn',
         attributeSurname: attributeSurname || 'sn',
         attributeEmail: attributeEmail || 'Email',
+        rootOu: rootOu || 'Organizations',
+        description: description || null,
+        // v1.1.19: 확장된 설정 필드
+        userBaseDn: userBaseDn || null,
+        orgBaseDn: orgBaseDn || null,
+        searchScope: searchScope || 'sub',
+        filterActiveOnly: filterActiveOnly !== false,
+        filterEmailRequired: filterEmailRequired === true,
+        hiddenOrgs: hiddenOrgs || null,
+        maxDepth: maxDepth || 10,
+        showRootOu: showRootOu === true,
+        sortOrder: sortOrder || 'name',
+        displayNameFormat: displayNameFormat || '{sn}{cn}',
+        attributeTitle: attributeTitle || 'title',
+        attributeDepartment: attributeDepartment || 'ou',
+        attributeDeptNumber: attributeDeptNumber || 'departmentNumber',
         updatedAt: new Date(),
       },
     });
@@ -184,6 +252,22 @@ export const updateLdapConfig = async (req: AuthRequest, res: Response) => {
       attributeName,
       attributeSurname,
       attributeEmail,
+      rootOu,
+      description,
+      // v1.1.19: 확장된 설정 필드
+      userBaseDn,
+      orgBaseDn,
+      searchScope,
+      filterActiveOnly,
+      filterEmailRequired,
+      hiddenOrgs,
+      maxDepth,
+      showRootOu,
+      sortOrder,
+      displayNameFormat,
+      attributeTitle,
+      attributeDepartment,
+      attributeDeptNumber,
     } = req.body;
 
     const existing = await prisma.ldapConfig.findUnique({ where: { id } });
@@ -205,6 +289,22 @@ export const updateLdapConfig = async (req: AuthRequest, res: Response) => {
       attributeName: attributeName || existing.attributeName,
       attributeSurname: attributeSurname || existing.attributeSurname,
       attributeEmail: attributeEmail || existing.attributeEmail,
+      rootOu: rootOu !== undefined ? rootOu : existing.rootOu,
+      description: description !== undefined ? description : existing.description,
+      // v1.1.19: 확장된 설정 필드
+      userBaseDn: userBaseDn !== undefined ? userBaseDn : existing.userBaseDn,
+      orgBaseDn: orgBaseDn !== undefined ? orgBaseDn : existing.orgBaseDn,
+      searchScope: searchScope || existing.searchScope,
+      filterActiveOnly: filterActiveOnly !== undefined ? filterActiveOnly : existing.filterActiveOnly,
+      filterEmailRequired: filterEmailRequired !== undefined ? filterEmailRequired : existing.filterEmailRequired,
+      hiddenOrgs: hiddenOrgs !== undefined ? hiddenOrgs : existing.hiddenOrgs,
+      maxDepth: maxDepth || existing.maxDepth,
+      showRootOu: showRootOu !== undefined ? showRootOu : existing.showRootOu,
+      sortOrder: sortOrder || existing.sortOrder,
+      displayNameFormat: displayNameFormat || existing.displayNameFormat,
+      attributeTitle: attributeTitle || existing.attributeTitle,
+      attributeDepartment: attributeDepartment || existing.attributeDepartment,
+      attributeDeptNumber: attributeDeptNumber || existing.attributeDeptNumber,
       updatedAt: new Date(),
     };
 
@@ -263,6 +363,16 @@ export const testLdapConfig = async (req: AuthRequest, res: Response) => {
 
     const isConnected = await ldapService.testConnection(testConfig);
 
+    // Update test result in database (v1.1.18)
+    await prisma.ldapConfig.update({
+      where: { id },
+      data: {
+        lastTestedAt: new Date(),
+        lastTestSuccess: isConnected,
+        updatedAt: new Date(),
+      },
+    });
+
     if (isConnected) {
       res.json({
         success: true,
@@ -275,9 +385,76 @@ export const testLdapConfig = async (req: AuthRequest, res: Response) => {
       });
     }
   } catch (error: any) {
+    // Update test result as failed
+    try {
+      const { id } = req.params;
+      await prisma.ldapConfig.update({
+        where: { id },
+        data: {
+          lastTestedAt: new Date(),
+          lastTestSuccess: false,
+          updatedAt: new Date(),
+        },
+      });
+    } catch (updateError) {
+      // Ignore update error
+    }
+
     res.status(400).json({
       success: false,
       message: error.message || 'LDAP connection test failed',
+    });
+  }
+};
+
+// v1.1.18: Test LDAP connection with form values (pre-save test)
+export const testLdapConnection = async (req: AuthRequest, res: Response) => {
+  try {
+    const {
+      host,
+      port,
+      protocol,
+      bindDn,
+      bindPassword,
+      searchBase,
+      searchFilter,
+    } = req.body;
+
+    if (!host || !bindDn || !bindPassword || !searchBase) {
+      return res.status(400).json({
+        success: false,
+        message: 'Host, Bind DN, Password, and Search Base are required for testing',
+      });
+    }
+
+    const protocolPrefix = protocol === 'LDAPS' ? 'ldaps://' : 'ldap://';
+    const url = `${protocolPrefix}${host}:${port || 389}`;
+
+    const testConfig = {
+      url,
+      bindDn,
+      bindPassword, // Use password directly from form (not encrypted)
+      searchBase,
+      searchFilter: searchFilter || '',
+    };
+
+    const isConnected = await ldapService.testConnection(testConfig);
+
+    if (isConnected) {
+      res.json({
+        success: true,
+        message: 'LDAP 연결 테스트 성공',
+      });
+    } else {
+      res.status(400).json({
+        success: false,
+        message: 'LDAP 연결 실패. 설정을 확인하세요.',
+      });
+    }
+  } catch (error: any) {
+    res.status(400).json({
+      success: false,
+      message: error.message || 'LDAP 연결 테스트 실패',
     });
   }
 };

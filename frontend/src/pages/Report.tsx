@@ -275,16 +275,6 @@ export const Report: React.FC = () => {
         parentIds.has(item.id) || actionsInDateRange.some(a => a.id === item.id)
       );
 
-      console.log('=== 스냅샷 생성 데이터 ===');
-      console.log('Actions in range:', actionsInDateRange.length);
-      console.log('Total snapshot items:', snapshotItems.length);
-      console.log('By type:', {
-        PROJECT: snapshotItems.filter(i => i.type === ItemType.PROJECT).length,
-        SERVICE: snapshotItems.filter(i => i.type === ItemType.SERVICE).length,
-        TEAM: snapshotItems.filter(i => i.type === ItemType.TEAM).length,
-        ACTION: snapshotItems.filter(i => i.type === ItemType.ACTION).length,
-      });
-
       await reportSnapshotsApi.createSnapshot({
         title: snapshotTitle,
         clientId: selectedClientId,
@@ -1242,14 +1232,6 @@ export const Report: React.FC = () => {
                   // Group ACTION items by project for statistics
                   const snapshotData = viewingSnapshot.data as Item[];
 
-                  console.log('=== 스냅샷 데이터 디버그 ===');
-                  console.log('전체 아이템 수:', snapshotData.length);
-                  console.log('아이템 타입별 개수:');
-                  console.log('- PROJECT:', snapshotData.filter(i => i.type === ItemType.PROJECT).length);
-                  console.log('- SERVICE:', snapshotData.filter(i => i.type === ItemType.SERVICE).length);
-                  console.log('- TEAM:', snapshotData.filter(i => i.type === ItemType.TEAM).length);
-                  console.log('- ACTION:', snapshotData.filter(i => i.type === ItemType.ACTION).length);
-
                   const actionItems = snapshotData.filter((item: Item) => item.type === ItemType.ACTION);
 
                   const projectGroups = actionItems.reduce((acc, item: Item) => {
@@ -1257,11 +1239,9 @@ export const Report: React.FC = () => {
 
                     // Find project name from parent hierarchy
                     let currentItem = item;
-                    console.log(`액션 "${item.name}" 처리 중, parentId: ${currentItem.parentId}`);
 
                     while (currentItem.parentId) {
                       const parent = snapshotData.find(i => i.id === currentItem.parentId);
-                      console.log(`  부모 찾기 시도: ${currentItem.parentId}, 결과:`, parent ? `${parent.name} (${parent.type})` : 'NOT FOUND');
                       if (!parent) break;
                       if (parent.type === ItemType.PROJECT) {
                         projectName = parent.name;
@@ -1270,7 +1250,6 @@ export const Report: React.FC = () => {
                       currentItem = parent;
                     }
                     projectName = projectName || '기타';
-                    console.log(`  최종 프로젝트명: ${projectName}`);
 
                     if (!acc[projectName]) {
                       acc[projectName] = [];
@@ -1278,8 +1257,6 @@ export const Report: React.FC = () => {
                     acc[projectName].push(item);
                     return acc;
                   }, {} as Record<string, Item[]>);
-
-                  console.log('프로젝트 그룹:', Object.keys(projectGroups));
 
                   // Snapshot column definition
                   const snapshotColumns: ColumnType<Item>[] = [

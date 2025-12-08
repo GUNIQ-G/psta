@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Drawer, Button, Space, Select, Form, Input, InputNumber, DatePicker, message, Upload, Divider, Modal, List, Popconfirm, Card, Tag, Row, Col } from 'antd';
+import { Drawer, Button, Space, Select, Form, Input, InputNumber, DatePicker, App, Upload, Divider, Modal, List, Popconfirm, Card, Tag, Row, Col } from 'antd';
 import { FolderOutlined, AppstoreOutlined, ArrowLeftOutlined, ArrowRightOutlined, UploadOutlined, DeleteOutlined, LinkOutlined, FileOutlined } from '@ant-design/icons';
 import { itemsApi } from '../api/items';
 import { userApi } from '../api/user';
@@ -32,6 +32,7 @@ export const ActionCreateDrawer: React.FC<ActionCreateDrawerProps> = ({
   userTeamId,
   initialValues,
 }) => {
+  const { message } = App.useApp();
   const user = useAuthStore((state) => state.user);
   const [projects, setProjects] = useState<any[]>([]);
   const [services, setServices] = useState<any[]>([]);
@@ -56,10 +57,10 @@ export const ActionCreateDrawer: React.FC<ActionCreateDrawerProps> = ({
   }, [open, userTeamId]);
 
   useEffect(() => {
-    if (userTeamName) {
+    if (open) {
       fetchProjects();
     }
-  }, [userTeamName]);
+  }, [open]);
 
   // 초기값 설정
   useEffect(() => {
@@ -100,11 +101,7 @@ export const ActionCreateDrawer: React.FC<ActionCreateDrawerProps> = ({
   }, [open, initialValues, user]);
 
   useEffect(() => {
-    if (selectedProject === 'undecided') {
-      // If project is undecided, set service to undecided automatically
-      setServices([]);
-      setSelectedService('undecided');
-    } else if (selectedProject) {
+    if (selectedProject) {
       fetchServices();
       setSelectedService(undefined);
     } else {
@@ -129,39 +126,23 @@ export const ActionCreateDrawer: React.FC<ActionCreateDrawerProps> = ({
   };
 
   const fetchProjects = async () => {
-    if (!userTeamName) return;
-
     try {
-      // Fetch all projects
+      // 3단계 구조: 모든 프로젝트 가져오기
       const allProjects = await itemsApi.getItems({
         type: ItemType.PROJECT,
         parentId: null,
       });
 
-      // For each project, check if it has services with the user's team
-      const projectsWithUserTeam = [];
-      for (const project of allProjects) {
-        const projectServices = await itemsApi.getItems({
-          type: ItemType.SERVICE,
-          parentId: project.id,
-        });
+      // Sort: "미정" projects first, then alphabetically
+      const sortedProjects = allProjects.sort((a: any, b: any) => {
+        const aIsUndecided = a.name.includes('미정');
+        const bIsUndecided = b.name.includes('미정');
+        if (aIsUndecided && !bIsUndecided) return -1;
+        if (!aIsUndecided && bIsUndecided) return 1;
+        return a.name.localeCompare(b.name);
+      });
 
-        for (const service of projectServices) {
-          const serviceTeams = await itemsApi.getItems({
-            type: ItemType.TEAM,
-            parentId: service.id,
-          });
-
-          // Check if user's team is in this service
-          const hasUserTeam = serviceTeams.some((team: any) => team.name === userTeamName);
-          if (hasUserTeam) {
-            projectsWithUserTeam.push(project);
-            break; // Found user's team in this project, no need to check other services
-          }
-        }
-      }
-
-      setProjects(projectsWithUserTeam);
+      setProjects(sortedProjects);
     } catch (error) {
       console.error('Failed to fetch projects:', error);
       message.error('프로젝트 조회 실패');
@@ -169,29 +150,25 @@ export const ActionCreateDrawer: React.FC<ActionCreateDrawerProps> = ({
   };
 
   const fetchServices = async () => {
-    if (!selectedProject || !userTeamName) return;
+    if (!selectedProject) return;
 
     try {
+      // 3단계 구조: 선택한 프로젝트의 모든 서비스 가져오기
       const allServices = await itemsApi.getItems({
         type: ItemType.SERVICE,
         parentId: selectedProject,
       });
 
-      // Filter services that have the user's team
-      const servicesWithUserTeam = [];
-      for (const service of allServices) {
-        const serviceTeams = await itemsApi.getItems({
-          type: ItemType.TEAM,
-          parentId: service.id,
-        });
+      // Sort: "미정" services first, then alphabetically
+      const sortedServices = allServices.sort((a: any, b: any) => {
+        const aIsUndecided = a.name.includes('미정');
+        const bIsUndecided = b.name.includes('미정');
+        if (aIsUndecided && !bIsUndecided) return -1;
+        if (!aIsUndecided && bIsUndecided) return 1;
+        return a.name.localeCompare(b.name);
+      });
 
-        const hasUserTeam = serviceTeams.some((team: any) => team.name === userTeamName);
-        if (hasUserTeam) {
-          servicesWithUserTeam.push(service);
-        }
-      }
-
-      setServices(servicesWithUserTeam);
+      setServices(sortedServices);
     } catch (error) {
       console.error('Failed to fetch services:', error);
       message.error('서비스 조회 실패');
@@ -206,92 +183,6 @@ export const ActionCreateDrawer: React.FC<ActionCreateDrawerProps> = ({
       console.error('Failed to fetch users:', error);
     }
   };
-
-  const findOrCreateUndecidedHierarchy = async (): Promise<string | null> => {
-    if (!userTeamName) return null;
-
-    try {
-      // Find or create "미정" project
-      let undecidedProject = await itemsApi.getItems({
-        type: ItemType.PROJECT,
-        parentId: null,
-      });
-      let projectItem = undecidedProject.find((p: any) => p.name === '미정 프로젝트');
-
-      if (!projectItem) {
-        projectItem = await itemsApi.createItem({
-          name: '미정 프로젝트',
-          type: ItemType.PROJECT,
-          status: ItemStatus.NOT_STARTED,
-          progress: 0,
-          description: '프로젝트가 미정인 액션들을 위한 임시 프로젝트',
-        });
-      }
-
-      // Find or create "미정" service under the project
-      let undecidedServices = await itemsApi.getItems({
-        type: ItemType.SERVICE,
-        parentId: projectItem.id,
-      });
-      let serviceItem = undecidedServices.find((s: any) => s.name === '미정 서비스');
-
-      if (!serviceItem) {
-        serviceItem = await itemsApi.createItem({
-          name: '미정 서비스',
-          type: ItemType.SERVICE,
-          parentId: projectItem.id,
-          status: ItemStatus.NOT_STARTED,
-          progress: 0,
-          description: '서비스가 미정인 액션들을 위한 임시 서비스',
-        });
-      }
-
-      // Find or create user's team under the service
-      let serviceTeams = await itemsApi.getItems({
-        type: ItemType.TEAM,
-        parentId: serviceItem.id,
-      });
-      let teamItem = serviceTeams.find((t: any) => t.name === userTeamName);
-
-      if (!teamItem) {
-        teamItem = await itemsApi.createItem({
-          name: userTeamName,
-          type: ItemType.TEAM,
-          parentId: serviceItem.id,
-          status: ItemStatus.NOT_STARTED,
-          progress: 0,
-        });
-      }
-
-      return teamItem.id;
-    } catch (error) {
-      console.error('Failed to find/create undecided hierarchy:', error);
-      return null;
-    }
-  };
-
-  const findUserTeamItem = async (): Promise<string | null> => {
-    if (!userTeamName) return null;
-
-    // If service is undecided, use/create undecided hierarchy
-    if (selectedService === 'undecided') {
-      return await findOrCreateUndecidedHierarchy();
-    }
-
-    try {
-      const serviceTeams = await itemsApi.getItems({
-        type: ItemType.TEAM,
-        parentId: selectedService,
-      });
-
-      const userTeam = serviceTeams.find((team: any) => team.name === userTeamName);
-      return userTeam?.id || null;
-    } catch (error) {
-      console.error('Failed to find user team:', error);
-      return null;
-    }
-  };
-
 
   const handleSubmit = async () => {
     try {
@@ -309,20 +200,16 @@ export const ActionCreateDrawer: React.FC<ActionCreateDrawerProps> = ({
 
       setLoading(true);
 
-      // Find user's team item
-      const teamItemId = await findUserTeamItem();
+      // Get selected project and service items
+      const selectedProjectItem = projects.find(p => p.id === selectedProject);
+      const selectedServiceItem = services.find(s => s.id === selectedService);
 
-      if (!teamItemId) {
-        message.error('소속 팀을 찾을 수 없습니다. 관리자에게 문의하세요.');
-        setLoading(false);
-        return;
-      }
-
-      // Create action item
+      // Create action item (3단계 구조: parentId에 서비스 ID 직접 전송)
       const actionData: any = {
         name: values.name,
         type: ItemType.ACTION,
-        parentId: teamItemId,
+        parentId: selectedService, // 서비스 ID를 parentId로 직접 전송
+        clientId: selectedProjectItem?.clientId, // Add clientId from project
         assigneeId: values.assigneeId,
         status: values.status || ItemStatus.NOT_STARTED,
         progress: values.progress || 0,
@@ -332,10 +219,13 @@ export const ActionCreateDrawer: React.FC<ActionCreateDrawerProps> = ({
       };
 
       // Add metadata for undecided project/service
-      if (selectedProject === 'undecided' || selectedService === 'undecided') {
+      const isProjectUndecided = selectedProjectItem?.name.includes('미정');
+      const isServiceUndecided = selectedServiceItem?.name.includes('미정');
+
+      if (isProjectUndecided || isServiceUndecided) {
         actionData.description = `${actionData.description || ''}\n\n[미정 정보]\n프로젝트: ${
-          selectedProject === 'undecided' ? '미정' : '지정됨'
-        }\n서비스: ${selectedService === 'undecided' ? '미정' : '지정됨'}`;
+          isProjectUndecided ? '미정' : '지정됨'
+        }\n서비스: ${isServiceUndecided ? '미정' : '지정됨'}`;
       }
 
       const createdItem = await itemsApi.createItem(actionData);
@@ -409,17 +299,7 @@ export const ActionCreateDrawer: React.FC<ActionCreateDrawerProps> = ({
         message.success('액션이 생성되었습니다');
       }
 
-      // If project or service is undecided, notify team leader
-      if (selectedProject === 'undecided' || selectedService === 'undecided') {
-        try {
-          // TODO: Send notification to team leader
-          // This could be implemented as a separate API call
-          console.log('Notify team leader: Action created with undecided project/service');
-          message.info('팀장에게 알림이 전송되었습니다');
-        } catch (notifyError) {
-          console.error('Failed to notify team leader:', notifyError);
-        }
-      }
+      // 미정 프로젝트/서비스 알림은 백엔드에서 자동 처리됨 (v1.1.23)
 
       handleClose();
     } catch (error: any) {
@@ -528,24 +408,23 @@ export const ActionCreateDrawer: React.FC<ActionCreateDrawerProps> = ({
             showSearch
             optionFilterProp="children"
           >
-            <Select.Option value="undecided">
-              <Space>
-                <FolderOutlined style={{ color: '#999' }} />
-                <span style={{ color: '#999' }}>프로젝트 미정</span>
-              </Space>
-            </Select.Option>
-            {projects.map((project) => (
-              <Select.Option key={project.id} value={project.id}>
-                <Space>
-                  <FolderOutlined style={{ color: '#722ed1' }} />
-                  {project.name}
-                </Space>
-              </Select.Option>
-            ))}
+            {projects.map((project) => {
+              const isUndecided = project.name.includes('미정');
+              return (
+                <Select.Option key={project.id} value={project.id}>
+                  <Space>
+                    <FolderOutlined style={{ color: isUndecided ? '#999' : '#722ed1' }} />
+                    <span style={{ color: isUndecided ? '#999' : 'inherit' }}>
+                      {project.name}
+                    </span>
+                  </Space>
+                </Select.Option>
+              );
+            })}
           </Select>
           {projects.length === 0 && (
             <div style={{ marginTop: 8, color: '#999', fontSize: 12 }}>
-              소속 팀이 할당된 프로젝트가 없습니다. "프로젝트 미정"을 선택하세요.
+              프로젝트를 불러오는 중입니다...
             </div>
           )}
         </Form.Item>
@@ -560,31 +439,24 @@ export const ActionCreateDrawer: React.FC<ActionCreateDrawerProps> = ({
               onChange={setSelectedService}
               showSearch
               optionFilterProp="children"
-              disabled={selectedProject === 'undecided'}
             >
-              <Select.Option value="undecided">
-                <Space>
-                  <AppstoreOutlined style={{ color: '#999' }} />
-                  <span style={{ color: '#999' }}>서비스 미정</span>
-                </Space>
-              </Select.Option>
-              {services.map((service) => (
-                <Select.Option key={service.id} value={service.id}>
-                  <Space>
-                    <AppstoreOutlined style={{ color: '#1890ff' }} />
-                    {service.name}
-                  </Space>
-                </Select.Option>
-              ))}
+              {services.map((service) => {
+                const isUndecided = service.name.includes('미정');
+                return (
+                  <Select.Option key={service.id} value={service.id}>
+                    <Space>
+                      <AppstoreOutlined style={{ color: isUndecided ? '#999' : '#1890ff' }} />
+                      <span style={{ color: isUndecided ? '#999' : 'inherit' }}>
+                        {service.name}
+                      </span>
+                    </Space>
+                  </Select.Option>
+                );
+              })}
             </Select>
-            {services.length === 0 && selectedProject !== 'undecided' && (
+            {services.length === 0 && (
               <div style={{ marginTop: 8, color: '#999', fontSize: 12 }}>
-                소속 팀이 할당된 서비스가 없습니다. "서비스 미정"을 선택하세요.
-              </div>
-            )}
-            {selectedProject === 'undecided' && (
-              <div style={{ marginTop: 8, color: '#ffa940', fontSize: 12 }}>
-                ⚠️ 프로젝트가 미정으로 설정되어 서비스도 자동으로 "미정"으로 설정됩니다.
+                서비스를 불러오는 중입니다...
               </div>
             )}
           </Form.Item>

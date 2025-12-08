@@ -11,8 +11,6 @@ import {
   approveWorkRequest,
   unapproveWorkRequest,
   createActionFromWorkRequest,
-  getMyWorkRequests,
-  getAssignedWorkRequests,
   getTeamWorkRequests,
   assignToIndividual,
   rejectWorkRequest,
@@ -21,6 +19,9 @@ import {
   createHierarchyRequest,
   linkCreatedHierarchy,
   forwardWorkRequest,
+  getAllWorkRequests,
+  cancelWorkRequest,
+  adminDeleteWorkRequest,
 } from '../controllers/work-request.controller';
 
 const router = Router();
@@ -28,14 +29,11 @@ const router = Router();
 // All routes require authentication
 router.use(authMiddleware as RequestHandler);
 
-// Get my work requests
-router.get('/my', getMyWorkRequests as RequestHandler);
-
-// Get assigned work requests
-router.get('/assigned', getAssignedWorkRequests as RequestHandler);
-
 // Get team work requests
 router.get('/team', getTeamWorkRequests as RequestHandler);
+
+// Get all work requests (Admin only)
+router.get('/all', getAllWorkRequests as RequestHandler);
 
 // Get all work requests
 router.get('/', getWorkRequests as RequestHandler);
@@ -85,7 +83,13 @@ router.patch('/:id/link-hierarchy', linkCreatedHierarchy as RequestHandler);
 // Forward work request to another user
 router.post('/:id/forward', forwardWorkRequest as RequestHandler);
 
+// Cancel work request (assignee only, for IN_NEGOTIATION or REJECTED status)
+router.post('/:id/cancel', cancelWorkRequest as RequestHandler);
+
 // Delete a work request
 router.delete('/:id', deleteWorkRequest as RequestHandler);
+
+// Admin force delete a work request
+router.delete('/:id/admin', adminDeleteWorkRequest as RequestHandler);
 
 export default router;

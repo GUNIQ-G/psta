@@ -115,10 +115,6 @@ export const ServiceWizardModal: React.FC<ServiceWizardModalProps> = ({
       // Get ALL form values (including values from previous steps)
       const allValues = form.getFieldsValue(true);
 
-      console.log('=== ServiceWizardModal handleFinish ===');
-      console.log('All form values:', allValues);
-      console.log('======================================');
-
       // 수정 모드일 때: 기존 parentId와 clientId 유지 (변경되지 않았을 경우)
       // 생성 모드일 때: 선택한 프로젝트의 clientId 가져오기
       let parentId = allValues.parentId;

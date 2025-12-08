@@ -1,8 +1,9 @@
 # 계층적 워크플로우 설계서
 
-**버전**: v1.0.0 (설계)
+**버전**: v1.1.0 (알림 통합 완료)
 **작성일**: 2025-10-29
-**상태**: 설계 단계
+**구현 완료일**: 2025-11-28 (알림 통합)
+**상태**: ✅ 구현 완료 (Phase 1-3 100%)
 **목적**: 작업 요청 시 누락된 계층(서비스/팀)을 자동으로 생성하는 워크플로우
 
 ---
@@ -1417,24 +1418,24 @@ GET /api/work-requests/:id/validate-action-creation
 
 ## 8. 구현 단계
 
-### Phase 1: 데이터베이스 및 백엔드 기반 (1-2일)
-- [ ] Prisma 스키마 수정 (`requestType`, `parentWorkRequestId` 등)
-- [ ] Migration 생성 및 실행
-- [ ] TypeScript 타입 정의 추가
-- [ ] 사용자 관리자 조회 API (`/api/users/:userId/managers`)
-- [ ] 액션 생성 검증 API (`/api/work-requests/:id/validate-action-creation`)
+### Phase 1: 데이터베이스 및 백엔드 기반 ✅ (완료)
+- [x] Prisma 스키마 수정 (`requestType`, `parentWorkRequestId` 등)
+- [x] Migration 생성 및 실행
+- [x] TypeScript 타입 정의 추가
+- [x] 사용자 관리자 조회 API (`/api/users/:userId/managers`)
+- [x] 액션 생성 검증 API (`/api/work-requests/:id/validate-action-creation`)
 
-### Phase 2: 계층 생성 요청 API (2-3일)
-- [ ] 계층 생성 요청 API (`POST /api/work-requests/hierarchy-request`)
-- [ ] 생성된 계층 연결 API (`PATCH /api/work-requests/:id/link-hierarchy`)
-- [ ] 작업 요청 체인 조회 로직
-- [ ] 알림 서비스 통합 (Slack, Telegram)
+### Phase 2: 계층 생성 요청 API ✅ (완료)
+- [x] 계층 생성 요청 API (`POST /api/work-requests/hierarchy-request`)
+- [x] 생성된 계층 연결 API (`PATCH /api/work-requests/:id/link-hierarchy`)
+- [x] 작업 요청 체인 조회 로직
+- [x] 알림 서비스 통합 (Slack/Telegram) - `NotificationService.notifyHierarchyRequest/Created`
 
-### Phase 3: 프론트엔드 UI (3-4일)
-- [ ] `HierarchyRequestModal` 컴포넌트
-- [ ] 액션 생성 워크플로우 수정
-- [ ] 작업 요청 체인 표시 UI
-- [ ] 알림 수신 후 자동 리로드
+### Phase 3: 프론트엔드 UI ✅ (완료)
+- [x] `HierarchyRequestModal` 컴포넌트
+- [x] 액션 생성 워크플로우 수정
+- [x] 작업 요청 체인 표시 UI
+- [x] 알림 수신 후 자동 리로드
 
 ### Phase 4: 테스트 및 개선 (2-3일)
 - [ ] 단위 테스트 (백엔드 API)
@@ -1549,8 +1550,9 @@ GET /api/work-requests/:id/validate-action-creation
 
 - **GitHub Issues**: https://github.com/GUNIQ-G/psta/issues
 - **작성자**: Claude Code
-- **최종 수정일**: 2025-10-29
+- **최종 수정일**: 2025-11-28
 
 ---
 
-**문서 상태**: 🟡 설계 완료, 구현 대기 중
+**문서 상태**: ✅ 구현 완료 (Phase 1-3 100%)
+**최종 구현 확인**: 2025-11-28 (알림 통합 완료)
