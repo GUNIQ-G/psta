@@ -148,6 +148,12 @@ export const getAllLinks = async (req: AuthRequest, res: Response) => {
             id: true,
             username: true,
             displayName: true,
+            Team: {
+              select: {
+                id: true,
+                name: true,
+              },
+            },
           },
         },
         Item: {

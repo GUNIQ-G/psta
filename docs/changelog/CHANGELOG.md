@@ -4,509 +4,934 @@
 
 ---
 
-## v1.1.5 - 2025-11-12
+## v1.1.27 (2025-12-08)
 
-### ✨ 조직 관리 통합 페이지 추가
+### 🐛 버그/건의 게시판 및 리치 텍스트 에디터
 
-#### 팀/사용자 통합 트리 뷰
-- ✅ **단일 통합 페이지**
-  - 기존 "팀 관리", "회원 관리" 분리된 2개 메뉴 → "조직 관리" 1개로 통합
-  - 좌측: 트리 구조 조직도 (팀 + 사용자)
-  - 우측: 선택한 팀/사용자 상세 정보
-- ✅ **트리 구조 기능**
-  - 팀 확장 시 소속 사용자 목록 자동 표시
-  - 실시간 검색 (팀명, 사용자명, 아이디, 이메일)
-  - 아이콘 기반 시각화 (TeamOutlined, UserOutlined)
-- ✅ **통계 대시보드**
-  - 활성 팀/사용자 수 (전체 대비)
-  - LDAP 연동 팀/사용자 수
-  - 더존테크윌 브랜드 색상 적용 (rgb(0, 140, 214))
-- **변경된 파일**:
-  - `frontend/src/pages/OrganizationManagement.tsx` (신규)
-  - `frontend/src/App.tsx` (라우트 추가)
-  - `frontend/src/components/MainLayout.tsx` (메뉴 통합)
+#### 핵심 변경사항
+- ✅ **버그/건의 게시판 기능**: 사용자 피드백 및 버그 신고 시스템 구현
+- ✅ **Tiptap 리치 텍스트 에디터**: 이미지 붙여넣기(Ctrl+V), 드래그앤드롭, 버튼 업로드 지원
+- ✅ **이미지 서버 저장**: base64 대신 서버에 파일로 저장, URL 반환
+- ✅ **메뉴 구조 변경**: "시스템 지원" 그룹 신규 생성, "버그/건의" 메뉴 추가
 
-#### LDAP 자동 동기화 시스템
-- ✅ **자동 스케줄 동기화**
-  - node-cron으로 매일 02:00 KST 자동 실행
-  - 동기화 작업 중복 실행 방지 (isJobRunning 플래그)
-  - systemd 서버 재시작 시 자동 스케줄 등록
-- ✅ **수동 동기화 UI**
-  - ADMIN 권한 사용자만 "LDAP 동기화" 버튼 표시
-  - Dry-run 모드 지원 (실제 변경 없이 미리보기)
-  - 동기화 결과 모달 (생성/비활성화/업데이트 통계)
-- ✅ **동기화 로직**
-  - LDAP를 단일 진실 공급원(Single Source of Truth)으로 사용
-  - 팀 동기화: LDAP 그룹 → PSTA 팀 생성/비활성화
-  - 사용자 비활성화: LDAP에 없는 사용자 자동 비활성화
-  - 멤버십 업데이트: LDAP 그룹 멤버 → PSTA 팀 멤버십
-  - Soft delete 패턴: 삭제 대신 isActive=false 처리
-- ✅ **동기화 이력 저장**
-  - LdapSyncHistory 테이블에 매 동기화 기록 저장
-  - 통계 API (`/api/ldap-sync/stats`)
-  - 마지막 동기화 결과 조회 (`/api/ldap-sync/last-result`)
-- **변경된 파일**:
-  - `backend/src/services/ldap-sync.service.ts` (신규)
-  - `backend/src/controllers/ldap-sync.controller.ts` (신규)
-  - `backend/src/routes/ldap-sync.routes.ts` (신규)
-  - `backend/src/jobs/ldap-sync.job.ts` (신규)
-  - `backend/src/index.ts` (cron job 시작)
-  - `backend/prisma/schema.prisma` (LdapSyncHistory 모델 추가)
-  - `frontend/src/api/ldap-sync.ts` (신규)
-  - `frontend/src/pages/LdapSyncManagement.tsx` (신규)
+#### 신규 파일
+- ✅ `frontend/src/components/TiptapEditor.tsx` - 리치 텍스트 에디터 컴포넌트
+- ✅ `frontend/src/components/TiptapEditor.css` - 에디터 스타일
 
-#### 권한 및 디자인
-- ✅ **권한 제어**
-  - organization 리소스 추가 (15개 리소스로 확장)
-  - ADMIN만 LDAP 동기화 버튼 표시
-  - PM/PO/MEMBER는 읽기 전용
-- ✅ **심플 디자인**
-  - 화려한 그라데이션 제거 → 더존테크윌 블루 단색
-  - 불필요한 레이어 제거 (액션 관리와 동일한 구조)
-  - 수정/삭제 버튼 제거 (읽기 전용 인터페이스)
-  - 타이틀 제거로 공간 효율 극대화
+#### 백엔드 변경
+- ✅ **multer.ts**: 피드백 이미지 저장소 설정 추가 (`/data/psta/uploads/feedback-images/`)
+- ✅ **feedback.controller.ts**: `uploadImage`, `getImage` 함수 추가
+- ✅ **feedback.routes.ts**: 이미지 업로드/조회 라우트 추가 (이미지 조회는 인증 불필요)
 
-**기술 세부사항**:
-- node-cron: `'0 2 * * *'` (매일 02:00), timezone: 'Asia/Seoul'
-- 동기화 서비스: Promise.all로 병렬 처리
-- Dry-run: 모든 DB 쓰기 작업 조건부 실행
-- Winston 로깅: ldapLogger로 모든 동기화 작업 기록
-- Ant Design Tree: DataNode 타입으로 계층 구조 표현
+#### 프론트엔드 변경
+- ✅ **FeedbackList.tsx**: TiptapEditor 통합, 모달 80% 너비, 경로 안내 팁 추가
+- ✅ **MainLayout.tsx**: "시스템 지원" 그룹 생성, "버그/건의" 메뉴 추가
+- ✅ **feedback.ts**: axios 인스턴스 변경 (상대 경로 `/api` 사용)
+
+#### UI 개선
+- ✅ 모달 너비 80% (최대 1200px)
+- ✅ 에디터 높이 350px
+- ✅ 문제 경로 안내 팁 박스 추가
+  - 예: "일정관리 > 서비스 트리에서 항목 클릭 > 상세정보 모달의 관련문서 탭"
+
+#### Tiptap 에디터 기능
+| 기능 | 설명 |
+|------|------|
+| 이미지 붙여넣기 | Ctrl+V로 클립보드 이미지 붙여넣기 |
+| 드래그앤드롭 | 파일 드래그하여 에디터에 드롭 |
+| 이미지 업로드 버튼 | 툴바에서 이미지 선택 업로드 |
+| 서식 지원 | 굵게, 기울임, 취소선, 목록 |
+| 실행 취소/다시 실행 | Ctrl+Z/Y 지원 |
+
+#### 메뉴 구조 변경
+```
+시스템 지원          ← 신규 그룹
+└─ 버그/건의         ← 피드백 게시판 → 버그/건의로 이름 변경
+```
+
+#### 버그 수정
+- ✅ **ERR_CONNECTION_REFUSED**: feedback.ts에서 절대 URL → 상대 경로로 변경
+- ✅ **Ant Design message warning**: `App.useApp()` 훅 사용으로 해결
+- ✅ **401 Unauthorized 이미지 표시**: 이미지 라우트를 인증 미들웨어 이전으로 이동
 
 ---
 
-## v1.1.4 - 2025-11-04
+### 👥 서비스 하위 액션 팀별 그룹화
+
+#### 핵심 변경사항
+- ✅ **서비스 클릭 시 하위 액션을 팀별로 그룹화해서 표시**
+- ✅ **팀 헤더**: 녹색 배경의 팀 구분 헤더 (팀 이름 + 액션 수)
+- ✅ **팀 정렬**: 한글 이름순 정렬 (미배정은 맨 뒤)
+
+#### 백엔드 변경
+- ✅ **item.controller.ts**: `getItemById` API에서 children에 생성자 팀 정보 추가
+  - `User_Item_createdByIdToUser.Team` 포함
+
+#### 프론트엔드 변경
+- ✅ **types/index.ts**: `Item` 타입에 `User_Item_createdByIdToUser` 필드 추가
+- ✅ **ItemDetailModal.tsx**: 서비스 클릭 시 하위 액션을 팀별로 그룹화
+  - 팀별 그룹화 및 정렬 로직
+  - 팀 헤더 UI (녹색 배경, [T] 태그)
+  - 액션 목록 들여쓰기
+
+#### UI 표시 형식
+```
+하위 액션 (5)
+┌─────────────────────────────────────────────┐
+│ [T] 개발1팀 (2개 액션)                        │
+├─────────────────────────────────────────────┤
+│   [A] [진행중] 액션 1    담당자  기간  진행률 │
+│   [A] [완료]   액션 2    담당자  기간  진행률 │
+├─────────────────────────────────────────────┤
+│ [T] 개발2팀 (2개 액션)                        │
+├─────────────────────────────────────────────┤
+│   [A] [시작전] 액션 3    담당자  기간  진행률 │
+│   [A] [진행중] 액션 4    담당자  기간  진행률 │
+└─────────────────────────────────────────────┘
+```
+
+---
+
+### 🧹 서비스 팀 할당 UI 제거
+
+#### 핵심 변경사항
+- ✅ **서비스 폼에서 팀 할당 섹션 완전 제거**: 3단계 구조 완성에 따른 불필요 기능 정리
+- ✅ **TeamAssignmentSection 컴포넌트 삭제**: 더 이상 사용되지 않는 폼 섹션 제거
+
+#### 삭제된 파일
+- ❌ `frontend/src/components/form-sections/TeamAssignmentSection.tsx`
+
+#### 수정된 파일
+| 파일 | 변경 내용 |
+|------|----------|
+| `ItemFormModal.tsx` | TeamAssignment import, props, 렌더링 제거 |
+| `useUnifiedItemForm.ts` | `selectedTeamIds`, `setSelectedTeamIds`, `loadAssignedTeams` 제거 |
+| `ServiceManagement.tsx` | `showTeamAssignment`, `organizationTeams` prop 제거 |
+| `PstaSchedule.tsx` | `showTeamAssignment`, `organizationTeams` prop 제거 |
+
+#### 배경
+- v1.1.26에서 3단계 구조(P-S-A)로 전환 완료
+- ServiceTeam 테이블 제거로 팀 할당 UI가 불필요해짐
+- 팀 정보는 액션 생성자의 팀에서 자동 추출
+
+---
+
+### 👁️ 조회 모드 UX 개선
+
+#### 핵심 변경사항
+- ✅ **조회/수정 모드 명확 구분**: disabled 필드 → 텍스트 렌더링으로 변경
+- ✅ **좌측 세로선 디자인**: 파란색 세로선 + 연한 회색 배경으로 가독성 향상
+- ✅ **레이아웃 통일성 유지**: 조회/수정 모드 전환 시 동일한 레이아웃 유지
+
+#### 변경 전 (문제점)
+```
+┌─────────────────────────────────────────┐
+│ 모바일 앱 개발                          │  ← disabled 필드
+└─────────────────────────────────────────┘    색상: rgba(0,0,0,0.25)
+                                               너무 흐려서 가독성 떨어짐
+```
+
+#### 변경 후 (개선)
+```
+┃░░░░░░░░░░ 모바일 앱 개발 ░░░░░░░░░░░░░░│  ← 텍스트 렌더링
+                                             파란색 세로선 + 회색 배경
+                                             가독성 향상
+```
+
+#### 수정된 파일
+| 파일 | 변경 내용 |
+|------|----------|
+| `CommonFormFields.tsx` | 업무명, 일정, 설명, 담당자 → 텍스트 렌더링 |
+| `ProjectFormSection.tsx` | 고객 → 텍스트 렌더링 |
+| `ServiceFormSection.tsx` | 고객, 프로젝트 → 텍스트 렌더링 |
+| `ActionFormSection.tsx` | 프로젝트, 서비스, 팀, 상태, 진행률 → 텍스트 렌더링 |
+
+#### 신규 파일
+- ✅ `frontend/src/styles/view-field.css` - 조회 모드 필드 스타일
+
+#### CSS 스타일
+```css
+.view-field {
+  border-left: 3px solid #1890ff;  /* 파란색 세로선 */
+  background-color: #fafafa;        /* 연한 회색 배경 */
+  border-radius: 0 6px 6px 0;
+  padding: 8px 12px;
+}
+```
+
+---
+
+## v1.1.26 (2025-12-06)
+
+### 📊 3단계 구조 완성 및 팀별 현황 조회
+
+#### 핵심 변경사항
+- ✅ **ServiceTeam 완전 제거**: 4단계 구조(Project→Service→Team→Action)에서 3단계 구조(Project→Service→Action)로 완전 전환
+- ✅ **팀별 현황 조회 메뉴 신규 추가**: 조직도 기반 팀 선택 → 해당 팀의 액션 현황 조회
+- ✅ **팀 할당 관리 메뉴 삭제**: ServiceTeam 기반 팀 할당 기능 제거
+- ✅ **팀 정보 출처 변경**: ServiceTeam → 액션 생성자의 팀 (createdById → User.teamId → Team)
+
+#### 삭제된 파일
+- ❌ `backend/src/controllers/service-team.controller.ts`
+- ❌ `backend/src/controllers/team-assignment.controller.ts`
+- ❌ `backend/src/routes/service-team.routes.ts`
+- ❌ `backend/src/routes/team-assignment.routes.ts`
+- ❌ `frontend/src/api/service-teams.ts`
+- ❌ `frontend/src/api/team-assignments.ts`
+- ❌ `frontend/src/pages/TeamAssignmentManagement.tsx`
+
+#### 신규 파일
+- ✅ `frontend/src/pages/TeamStatusOverview.tsx` - 팀별 현황 조회 페이지
+
+#### 백엔드 변경
+- ✅ **수정**: `backend/src/index.ts` - ServiceTeam/TeamAssignment 라우트 제거
+- ✅ **수정**: `backend/scripts/seed-permissions.ts` - `team-assignments` → `team-status` 권한 변경
+
+#### 프론트엔드 변경
+- ✅ **수정**: `frontend/src/App.tsx` - TeamAssignmentManagement 제거, TeamStatusOverview 추가
+- ✅ **수정**: `frontend/src/components/MainLayout.tsx` - 팀 할당 메뉴 제거, 팀별 현황 메뉴 추가
+- ✅ **수정**: `frontend/src/components/ActionCreateDrawer.tsx` - serviceTeamsApi 참조 및 미사용 함수 제거
+- ✅ **수정**: `frontend/src/hooks/useUnifiedItemForm.ts` - serviceTeamsApi 참조 제거
+- ✅ **수정**: `frontend/src/pages/ServiceManagement.tsx` - serviceTeamsApi 및 Team Assign Drawer 완전 제거
+- ✅ **수정**: `frontend/src/pages/PstaSchedule.tsx` - serviceTeamsApi 참조 제거
+
+#### 팀별 현황 조회 기능
+| 영역 | 기능 |
+|------|------|
+| 좌측 패널 | 조직도 트리 (팀 선택, 액션 수 표시) |
+| 우측 상단 | 통계 카드 (전체/진행중/완료/미시작 액션, 프로젝트 수, 평균 진행률) |
+| 우측 하단 | 액션 목록 테이블 (프로젝트/서비스 정보, 담당자, 상태, 진행률) |
+| 집계 방식 | 상위 팀 선택 시 하위 팀 액션도 포함 |
+
+#### 동작 변경
+| 항목 | 이전 | 이후 |
+|------|------|------|
+| 액션 계층 구조 | Project→Service→Team(Item)→Action | **Project→Service→Action** |
+| 팀 정보 출처 | ServiceTeam 테이블 | **액션 생성자의 팀** |
+| 팀 할당 방식 | 서비스에 팀 수동 할당 | **자동 (액션 생성자 기준)** |
+| 팀별 현황 | 없음 | **신규 메뉴 추가** |
+
+---
+
+## v1.1.25 (2025-12-02)
+
+### 🔐 로그인 시 조직도 유지 및 LDAP 인증 개선
+
+#### 핵심 변경사항
+- ✅ **로그인 시 조직도(팀 배정) 유지**: 로그인해도 기존 teamId가 변경되지 않음
+- ✅ **LDAP 자동 팀 배정 제거**: 로그인 시 LDAP 그룹 조회 및 자동 팀 배정 로직 완전 제거
+- ✅ **시스템 OU 필터링**: LDAP 동기화에서 people, users 등 시스템 OU 제외
+- ✅ **displayName 성+이름 조합**: LDAP에 displayName이 없을 때 성(sn)+이름(cn) 자동 조합
+
+#### 문제 원인 및 해결
+
+| 문제 | 원인 | 해결 |
+|------|------|------|
+| 로그인 시 조직도에서 빠짐 | 매 로그인 시 LDAP 그룹 기반으로 teamId 덮어쓰기 | LDAP 그룹 조회 및 팀 배정 로직 제거 |
+| people 팀이 생성됨 | LDAP 필터에서 people OU 미제외 | 필터에 `(!(ou=people))(!(ou=users))` 추가 |
+| 이름에서 성이 빠짐 | displayName만 사용, sn 미사용 | displayName 없으면 sn+cn 조합 |
+
+#### 백엔드 변경
+- ✅ **수정**: `backend/src/controllers/auth.controller.ts`
+  - LDAP 그룹 조회 로직 제거 (`getUserGroups()` 호출 삭제)
+  - 자동 팀 배정 로직 제거
+  - 신규 사용자: `teamId: null` (관리자가 수동 배정)
+  - 기존 사용자: `teamId` 업데이트하지 않음 (기존 값 유지)
+
+- ✅ **수정**: `backend/src/config/ldap.ts`
+  - `getOrganizationalUnits()`: 필터에 people, users OU 제외 추가
+  - `authenticate()`: displayName 없을 때 `sn + cn` 조합으로 이름 생성
+
+#### 동작 변경
+| 항목 | 이전 | 이후 |
+|------|------|------|
+| 로그인 시 teamId | LDAP 그룹 기반 덮어쓰기 | **기존 값 유지** |
+| 신규 사용자 teamId | LDAP 그룹에서 자동 배정 | **null** (수동 배정) |
+| 조직도 관리 | LDAP 자동 + 수동 혼용 | **수동 관리만** |
+| displayName | displayName 또는 cn | displayName 또는 **sn+cn** |
+| people OU | 팀으로 생성됨 | **제외됨** |
+
+---
+
+## v1.1.24 (2025-12-01)
+
+### 🏢 조직도 역할 관리 기능 및 LDAP 동기화 정책 변경
+
+#### 핵심 변경사항
+- ✅ **LDAP 자동 동기화 삭제**: 조직 계층 구조 보존을 위해 매일 새벽 2시 자동 동기화 완전 삭제
+- ✅ **조직도 역할 변경 기능**: ADMIN이 조직도에서 직접 PO/PM/MEMBER 역할 변경 가능
+- ✅ **팀 멤버 정렬**: 역할(PO→PM→MEMBER) > 직급(수석→책임→선임→사원) > 이름순
+- ✅ **PO/PM 강조 효과**: 파란 배경 + 테두리로 시각적 구분
+- ✅ **조직도 사용자 누락 버그 수정**: 잘못된 Prisma 필터 조건 제거
+
+#### 백엔드 변경
+- ❌ **삭제**: `backend/src/jobs/ldap-sync.job.ts` - 자동 동기화 스케줄러 완전 삭제
+- ❌ **삭제**: `backend/src/jobs/` 폴더 삭제
+- ✅ **수정**: `backend/src/index.ts` - LDAP 동기화 job import 및 호출 제거
+- ✅ **수정**: `backend/src/services/team.service.ts` - 잘못된 User 필터 조건 수정
+  - 기존: `Team: { name: { notIn: ['퇴사자', '휴직자'] } }` 조건이 사용자 누락 유발
+  - 수정: `isActive: true` 조건만 유지
+
+#### 프론트엔드 변경
+- ✅ **수정**: `frontend/src/pages/OrganizationManagement.tsx`
+  - LDAP 관리 버튼 삭제
+  - 역할 변경 Select 추가 (ADMIN 전용)
+  - `sortMembers()` 함수 추가 - 역할/직급/이름 정렬
+  - PO/PM 카드 강조 스타일 (`#f0f5ff` 배경, `#adc6ff` 테두리)
+  - `useNavigate` import 제거 (미사용)
+
+#### 동작 변경
+| 항목 | 이전 | 이후 |
+|------|------|------|
+| LDAP 자동 동기화 | 매일 02:00 실행 | **삭제됨** |
+| 조직 계층 구조 | 자동 동기화로 초기화됨 | 수동 설정 유지 |
+| 역할 변경 | 사용자 관리에서만 가능 | 조직도에서 직접 가능 |
+
+---
+
+## v1.1.23 (2025-11-28)
+
+### 🔔 미정 액션 생성 시 팀장 알림
+
+#### 핵심 변경사항
+- ✅ **미정 프로젝트/서비스에 액션 생성 시 팀장에게 자동 알림**
+  - 프로젝트가 "미정"인 경우 알림
+  - 서비스가 "미정"인 경우 알림
+  - 알림 대상: 팀장(TEAM_LEADER/PART_LEADER) 또는 PM/PO 역할자
+  - 팀장이 없는 경우 ADMIN에게 알림
+
+#### 백엔드 변경
+- ✅ **NotificationService.notifyUndecidedActionCreated()** 메서드 추가
+  - 팀장 자동 조회 (positionType, role 기반)
+  - 다중 팀장에게 일괄 알림
+  - 생성자 제외 처리
+- ✅ **item.controller.ts** createItem 함수에 알림 로직 추가
+  - ACTION 생성 완료 후 미정 여부 확인
+  - 미정인 경우 NotificationService 호출
+  - 알림 실패해도 액션 생성은 성공 처리
+
+#### 프론트엔드 변경
+- ✅ **ActionCreateDrawer.tsx** TODO 주석 제거
+  - 백엔드 자동 처리로 변경
+
+#### 수정 파일
+- `backend/src/services/notification.service.ts` - 알림 메서드 추가
+- `backend/src/controllers/item.controller.ts` - 알림 로직 추가
+- `frontend/src/components/ActionCreateDrawer.tsx` - TODO 제거
+- `docs/features/BACKLOG.md` - TODO 항목 완료 표시
+
+---
+
+## v1.1.22 (2025-11-28)
+
+### 📢 계층적 워크플로우 알림 통합
+
+#### 핵심 변경사항
+- ✅ **계층 생성 요청 알림**: 서비스/팀 생성 요청 시 담당자에게 알림 발송
+- ✅ **계층 생성 완료 알림**: 서비스/팀 생성 완료 시 원본 요청자에게 알림 발송
+- ✅ **100% 구현 완료**: 계층적 워크플로우 Phase 1-3 모두 완료
+
+#### 알림 메서드 추가
+- `NotificationService.notifyHierarchyRequest()`: 계층 생성 요청 시 알림
+- `NotificationService.notifyHierarchyCreated()`: 계층 생성 완료 시 알림
+
+#### 수정 파일
+- `backend/src/services/notification.service.ts` - 2개 알림 메서드 추가
+- `backend/src/controllers/work-request.controller.ts` - 알림 호출 연동
+- `backend/tsconfig.json` - scripts 폴더 빌드 제외
+
+#### 문서 업데이트
+- `docs/features/HIERARCHICAL_WORKFLOW.md` - 상태 100% 완료로 변경
+- `docs/features/BACKLOG.md` - TODO 항목 완료 표시
+
+---
+
+## v1.1.21 (2025-11-28)
+
+### 📊 팀 할당 관리 페이지
+
+#### 핵심 변경사항
+- ✅ **팀 중심 통계 페이지**: 각 팀별 프로젝트/서비스/액션 수 한눈에 파악
+- ✅ **데이터 정합성 확인**: 상하위 연결이 끊어진 항목 감지 및 조치 안내
+- ✅ **계층 구조 조망**: PSTA 계층에서 팀의 위치와 역할 시각화
+- ✅ **조직 계층 트리**: 상위 조직 → 하위 팀 펼침/접기 지원
+- ✅ **상위 조직 통합 정보**: 상위 조직 클릭 시 하위 팀 통합 통계 표시
+
+#### 백엔드 API
+- ✅ **4개 신규 엔드포인트**:
+  - `GET /api/team-assignments/stats`: 전체 팀 할당 통계
+  - `GET /api/team-assignments/teams`: 팀별 상세 통계 목록 (계층 정보 포함)
+  - `GET /api/team-assignments/teams/:teamId`: 특정 팀 상세 (계층 트리)
+  - `GET /api/team-assignments/integrity`: 데이터 정합성 체크 결과
+- ✅ **계층 통계 집계**: 상위 조직의 하위 팀 통계 자동 합산 (중복 제거)
+
+#### 프론트엔드 UI
+- ✅ **통계 카드**: 활성 팀 / 서비스 할당 / 총 액션 / 연결 이상 4개 카드
+- ✅ **조직 계층 트리 테이블**:
+  - 상위 조직 → 하위 팀 펼침/접기 (전체 펼침/접기 버튼)
+  - 계층별 아이콘 (🏦 본부, 🏠 팀, 👥 리프)
+  - 프로젝트/서비스/액션 수 표시 (중복 제거 Set 방식)
+- ✅ **팀 상세 Drawer (아코디언 스타일)**:
+  - 프로젝트/서비스/액션 아코디언 패널
+  - 상위 조직 클릭 시 하위 팀 통합 정보 표시
+  - 소속 팀 태그 표시
+- ✅ **정합성 모달**: "연결 이상" 카드 클릭 시 이상 항목 유형별 목록 표시
+- ✅ **필터**: 팀명 검색 (트리 구조 유지 필터링)
+
+#### 데이터 정합성 체크 항목
+| 항목 | 조건 | 심각도 |
+|------|------|--------|
+| 팀 미할당 액션 | `serviceTeamId = null` | 🔴 높음 |
+| 부모 없는 액션 | `parentId = null` (ROOT에 노출) | 🟠 중간 |
+| 팀 할당 없는 서비스 | ServiceTeam 0건 | 🟡 낮음 |
+
+#### 신규 파일
+- `backend/src/controllers/team-assignment.controller.ts`
+- `backend/src/routes/team-assignment.routes.ts`
+- `frontend/src/pages/TeamAssignmentManagement.tsx`
+- `frontend/src/api/team-assignments.ts`
+
+#### 수정 파일
+- `backend/src/index.ts` - 라우트 등록
+- `frontend/src/App.tsx` - 라우트 추가
+- `frontend/src/components/MainLayout.tsx` - 메뉴 추가
+
+### 🎨 PSTA 디자인 컨셉 통합
+
+#### 사이드바 메뉴 PSTA 태그
+- ✅ **색상 태그 추가**: 프로젝트/서비스/팀 할당/액션 관리 메뉴에 [P]/[S]/[T]/[A] 태그
+- ✅ **Flexbox 정렬**: 메뉴명-태그 간 일관된 우측 정렬
+- ✅ **PSTA 색상 컨셉**:
+  - Project: #722ed1 (보라)
+  - Service: #1890ff (파랑)
+  - Team: #52c41a (초록)
+  - Action: #fa8c16 (주황)
+
+#### 팀 할당 관리 아이콘 색상 통일
+- ✅ 통계 카드, 테이블 컬럼, Drawer 아코디언 전체 PSTA 색상 적용
+- ✅ 프로젝트(보라), 서비스(파랑), 팀(초록), 액션(주황) 일관성 확보
+
+### 🔐 권한 설정 변경
+
+#### MEMBER 역할 권한 수정
+- ✅ **프로젝트 관리**: 읽기만 (canView: true, canCreate/Update/Delete: false)
+- ✅ **서비스 관리**: 전체 권한 (canView/Create/Update/Delete: true)
+- ✅ **팀 할당 관리**: 읽기만 (canView: true)
+- ✅ **액션 관리**: 전체 권한 (canView/Create/Update/Delete: true)
+- ✅ `backend/scripts/seed-permissions.ts` 및 DB 권한 테이블 동기화
+
+#### 메뉴 위치
+```
+데이터 관리
+├─ 클라이언트 관리
+├─ 프로젝트 관리     [P]
+├─ 서비스 관리       [S]
+├─ 팀 할당 관리      [T]  ← 신규
+├─ 액션 관리         [A]
+└─ 통합 파일 관리
+```
+
+---
+
+## v1.1.20 (2025-11-28)
+
+### 🎭 직책 기반 역할 매핑 시스템
+
+#### 핵심 변경사항
+- ✅ **직책(Position) → 역할(Role) 자동 매핑**: LDAP 동기화 시 직책 정보를 기반으로 역할 자동 할당
+- ✅ **roleOverride 수동 설정**: 자동 매핑이 적절하지 않은 경우 관리자가 수동으로 역할 지정 가능
+
+#### 직책-역할 매핑 규칙
+| 직책 (Position) | 역할 (Role) |
+|----------------|-------------|
+| 파트장 (PART_LEADER) | PM |
+| 팀장 (TEAM_LEADER) | PM |
+| 실장 (DIRECTOR) | PO |
+| 본부장 (HEAD) | PO |
+| 이사 (EXECUTIVE) | PO |
+| 상무 (SENIOR_EXEC) | PO |
+| 전무 (VICE_PRES) | PO |
+| 일반/없음 (NONE) | MEMBER |
+
+#### 데이터베이스 변경
+- ✅ **PositionType enum 추가**:
+  ```prisma
+  enum PositionType {
+    NONE          // 직책 없음 (일반 사원) → MEMBER
+    PART_LEADER   // 파트장 → PM
+    TEAM_LEADER   // 팀장 → PM
+    DIRECTOR      // 실장 → PO
+    HEAD          // 본부장 → PO
+    EXECUTIVE     // 이사 → PO
+    SENIOR_EXEC   // 상무 → PO
+    VICE_PRES     // 전무 → PO
+  }
+  ```
+- ✅ **User 모델 확장**:
+  ```prisma
+  model User {
+    positionType  PositionType  @default(NONE)  // 직책 enum
+    roleOverride  UserRole?                      // 역할 수동 override
+  }
+  ```
+
+#### 백엔드 변경
+- ✅ **role-mapper.ts** (신규 유틸리티):
+  - `POSITION_TO_ROLE`: 직책 → 역할 매핑 테이블
+  - `LDAP_POSITION_MAP`: LDAP 직책 문자열 → PositionType 매핑
+  - `calculateRoleFromLdap()`: LDAP employeeType에서 역할 계산
+  - `getEffectiveRole()`: roleOverride 우선 적용
+  - `isPMPosition()`, `isPOPosition()`: 직책 유형 확인
+  - `comparePositionLevels()`: 직책 레벨 비교
+
+- ✅ **ldap-sync.service.ts**:
+  - `syncTeamMemberships()`: 사용자 동기화 시 positionType, role 자동 계산
+  - `applySelectedLdapItems()`: 선택적 동기화에도 직책 기반 역할 적용
+
+#### 프론트엔드 변경
+- ✅ **types/user.ts**:
+  - `PositionType` enum 추가
+  - `POSITION_DISPLAY_NAMES`: 직책 한글 표시명
+  - `ROLE_DISPLAY_NAMES`: 역할 한글 표시명
+  - `User` 인터페이스에 `positionType`, `roleOverride` 필드 추가
+
+#### 메뉴 구조 변경
+- ✅ **"통합 파일 리스트" → "통합 파일 관리"** 이름 변경
+- ✅ **"데이터 관리" 그룹으로 이동** (맨 아래 위치)
+  - 클라이언트 관리
+  - 프로젝트 관리
+  - 서비스 관리
+  - 액션 관리
+  - **통합 파일 관리** (신규 위치)
+
+#### 변경된 파일
+- `backend/prisma/schema.prisma`
+- `backend/src/utils/role-mapper.ts` (신규)
+- `backend/src/services/ldap-sync.service.ts`
+- `frontend/src/types/user.ts`
+- `frontend/src/components/MainLayout.tsx`
+
+---
+
+## v1.1.19 (2025-11-28)
+
+### 🔗 LDAP departmentNumber 기반 팀 매칭
+
+#### 핵심 변경사항
+- ✅ **departmentNumber 기반 안정적인 매칭**: 조직 이름이 변경되어도 사용자-팀 연결 유지
+- ✅ **고아 아이템 방지**: LDAP 조직 구조 변경 시에도 기존 데이터 관계 보존
+
+#### 데이터베이스 변경
+- ✅ **Team 모델 확장**:
+  ```prisma
+  model Team {
+    departmentNumber String? @unique  // LDAP departmentNumber (DEPT001~DEPT014)
+    // ...
+  }
+  ```
+- ✅ Raw SQL로 컬럼 추가 (기존 마이그레이션 충돌 방지)
+
+#### 백엔드 변경
+- ✅ **ldap.ts**: `getOrganizationalUnits()`에 departmentNumber 속성 조회 추가
+- ✅ **ldap-sync.service.ts**:
+  - `syncTeams()`: departmentNumber 우선 매칭, 생성/업데이트 시 저장
+  - `syncTeamMemberships()`: 사용자-팀 연결 시 departmentNumber 우선 매칭
+  - `applySelectedLdapItems()`: 선택적 동기화에도 departmentNumber 저장
+
+#### 매칭 우선순위
+팀 매칭: departmentNumber → ldapDn → name
+사용자-팀 매칭: departmentNumber → OU name → Group name
+
+#### 마이그레이션 스크립트
+- ✅ **update-team-department-numbers.ts** 생성:
+  - LDAP OU에서 departmentNumber 조회
+  - 기존 Team 레코드에 departmentNumber 업데이트
+  - 실행 결과: 3개 팀 업데이트 (개발팀→DEPT013, 기획디자인팀→DEPT014, 서비스개발본부→DEPT010)
+
+#### 기타 수정
+- ✅ **User displayName 수정**: yg.kim "여겸" → "김여겸" (sn+cn 형식으로 수정)
+
+#### 변경된 파일
+- `backend/prisma/schema.prisma`
+- `backend/src/config/ldap.ts`
+- `backend/src/services/ldap-sync.service.ts`
+- `backend/src/scripts/update-team-department-numbers.ts` (신규)
+
+---
+
+## v1.1.18 (2025-11-25)
+
+### 📋 LDAP 계층형 마이그레이션 계획 문서 작성
+
+#### 새로운 문서
+- ✅ **[LDAP 계층형 마이그레이션 가이드](../guides/migration/LDAP_HIERARCHICAL_MIGRATION.md)** (상세 계획서):
+  - **무중단 마이그레이션 전략** (5 Phase, 예상 11시간)
+  - 기존 LDAP (3.34.115.117) → 신규 LDAP (192.168.1.212:10389) 전환
+  - 평면 구조 → 4단계 계층 구조 (Organizations → Company → Department → Team)
+
+#### 마이그레이션 개요
+- ✅ **Phase 1**: 데이터베이스 스키마 확장
+  - Team 모델에 `parentId`, `level`, `ldapType` 필드 추가
+  - 계층형 관계 지원 (자체 참조 외래 키)
+  - 하위 호환성 유지 (기존 팀은 level=0)
+
+- ✅ **Phase 2**: LDAP 동기화 로직 개선
+  - OU (`organizationalUnit`) 타입 동기화 지원
+  - 계층 구조 정보 자동 추출 (DN 파싱)
+  - 상위 레벨부터 순차 처리 (부모-자식 관계 설정)
+
+- ✅ **Phase 3**: LDAP 서버 전환
+  - `.env` 파일 수정 (LDAP_SERVER, LDAP_BASE_DN)
+  - 백엔드 재시작 및 연결 테스트
+
+- ✅ **Phase 4**: 선택적 동기화 실행
+  - 36명의 사용자 안전 마이그레이션
+  - 7개 팀 생성 (Organizations, 더존테크윌, 서비스개발본부, 개발팀, 기획디자인팀, 퇴사자, admins)
+  - 기존 사용자 username/password 동일 → 로그인 불편 없음
+
+- ✅ **Phase 5**: UI 계층 구조 표시
+  - OrganizationManagement 페이지에 Tree 형태 렌더링
+  - 부서/팀 계층 시각화
+
+#### 데이터 안전성 보장
+- ✅ **Item 소유권 100% 유지**:
+  - 프로젝트/서비스/액션은 `User.id`로 직접 참조
+  - `User.teamId`, `User.ldapDn` 변경이 Item 관계에 영향 없음
+  - `User.username` 동일 → 같은 User 레코드 매칭
+
+- ✅ **사용자 인증 투명성**:
+  - 기존 LDAP과 신규 LDAP의 username/password 동일
+  - 사용자는 LDAP 서버 전환을 인지하지 못함
+
+#### 롤백 계획
+- ✅ Phase별 롤백 방법 상세 기술
+- ✅ `.env.backup` 복원으로 긴급 롤백 가능
+- ✅ 데이터 무손실 보장
+
+#### 검증 체크리스트
+- ✅ Phase별 검증 항목 (5개 섹션, 총 20개 체크포인트)
+- ✅ 데이터베이스 스키마 검증
+- ✅ LDAP 연결 테스트
+- ✅ 사용자 로그인 테스트
+- ✅ Item 소유권 검증
+
+#### 문서 업데이트
+- ✅ **DOCUMENT_MAP.md**: 새 문서 등록
+  - 문서 구조에 `docs/guides/migration/` 폴더 추가
+  - 상세 문서 목록에 7-2번으로 추가
+  - 시스템 관리자 가이드에 추가
+  - 빠른 링크 섹션에 추가
+
+---
+
+## v1.1.17 (2025-11-24)
+
+### ✨ WBS 타임라인 Phase 3 리팩토링 완료
+
+#### 코드 품질 개선
+- ✅ **코드 최적화**: 553줄 → 509줄 (8.0% 감소)
+- ✅ **전체 누적 최적화**: **912줄 → 509줄 (44.2% 감소)** 🎉
+- ✅ **목표 초과 달성**: 목표 550줄 → 실제 509줄 (41줄 초과 달성)
+
+#### 새로운 파일
+- ✅ **`constants/wbsStyles.ts`** (~140줄):
+  - 반복되는 스타일 객체를 상수로 정의
+  - 13개 스타일 상수 및 함수 (ROW_BASE_STYLE, getTreeRowStyle, getEmptyRowStyle 등)
+  - 호버 효과, 중앙 정렬, 리사이즈 핸들 스타일 통합
+
+- ✅ **`hooks/useColumnResize.ts`** (~90줄):
+  - 컬럼 리사이즈 로직을 재사용 가능한 훅으로 분리
+  - 마우스 이벤트 핸들링, 커서 관리, 최소/최대 너비 제한
+  - 자동 클린업 및 타입 안전성
+
+#### 리팩토링 개선사항
+- ✅ **스타일 상수화**:
+  - `renderTreeRow`, `renderEmptyRow`, `renderTimelineRow`: 인라인 스타일 → 상수 참조 (21줄 감소)
+  - Loading/Empty/Container 스타일: 상수로 통합 (9줄 감소)
+  - 리사이즈 핸들: 상수로 통합 (8줄 감소)
+
+- ✅ **커스텀 훅 분리**:
+  - 리사이즈 useEffect 전체 제거 (28줄 감소)
+  - state 2개 제거 (useColumnResize 훅으로 대체)
+  - `startResize` 함수로 통합
+
+#### 아키텍처 개선
+- ✅ **스타일 일관성**: 중앙 집중식 스타일 관리로 유지보수성 향상
+- ✅ **코드 재사용**: useColumnResize 훅은 다른 컴포넌트에서도 재사용 가능
+- ✅ **타입 안전성**: CSSProperties 타입 사용으로 타입 에러 방지
+- ✅ **가독성**: 스타일 로직과 비즈니스 로직 분리
+
+#### 최종 아키텍처
+**WbsTimeline.tsx (509줄)** + 분리된 파일 6개:
+- Phase 1: wbsHelpers.ts (90줄), timelineCalculator.tsx (178줄)
+- Phase 2: viewModeConfig.ts (180줄), WbsTimelineHeader.tsx (80줄)
+- Phase 3: wbsStyles.ts (140줄), useColumnResize.ts (90줄)
+
+---
+
+## v1.1.16 (2025-11-24)
+
+### ✨ WBS 타임라인 Phase 2 리팩토링 완료
+
+#### 코드 품질 개선
+- ✅ **코드 최적화**: 700줄 → 553줄 (21.0% 감소)
+- ✅ **누적 최적화**: Phase 1 (912→698, -23.5%) + Phase 2 (700→553, -21.0%) = **912줄 → 553줄 (39.6% 감소)**
+
+#### 새로운 파일
+- ✅ **`utils/viewModeConfig.ts`** (~180줄):
+  - ViewMode별 설정 통합 (cellMinWidth, navigationStep, gridGenerator, label)
+  - 6개 ViewMode 설정 객체 (week, biweek, month, quarter, year, fiveyear)
+  - `navigateTimelineDate()` 함수로 날짜 네비게이션 통합
+
+- ✅ **`components/WbsTimelineHeader.tsx`** (~80줄):
+  - 날짜 헤더 렌더링 전용 컴포넌트 분리
+  - 오늘 날짜 하이라이트 및 주말 색상 처리
+  - cell type별 레이블 포맷팅
+
+#### 리팩토링 개선사항
+- ✅ `timelineGrid` useMemo: switch 문 68줄 → config.gridGenerator 3줄
+- ✅ `cellMinWidth` useMemo: switch 문 10줄 → config 참조 3줄
+- ✅ `navigateTimeline()`: switch 문 19줄 → 함수 호출 3줄
+- ✅ 날짜 헤더 렌더링: 57줄 → 컴포넌트 호출 1줄
+
+#### 아키텍처 개선
+- ✅ **설정 기반 아키텍처**: ViewMode별 설정을 객체로 통합하여 확장성 향상
+- ✅ **컴포넌트 분리**: 관심사 분리로 유지보수성 향상
+- ✅ **타입 안전성**: ViewMode, TimelineCell 타입 중앙 관리
+
+---
+
+## v1.1.15 (2025-11-24)
+
+### 🐛 버그 수정 및 코드 품질 개선
+
+#### useForm Warning 완전 해결
+- ✅ **문제**: v1.1.14에서 숨겨진 Form element 연결로 해결했으나 근본적인 해결 필요
+- ✅ **개선**: Hook 아키텍처 개선으로 불필요한 Form 인스턴스 생성 방지
+  - ItemFormModal이 `open=false`일 때 hook 초기화 방지
+  - 3-state item 처리 구현:
+    - `undefined`: 모달 닫힘 (hook 실행 안함)
+    - `null`: 생성 모드 (폼 초기화)
+    - `object`: 수정 모드 (기존 값 설정)
+  ```tsx
+  // ItemFormModal.tsx
+  const activeForm = useUnifiedItemForm({
+    form: sharedForm,
+    linkForm: sharedLinkForm,
+    item: open ? item : undefined,  // 모달 닫혔을 때 undefined 전달
+    // ...
+  });
+
+  // useItemForm.ts
+  useEffect(() => {
+    if (item === undefined) return;  // 모달 닫혔을 때 early return
+    // ...
+  }, [item]);
+  ```
+- ✅ **결과**: 대시보드, 일정관리, 프로젝트/서비스/액션 관리 전체 페이지에서 경고 제거
+
+#### 폼 초기화 문제 해결
+- ✅ **문제**: 프로젝트/서비스 관리에서 특정 항목 클릭 후 '+등록' 버튼 클릭 시 이전 값이 남아있음
+- ✅ **원인**: v1.1.14에서 useForm Warning 해결을 위해 `resetFields()` 제거
+- ✅ **해결**: 3-state 처리로 `item === null`일 때만 `resetFields()` 실행
+  - 모달이 닫혔을 때는 실행 안함 (warning 방지)
+  - 생성 모드에서는 정상 실행 (폼 초기화)
+
+#### 디버깅 로그 전체 제거
+- ✅ 총 33개의 console.log 제거로 프로덕션 코드 품질 향상
+- **제거 내역**:
+  - `ServiceWizardModal.tsx`: 3개 (handleFinish 디버깅)
+  - `ProjectWizardModal.tsx`: 12개 (자동 할당 및 제출 로직)
+  - `WbsGanttCustom.tsx`: 2개 (handleItemClick)
+  - `ActionCreateDrawer.tsx`: notification 로그
+  - `PstaSchedule.tsx`: 1개 (refresh 로그)
+  - `Dashboard.tsx`: 4개 (MyTasks 데이터 구조)
+  - `Report.tsx`: 11개 (스냅샷 데이터 처리 및 프로젝트 그룹핑)
+
+- **변경된 파일**:
+  - `frontend/src/components/ItemFormModal.tsx`
+  - `frontend/src/hooks/useItemForm.ts`
+  - `frontend/src/components/ServiceWizardModal.tsx`
+  - `frontend/src/components/ProjectWizardModal.tsx`
+  - `frontend/src/components/WbsGanttCustom.tsx`
+  - `frontend/src/components/ActionCreateDrawer.tsx`
+  - `frontend/src/pages/PstaSchedule.tsx`
+  - `frontend/src/pages/Dashboard.tsx`
+  - `frontend/src/pages/Report.tsx`
+
+---
+
+## v1.1.14 (2025-11-24)
 
 ### 🐛 버그 수정
 
-#### 아이템 이동 기능 토스트 메시지 중복 문제 해결
-- ✅ **문제**: 아이템 이동 성공 시 "성공적으로 이동되었습니다"와 "이동에 실패했습니다" 메시지가 동시에 표시됨
-- ✅ **원인**: ItemFormModal에서 이동 후 `onRefresh()` 호출 시 prop이 전달되지 않아 에러 발생 → catch 블록에서 실패 메시지 표시
-- ✅ **해결**:
-  - ItemFormModal에 `onRefresh?: () => void` prop 추가
-  - PstaSchedule에서 `onRefresh={() => setRefreshKey(prev => prev + 1)}` 전달
-  - 이동 성공 시 조건부로 `onRefresh()` 호출하여 ItemTree 새로고침
-- **변경된 파일**:
-  - `frontend/src/components/ItemFormModal.tsx` (line 18, 70, 1071-1074)
-  - `frontend/src/pages/PstaSchedule.tsx` (line 1428)
+#### Duplicate Key Warning 수정
+- ✅ **문제**: ACTION 아이템이 프로젝트 트리에서 ROOT와 정상 위치에 중복 출현
+  - React 콘솔 경고: "Encountered two children with the same key"
+  - 원인: ACTION 생성 시 `parentId`가 null로 저장됨
+- ✅ **해결**: 백엔드에서 ACTION 생성 시 parentId 자동 설정
+  - ServiceTeam에서 teamId 조회 → Team 이름으로 TEAM Item 찾기 → parentId 설정
+  - getItemTree API에 `type: ItemType.PROJECT` 필터 추가 (ROOT는 PROJECT만)
+  - 구조화된 로깅 추가 (🔍 요청 수신, ✅ parentId 설정, ✅ 생성 완료)
+- **변경된 파일**: `backend/src/controllers/item.controller.ts`
 
-#### Ant Design message context 경고 해결
-- ✅ **문제**: ServiceManagement에서 서비스 생성 시 콘솔 경고 발생
+#### useForm Warning 수정
+- ✅ **문제**: 모든 페이지에서 콘솔 경고 발생
   ```
-  Warning: [antd: message] Static function can not consume context like dynamic theme. Please use 'App' component instead.
+  Warning: Instance created by `useForm` is not connected to any Form element
   ```
-- ✅ **원인**: Ant Design 5.x에서 `message` static API는 테마 context를 소비할 수 없음
-- ✅ **해결**:
-  - App.tsx에 `<App>` 컴포넌트 추가하여 전역 context 제공
-  - ServiceManagement.tsx에서 `message` static import를 `App.useApp()` hook으로 변경
-  - 이제 모든 페이지에서 context 기반 message/modal/notification 사용 가능
+- ✅ **원인**: ItemFormModal이 4개의 hook 인스턴스 생성 (projectForm, serviceForm, teamForm, actionForm)
+  - 각 hook이 linkForm 생성하지만, 실제로 사용되는 것은 activeForm의 linkForm만
+  - 사용하지 않는 3개의 linkForm이 Form element에 연결되지 않음
+- ✅ **해결**: 숨겨진 div에서 사용하지 않는 linkForm을 Form element에 연결
+  ```tsx
+  <div style={{ display: 'none' }}>
+    {currentType !== ItemType.PROJECT && <Form form={projectForm.linkForm} />}
+    {currentType !== ItemType.SERVICE && <Form form={serviceForm.linkForm} />}
+    {currentType !== ItemType.TEAM && <Form form={teamForm.linkForm} />}
+    {currentType !== ItemType.ACTION && <Form form={(actionForm as any).linkForm} />}
+  </div>
+  ```
 - **변경된 파일**:
-  - `frontend/src/App.tsx` (line 3, 131, 307)
-  - `frontend/src/pages/ServiceManagement.tsx` (line 4, 39)
-
-**기술 세부사항**:
-- onRefresh prop 패턴: 부모 컴포넌트에서 상태 관리, 자식에서 콜백 호출
-- Ant Design App 컴포넌트: ConfigProvider 하위에 배치하여 테마와 통합
-- useApp() hook: `{ message, modal, notification }` 제공
+  - `frontend/src/components/ItemFormModal.tsx` (line 363-369)
+  - `frontend/src/components/form-sections/FileAndLinkSection.tsx` (line 51-58)
 
 ---
 
-## v1.1.4 - 2025-11-03
+## v1.1.13 (2025-11-21)
 
-### ✨ 일정관리 필터 개선 및 아이템 이동 기능 추가
-
-#### 일정관리 다중 선택 필터
-- ✅ **고객/프로젝트 다중 선택 체크박스**
-  - 단일 선택 드롭다운 → 체크박스 다중 선택으로 변경
-  - 여러 고객/프로젝트를 동시에 필터링 가능
-  - 선택된 항목 개수 표시 (예: `고객 선택 (2)`)
-- ✅ **팀 필터 제거**
-  - 중복 팀 이름 문제로 팀 필터 완전 제거
-  - 고객과 프로젝트 필터만 유지
-- ✅ **필터 상태 관리**
-  - `selectedClientIds`, `selectedProjectIds` 배열 기반 상태 관리
-  - 계층 구조 기반 필터링 로직 (ancestorProjectId 전파)
-- **변경된 파일**:
-  - `frontend/src/pages/PstaSchedule.tsx`
-  - `frontend/src/components/ItemTree.tsx`
-
-#### 아이템 이동 기능 (프로젝트/서비스/팀 간 이동)
-- ✅ **프로젝트 이동 모달**
-  - 수정 화면에서 "프로젝트 이동" 버튼 클릭 시 모달 오픈
-  - 아이템 타입별 이동 대상:
-    - **액션(ACTION)**: 프로젝트 → 서비스 → 팀 선택 (3단계 cascading)
-    - **팀(TEAM)**: 서비스 선택
-    - **서비스(SERVICE)**: 프로젝트 선택
-  - 현재 부모 항목은 선택 목록에서 자동 제외
-- ✅ **Backend API 엔드포인트**
-  - `PATCH /api/items/:id/move` 추가
-  - 계층 구조 검증:
-    - ACTION → TEAM만 허용
-    - TEAM → SERVICE만 허용
-    - SERVICE → PROJECT만 허용
-  - 이동 후 이전/새 부모의 진행률 자동 재계산
-- ✅ **Frontend API 연동**
-  - `itemsApi.moveItem(id, parentId)` 함수 추가
-  - 이동 성공 시 자동 새로고침
-- **변경된 파일**:
-  - `frontend/src/components/ItemFormModal.tsx` (모달 UI)
-  - `frontend/src/api/items.ts` (moveItem API)
-  - `backend/src/routes/item.routes.ts` (라우트 추가)
-  - `backend/src/controllers/item.controller.ts` (moveItem 컨트롤러)
-
-**기술 세부사항**:
-- 다중 선택 필터: Ant Design Dropdown + Checkbox 조합
-- 배열 기반 필터링: `array.includes()` 및 `array.length > 0` 체크
-- 계층 구조 전파: 재귀 함수에서 `ancestorProjectId` 파라미터 전달
-- 진행률 재계산: `updateItemAndParents()` 서비스 함수 활용
-- 타입 안전성: TypeScript enum으로 아이템 타입 검증
+### ✨ WBS 타임라인 Phase 1 리팩토링 완료
+- ✅ 코드 최적화: 912줄 → 698줄 (23.5% 감소)
+- ✅ 헬퍼 함수 분리: `wbsHelpers.ts` (90줄)
+- ✅ 타임라인 계산 로직 분리: `timelineCalculator.tsx` (178줄)
+- ✅ UI 개선: 필터 재배치, 컬럼 재구성
+- ✅ 버그 수정: WBS 미정 필터 개선
 
 ---
 
-## v1.1.3 - 2025-10-29
+## v1.1.12 (2025-11-21)
 
-### ✨ WBS 페이지 UI/UX 개선
-
-#### WBS 테이블 정보 밀도 향상
-- ✅ **PSTA 업무명 필드에 상태 태그 통합**
-  - 상태 필드 컬럼 제거로 100px 공간 절약
-  - PSTA 업무명에 상태 태그를 inline으로 표시
-  - 예: `[P] 2025 현시스템 유지관리 (3) [진행중]`
-- ✅ **PSTA 타입 레이블 단축**
-  - Project → P, Service → S, Team → T, Action → A
-  - 태그 크기 최소화 (10px font, 4px padding)
-- ✅ **하위 항목 수 표시**
-  - 하위 항목이 있는 경우 괄호로 개수 표시 (예: `(3)`)
-  - 회색 작은 글씨로 공간 효율적 표시
-- ✅ **담당자 열 최적화**
-  - 아바타 아이콘 제거 (공간 활용 우선)
-  - 너비 100px → 80px로 축소 (20px 절약)
-  - 텍스트만 표시 (12px font)
-- ✅ **PSTA 업무명 열 확장**
-  - 350px → 450px로 증가 (+100px)
-  - 절약된 공간을 재분배하여 가독성 개선
-- **변경된 파일**: `frontend/src/components/WbsGanttCustom.tsx`
-
-#### server.sh 스크립트 프로덕션 배포 반영
-- ✅ **Vite에서 serve로 전환 반영**
-  - `status_frontend()`: `pgrep -f "vite"` → `pgrep -f "serve -s dist"`
-  - `start_frontend()`: `npm run dev` → `nohup serve -s dist -l 3000 -n`
-  - `stop_frontend()`: `pkill -f "vite"` → `pkill -f "serve -s dist"`
-- ✅ **상태 메시지 업데이트**
-  - "(Vite Dev)" → "(Production - serve)"
-  - "dev mode" → "production mode"
-- ✅ **프로세스 감지 정확도 개선**
-  - 정확한 serve 명령어로 프로세스 감지
-  - 강제 종료 로직도 serve 프로세스 대상으로 변경
-- **변경된 파일**: `bin/server.sh`
-- **테스트 완료**: status, start, stop, restart 명령 모두 정상 동작
-
-**기술 세부사항**:
-- WBS 테이블 레이아웃: Tag 컴포넌트 중첩 사용, flex layout 최적화
-- 필드 접근: Prisma 관계 필드 `User_Item_assigneeIdToUser` 정확히 매핑
-- server.sh: systemd 서비스 우선, 없으면 직접 프로세스 관리 폴백
-- serve 옵션: `-s dist` (SPA), `-l 3000` (포트), `-n` (no clipboard)
+### 🏗️ API 통합 및 코드 중복 제거
+- ✅ Custom Hook 패턴 도입: `useActionItemModal.ts`
+- ✅ Items API 통합: `getMyTasks` 제거 (210줄 감소)
+- ✅ Work Requests API 통합: 중복 API 2개 제거 (319줄 감소)
+- ✅ 총 코드 감소: ~629줄
 
 ---
 
-### ✨ WBS 페이지 대폭 개선
+## v1.1.11 (2025-11-21)
 
-#### WBS 상세보기 일정관리 페이지와 100% 동일화
-- ✅ 70/30 레이아웃 적용 (좌측 70% 정보, 우측 30% 댓글)
-- ✅ **댓글 기능 완전 구현**
-  - 댓글 목록 표시 (아바타, 작성자, 작성일)
-  - 댓글 추가 (사용자 멘션 @username, 이모지 지원)
-  - 댓글 삭제 (본인 또는 관리자)
-  - 실시간 댓글 로딩
-- ✅ **관련 문서 섹션 추가**
-  - 현재 항목 + 하위 항목의 파일/링크 계층적 표시
-  - 파일 크기 포맷팅, 업로드자, 날짜 표시
-  - 삭제 기능 (업로더 또는 관리자)
-  - 파일/링크 클릭으로 새 탭에서 열기
-  - 항목별 태그 표시
-- ✅ **하위 항목 리스트 추가**
-  - 타입별 하위 항목 표시 (프로젝트→서비스, 서비스→팀, 팀→액션)
-  - 타입 태그, 상태 태그, 담당자, 기간, 진행률(원형) 표시
-  - 하위 항목 클릭으로 상세보기 전환
-- ✅ **연결된 작업 요청 표시**
-  - ACTION 타입에 WorkRequest 연결 시 표시
-  - 우선순위, 상태, 요청자, 담당자 표시
-  - 클릭 시 작업 요청 페이지로 이동
-- **변경된 파일**: `frontend/src/components/WbsGanttCustom.tsx`
-
-#### WBS 페이지 공간 활용 최적화
-- ✅ 페이지 제목/설명 제거 ("WBS (PSTA)", 설명문 제거)
-- ✅ **테이블 열 너비 조정**
-  - PSTA 업무명: 250px → **350px** (+100px)
-  - 진행률: 120px bar → **80px 원형** (-40px)
-- ✅ **진행률 표시 변경**
-  - 가로 Progress bar → 원형 Progress (40px)
-  - 공간 절약 및 시각적 개선
-- ✅ **필터 UI 개선**
-  - 2개 행 → 1개 행으로 통합
-  - 고객/프로젝트/팀/날짜범위/빠른선택/새로고침 모두 한 줄에 배치
-  - `Space wrap` 적용으로 반응형 지원
-- **변경된 파일**:
-  - `frontend/src/pages/WbsView.tsx` (제목/설명 제거)
-  - `frontend/src/components/WbsGanttCustom.tsx` (테이블, 필터 수정)
-
-#### 인프라 문서 개선
-- ✅ Nginx 리버스 프록시 설정 상세 문서화
-  - 서버 정보 (192.168.1.151 Nginx → 192.168.1.250 App)
-  - Docker Compose 경로 및 구조
-  - 설정 파일 전체 내용 (`250.conf`)
-  - 프록시 라우팅 테이블
-  - 관리 명령어 (설정 검증 `-t` 옵션 포함)
-- **변경된 파일**: `docs/infrastructure/INFRASTRUCTURE.md`
-
-**기술 세부사항**:
-- 새로운 imports: `commentsApi`, `filesApi`, `linksApi`, `EmojiPicker`, `Mentions`, `Popover`
-- 새로운 state: `comments`, `commentContent`, `showEmojiPicker`, `relatedDocs`
-- Helper functions: `renderCommentContent`, `formatFileSize`, `getPriorityLabel/Color`, `getWorkRequestStatusLabel/Color`
-- Handlers: `fetchComments`, `handleAddComment`, `handleDeleteComment`, `loadRelatedDocuments`, `handleDeleteRelatedDoc`, `handleEmojiClick`, `handleGoToWorkRequest`
-- Nginx 설정: SSL (Let's Encrypt), 프록시 라우팅 (`/api/`, `/uploads/`, `/`), Docker Compose 관리
+### 📊 일정관리 메타 정보 표시 강화
+- ✅ 댓글 카운트 표시 (💬 이모지)
+- ✅ 관련문서 카운트 표시 (📎 이모지, 파일+링크 합산)
+- ✅ 액션 등록 시 계층 정보 반영 버그 수정 (clientId, serviceTeamId 자동 설정)
+- ✅ 대시보드 칸반보드 휴지통 액션 필터링
 
 ---
 
-## v1.1.2 - 2025-10-28
+## v1.1.10 (2025-11-20)
 
-### 🔧 인프라 개선 및 버그 수정
-
-#### server.sh 스크립트 systemd 통합
-- ✅ systemd 서비스 자동 감지 및 통합
-- ✅ `systemctl` 명령 자동 사용 (서비스 활성화 시)
-- ✅ 직접 프로세스 관리 폴백 (서비스 비활성화 시)
-- ✅ Backend/Frontend 상태 감지 개선 (Production/Development 모드 구분)
-- ✅ passwordless sudo 설정 (`/etc/sudoers.d/dztw`)
-- **변경된 파일**: `bin/server.sh`
-- **테스트 완료**: restart backend, start/stop backend, restart frontend, restart all
-
-#### psta-postgres 도커 컨테이너 관리 개선
-- ✅ server.sh에서 psta-postgres 직접 시작/중지 가능
-- ✅ 시스템 PostgreSQL과 독립적으로 관리
-- ✅ `docker start/stop` 명령 직접 사용
-- ✅ Health check 자동 확인 (pg_isready)
-- ✅ 존재하는 컨테이너 재사용 또는 docker-compose로 생성
-- **변경된 파일**: `bin/server.sh` (start_db, stop_db, status_db 함수)
-- **테스트 완료**: start db, stop db, restart db, restart all with db
-
-#### 로그인 페이지 에러 처리 개선
-- ✅ 네트워크 연결 실패 시 명확한 에러 메시지 표시
-- ✅ 서버 오류(500) 시 사용자 친화적 메시지
-- ✅ 시스템 오류 Alert 컴포넌트 추가
-- ✅ 에러 타입별 분기 처리
-- **변경된 파일**: `frontend/src/pages/LoginPage.tsx`
-
-#### systemd 서비스 파일 생성
-- ✅ psta-backend.service 생성 (PostgreSQL 의존성 포함)
-- ✅ Docker 컨테이너 헬스 체크 대기 로직 추가
-- ✅ ExecStartPre로 psta-postgres 준비 확인
-- **파일**: `/etc/systemd/system/psta-backend.service` (적용 대기)
-
-#### 데이터베이스 자동 재시작 설정
-- ✅ psta-postgres 컨테이너 `restart=always` 정책 적용
-- ✅ OS 재부팅 시 자동 시작
-- **명령**: `docker update --restart=always psta-postgres`
-
-**기술 세부사항**:
-- systemd 감지: `systemctl is-enabled <service>`
-- 프로세스 감지: `pgrep -f "node dist/index.js"` (Production), `pgrep -f "ts-node src/index.ts"` (Dev)
-- Docker 컨테이너 정확한 매칭: `grep -q "^psta-postgres$"`
-- sudoers 설정: NOPASSWD for systemctl commands
+### 🗑️ 휴지통 기능 대폭 개선
+- ✅ 역할 기반 조회 권한 (관리자: 전체, 사용자: 본인 생성/담당 항목)
+- ✅ 역할별 복원/삭제 권한 관리
+- ✅ 통계 대시보드, 필터, 검색, 일괄 작업 기능
+- ✅ 일정관리 필터 개선 (액션 없음 숨김 기본값)
+- ✅ 삭제된 항목 필터링 강화 (백엔드 + 프론트엔드 이중 안전장치)
 
 ---
 
-## v1.1.1 - 2025-10-27
+## v1.1.9 (2025-11-19)
 
-### 🐛 버그 수정 및 UI 개선
-
-#### 대시보드 알림 버튼 개선
-- ✅ "확인하기" 버튼이 직접 알림 Drawer를 열도록 개선
-- ✅ Custom DOM Event 시스템 구현 (`openNotificationDrawer`)
-- **변경된 파일**: `MainLayout.tsx`, `Dashboard.tsx`
-
-#### 브라우저 콘솔 에러 수정
-- ✅ Vite HMR WebSocket 에러 수정 - HMR 완전 비활성화
-- ✅ Mixed Content 에러 수정 - 하드코딩 HTTP URL → 상대 경로
-- ✅ Ant Design deprecated 경고 수정 - `bodyStyle` → `styles.body`
-- **변경된 파일**: `vite.config.ts`, `Report.tsx`, `Dashboard.tsx`
-
-#### 메시지 전송 슬랙 알림 통합
-- ✅ `/messages` 페이지에서 메시지 전송 시 슬랙 알림 자동 발송
-- ✅ 'message_received' 알림 타입 추가
-- **변경된 파일**: `message.controller.ts`, `notification-slack.service.ts`
-
-#### 도메인 URL 시스템 설정 기능 ⭐
-- ✅ "시스템 설정 > 일반 설정"에 "프론트엔드 URL" 필드 추가
-- ✅ 슬랙 알림 링크가 도메인(`https://psta.dztechwill.com`)으로 리다이렉트
-- ✅ DB 기반 설정 (환경변수 대신)
-- ✅ 우선순위: DB 설정 > 환경변수 > 하드코딩 폴백
-- **변경된 파일**:
-  - `GeneralSettings.tsx` - 프론트엔드 URL 입력 필드 추가
-  - `system-settings.ts` - SystemSettings 인터페이스 확장
-  - `notification-slack.service.ts` - DB에서 frontendUrl 읽도록 수정
-
-#### 작업 요청 페이지 UI 개선
-- ✅ 탭 순서 변경: "받은 요청" → "보낸 요청" 순서로 변경
-- ✅ 기본 탭을 "받은 요청"으로 설정
-- **변경된 파일**: `WorkRequests.tsx`
-
-**기술 세부사항**:
-- Custom Event: `window.dispatchEvent(new Event('openNotificationDrawer'))`
-- Vite Config: `hmr: { overlay: false, clientPort: undefined }`
-- Async Link Generation: `generateLink()` 메서드를 async로 변경
+### 🗑️ Soft Delete & ServiceTeam 시스템
+- ✅ Soft Delete 패턴 구현 (데이터 보존, 복원 가능)
+- ✅ ServiceTeam Junction Table 도입 (중복 팀 제거)
+- ✅ 일정관리 UI 개선 (테이블 2개 컬럼, 고객 정보 표시, 미정 항목 관리)
 
 ---
 
-## v1.1.0 - 2025-10-27
+## v1.1.8 (2025-11-16)
 
-### 🔧 인프라 개선
+### 🔐 작업 요청 관리 기능 강화
+- ✅ 관리자 전용 "모든 요청" 탭
+- ✅ 담당자 취소 처리 기능
+- ✅ 관리자 강제 삭제 기능
 
-#### 로그 시스템 구축
-- ✅ Winston 기반 구조화된 로깅
-- ✅ 일별 로그 로테이션 (30일 보존)
+---
+
+## v1.1.7 (2025-11-13)
+
+### 🎨 UI/UX 대폭 개선
+- ✅ 페이지 타이틀 제거 (9개 페이지, 공간 절약)
+- ✅ 관리 페이지 테이블 2단 구조 전면 개편
+- ✅ 상위 항목 PSTA 색상 태그화
+- ✅ 기간 포맷 개선 및 강조 (`YYYY. MM. DD`)
+
+---
+
+## v1.1.6 (2025-11-13)
+
+### 🎨 ItemFormModal 개선
+- ✅ 조회/수정 모드 분리
+- ✅ 서비스 관리 팀 할당 기능 추가
+- ✅ TypeScript 빌드 에러 14개 → 0개 해결
+
+---
+
+## v1.1.5 (2025-11-12)
+
+### ✨ 조직 관리 통합 및 LDAP 동기화
+- ✅ 팀/사용자 통합 트리 뷰
+- ✅ LDAP 자동 동기화 시스템 (매일 02:00 KST)
+- ✅ 수동 동기화 UI (Dry-run 지원)
+- ✅ 통계 대시보드
+
+---
+
+## 이전 버전 (v1.1.0 ~ v1.1.4)
+
+### v1.1.4
+- 🐛 아이템 이동 기능 토스트 메시지 중복 문제 해결
+- 🐛 Ant Design message context 경고 해결
+
+### v1.1.3
+- ✨ WBS 페이지 UI/UX 개선
+- 🎨 테이블 정보 밀도 향상 (상태 태그 통합, PSTA 레이블 단축)
+
+### v1.1.2
+- 🔧 server.sh 스크립트 systemd 통합
+- 🔧 psta-postgres 도커 컨테이너 관리 개선
+- 🐛 로그인 페이지 에러 처리 개선
+
+### v1.1.1
+- 🐛 대시보드 알림 버튼 개선
+- 🐛 브라우저 콘솔 에러 수정 (Vite HMR, Mixed Content, Ant Design deprecated)
+- ✨ 도메인 URL 시스템 설정 기능 (슬랙 알림 링크)
+
+### v1.1.0
+- 🔧 Winston 기반 구조화된 로깅 시스템 구축
+- 📁 `/log/psta/` 디렉토리 구조화
 - ✅ 9개 카테고리 로거 (app, error, access, auth, database, ldap, slack, notification, migration)
-- ✅ JSON 형식 로그 (파싱 용이)
-- ✅ HTTP 요청 자동 로깅
-- ✅ `/log/psta/` 디렉토리 구조화
-
-**로그 디렉토리 구조**:
-```
-/log/psta/
-├── app/backend/       # 백엔드 로그 (JSON)
-├── app/frontend/      # 프론트엔드 로그
-├── database/          # DB 로그
-├── external/          # LDAP, Slack 로그
-└── system/            # 시스템 로그
-```
-
-**추가된 패키지**:
-- winston@3.17.0
-- winston-daily-rotate-file@5.0.0
-
-**변경된 파일**:
-- `backend/src/config/logger.ts` (신규)
-- `backend/src/index.ts` - HTTP 로깅 미들웨어 추가
-- `backend/src/controllers/auth.controller.ts` - 인증 로깅 추가
-- `backend/src/config/database.ts` - Prisma 이벤트 로깅 추가
-- `bin/server.sh` - 로그 경로 변경 (/tmp → /log/psta)
-- `bin/collect-postgres-logs.sh` (신규)
 
 ---
 
-## v1.0.0 - 2025-10-27
+## v1.0.0 (2025-10-27)
 
 ### 🎉 초기 릴리즈
 
-PSTA 시스템 공식 v1.0 출시
-
-### 주요 기능
-
-#### 프로젝트 관리
+**주요 기능**:
 - ✅ 계층적 프로젝트 관리 (Project → Service → Team → Action)
-- ✅ Notion 스타일 트리 뷰
-- ✅ 상태/진행률 자동 산정 (TEAM/SERVICE/PROJECT)
-- ✅ Excel Import/Export
+- ✅ LDAP 인증 통합 및 4단계 역할 관리 (ADMIN/PO/PM/MEMBER)
+- ✅ 작업 요청 시스템 및 파일 첨부
+- ✅ 멀티 플랫폼 알림 (Slack, Telegram, Discord)
+- ✅ WBS Gantt 차트 및 보고서 생성
+- ✅ Notion 스타일 트리 뷰 및 계층 토글 버튼
 
-#### 인증 및 권한
-- ✅ LDAP 인증 통합
-- ✅ 사용자 승인 워크플로우
-- ✅ 4단계 역할 (ADMIN/PO/PM/MEMBER)
-- ✅ 페이지별 CRUD 권한 관리
-- ✅ LDAP 그룹 → 팀 자동 할당
+**기술 스택**:
+- Backend: Node.js v24.9.0, Express, TypeScript, PostgreSQL v14.x, Prisma
+- Frontend: React v18.2.0, Ant Design v5.12.5, Vite, TypeScript, Zustand
+- Infrastructure: Ubuntu 22.04.5 LTS
 
-#### 작업 관리
-- ✅ 작업 요청 시스템
-- ✅ 작업 요청 → 액션 자동 변환
-- ✅ 파일 첨부 기능 (최대 20MB)
-- ✅ 클라이언트 로고 업로드 (최대 5MB)
-
-#### 알림 시스템
-- ✅ 멀티 플랫폼 지원 (Slack, Telegram, Discord)
-- ✅ 댓글 멘션 시 DM 자동 발송
-- ✅ Block Kit 메시지 포맷
-
-#### 시각화
-- ✅ WBS Gantt 차트
-- ✅ 날짜/프로젝트/팀 필터
-- ✅ 보고서 생성 (날짜 범위별 통계)
-- ✅ 프로젝트별 그룹화
-
-#### UI/UX
-- ✅ 계층 토글 버튼 (P/S/T/A)
-- ✅ 통합 필터 드롭다운
-- ✅ 3단계 위자드 (프로젝트/서비스)
-- ✅ Drawer 확장/축소 기능
-
-### 기술 스택
-
-**Backend**:
-- Node.js v24.9.0
-- Express v4.18.2
-- TypeScript v5.3.3
-- PostgreSQL v14.x
-- Prisma v5.7.1
-
-**Frontend**:
-- React v18.2.0
-- Ant Design v5.12.5
-- Vite v5.0.11
-- TypeScript v5.3.3
-- Zustand v4.4.7
-
-**Infrastructure**:
-- OS: Ubuntu 22.04.5 LTS
-- Architecture: x86_64
-- Kernel: Linux 5.15.0-156-generic
-
-### 배포 환경
-- 프로덕션 URL: http://psta.dztechwill.com
-- 내부 IP: http://192.168.1.250:3000
-- Backend: http://192.168.1.250:3001
-
-### 데이터베이스 스키마
-- 15개 주요 모델
-  - User, Team, Client, Item, File
-  - WorkRequest, Comment, Notification, Message
-  - Permission, LdapConfig, NotificationApp
-  - SystemSetting, ReportSnapshot, Link
-
-### 문서
-- ✅ INFRASTRUCTURE.md - 인프라 명세서
-- ✅ DEVELOPMENT_GUIDE.md - 개발 가이드
-- ✅ USER_GUIDE.md - 사용자 가이드
-- ✅ FEATURES.md - 기능 소개서
-- ✅ CLAUDE.md - Claude Code 가이드
-
-### 알려진 제한사항
-- ❌ IE 브라우저 미지원
-- ⚠️ 모바일 최적화 부족
-- ⚠️ 실시간 협업 미지원 (WebSocket 없음)
-
----
-
-## 향후 버전 계획
-
-### v1.1.0 (계획 중)
-- [ ] 댓글 스레드 기능
-- [ ] 활동 로그
-- [ ] 이메일 알림
-- [ ] 즐겨찾기 기능
-- [ ] 검색 기능 개선
-
-### v1.2.0 (계획 중)
-- [ ] 모바일 앱 (React Native)
-- [ ] 대시보드 위젯 커스터마이징
-- [ ] 캘린더 뷰
-- [ ] 의존성 관리
-- [ ] 다크 모드
-
-### v2.0.0 (장기 계획)
-- [ ] AI 기반 일정 예측
-- [ ] 자동 리스크 감지
-- [ ] 실시간 협업 편집 (WebSocket)
-- [ ] 다국어 지원
-- [ ] 모바일 최적화
+**데이터베이스**: 15개 주요 모델 (User, Team, Client, Item, File, WorkRequest, Comment, Notification, Message, Permission, LdapConfig, NotificationApp, SystemSetting, ReportSnapshot, Link)
 
 ---
 
@@ -527,4 +952,4 @@ PSTA 시스템 공식 v1.0 출시
 
 ---
 
-**최종 업데이트**: 2025-10-28
+**최종 업데이트**: 2025-12-08

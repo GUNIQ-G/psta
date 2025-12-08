@@ -46,7 +46,7 @@ export const HierarchyToggleButtons: React.FC<HierarchyToggleButtonsProps> = ({
         return (
           <Tooltip key={config.type} title={`${config.tooltip}까지만 보기`}>
             <Button
-              size="middle"
+              size="small"
               onClick={() => onToggle(config.type)}
               style={{
                 backgroundColor: isExpanded ? config.color : '#fff',
@@ -58,9 +58,10 @@ export const HierarchyToggleButtons: React.FC<HierarchyToggleButtonsProps> = ({
                 borderBottom: `1px solid ${config.color}`,
                 borderRadius: index === 0 ? '6px 0 0 6px' : index === hierarchyConfig.length - 1 ? '0 6px 6px 0' : '0',
                 fontWeight: 600,
-                fontSize: '13px',
-                minWidth: '36px',
-                height: '32px',
+                fontSize: '11px',
+                height: '24px',
+                minWidth: '24px',
+                padding: '0 6px',
                 transition: 'all 0.3s ease',
               }}
               onMouseEnter={(e) => {

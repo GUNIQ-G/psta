@@ -10,7 +10,6 @@ import {
   LogoutOutlined,
   SettingOutlined,
   TeamOutlined,
-  UsergroupAddOutlined,
   SafetyOutlined,
   CheckCircleOutlined,
   FolderOutlined,
@@ -23,12 +22,15 @@ import {
   FileSearchOutlined,
   ApiOutlined,
   SyncOutlined,
+  DeleteOutlined,
+  CommentOutlined,
 } from '@ant-design/icons';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 import { usePermissionStore } from '../store/permissionStore';
 import { useNotificationStore } from '../store/notificationStore';
 import { ActionCreateDrawer } from './ActionCreateDrawer';
+import { TrashModal } from './TrashModal';
 import { systemSettingsApi } from '../api/system-settings';
 import type { MenuProps } from 'antd';
 
@@ -46,9 +48,11 @@ const ROUTE_RESOURCE_MAP: { [key: string]: string } = {
   '/wbs': 'wbs',
   '/report': 'report',
   '/integrated-files': 'integrated-files',
+  '/feedback': 'feedback',
   '/clients': 'clients',
   '/projects': 'projects',
   '/services': 'services',
+  '/team-status': 'team-status',
   '/actions': 'actions',
   '/teams': 'teams',
   '/users': 'users',
@@ -64,6 +68,7 @@ export const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
   const navigate = useNavigate();
   const location = useLocation();
   const [actionDrawerOpen, setActionDrawerOpen] = useState(false);
+  const [trashModalOpen, setTrashModalOpen] = useState(false);
   const [notificationModalOpen, setNotificationModalOpen] = useState(false);
   const [systemLogo, setSystemLogo] = useState<string | null>(null);
 
@@ -243,22 +248,22 @@ export const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
           onClick: () => navigate('/psta'),
         },
         {
-          key: '/wbs',
-          icon: <ProjectOutlined />,
-          label: 'WBS',
-          onClick: () => navigate('/wbs'),
-        },
-        {
           key: '/report',
           icon: <FileTextOutlined />,
           label: '보고서 작성',
           onClick: () => navigate('/report'),
         },
+      ],
+    },
+    {
+      type: 'group',
+      label: '프로젝트 조직',
+      children: [
         {
-          key: '/integrated-files',
-          icon: <FileSearchOutlined />,
-          label: '통합 파일 리스트',
-          onClick: () => navigate('/integrated-files'),
+          key: '/organization',
+          icon: <TeamOutlined />,
+          label: '조직도',
+          onClick: () => navigate('/organization'),
         },
       ],
     },
@@ -275,32 +280,64 @@ export const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
         {
           key: '/projects',
           icon: <FolderOutlined />,
-          label: '프로젝트 관리',
+          label: (
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
+              <span>프로젝트 관리</span>
+              <Tag color="#722ed1" style={{ marginLeft: 8, marginRight: 0, fontSize: 10 }}>P</Tag>
+            </div>
+          ),
           onClick: () => navigate('/projects'),
         },
         {
           key: '/services',
           icon: <AppstoreOutlined />,
-          label: '서비스 관리',
+          label: (
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
+              <span>서비스 관리</span>
+              <Tag color="#1890ff" style={{ marginLeft: 8, marginRight: 0, fontSize: 10 }}>S</Tag>
+            </div>
+          ),
           onClick: () => navigate('/services'),
+        },
+        {
+          key: '/team-status',
+          icon: <TeamOutlined />,
+          label: (
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
+              <span>팀별 현황</span>
+              <Tag color="#52c41a" style={{ marginLeft: 8, marginRight: 0, fontSize: 10 }}>T</Tag>
+            </div>
+          ),
+          onClick: () => navigate('/team-status'),
         },
         {
           key: '/actions',
           icon: <CheckCircleOutlined />,
-          label: '액션 관리',
+          label: (
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
+              <span>액션 관리</span>
+              <Tag color="#fa8c16" style={{ marginLeft: 8, marginRight: 0, fontSize: 10 }}>A</Tag>
+            </div>
+          ),
           onClick: () => navigate('/actions'),
+        },
+        {
+          key: '/integrated-files',
+          icon: <FileSearchOutlined />,
+          label: '통합 파일 관리',
+          onClick: () => navigate('/integrated-files'),
         },
       ],
     },
     {
       type: 'group',
-      label: '조직 관리',
+      label: '시스템 지원',
       children: [
         {
-          key: '/organization',
-          icon: <TeamOutlined />,
-          label: '조직 관리',
-          onClick: () => navigate('/organization'),
+          key: '/feedback',
+          icon: <CommentOutlined />,
+          label: '버그/건의',
+          onClick: () => navigate('/feedback'),
         },
       ],
     },
@@ -500,6 +537,30 @@ export const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
             >
               액션 등록
             </Button>
+            <Button
+              icon={<DeleteOutlined />}
+              onClick={() => setTrashModalOpen(true)}
+              block
+              size="large"
+              style={{
+                marginTop: '8px',
+                backgroundColor: 'rgba(255, 255, 255, 0.15)',
+                borderColor: 'rgba(255, 255, 255, 0.3)',
+                color: 'rgba(255, 255, 255, 0.85)',
+                fontWeight: 600,
+                fontSize: '14px',
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.25)';
+                e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.45)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.15)';
+                e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.3)';
+              }}
+            >
+              휴지통
+            </Button>
             <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <Dropdown menu={{ items: profileMenuItems }} placement="topRight" trigger={['click']}>
                 <div
@@ -541,6 +602,13 @@ export const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
         open={actionDrawerOpen}
         onClose={() => setActionDrawerOpen(false)}
         userTeamId={user?.teamId}
+      />
+      <TrashModal
+        open={trashModalOpen}
+        onCancel={() => setTrashModalOpen(false)}
+        onRestoreSuccess={() => {
+          // Optionally refresh data if needed
+        }}
       />
       <Drawer
         title={

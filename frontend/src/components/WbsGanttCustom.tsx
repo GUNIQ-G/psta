@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Select, Spin, Button, Space, Table, Tag, Progress, Avatar, DatePicker, message, Typography, Tooltip, Popconfirm, List, Divider, Mentions, Popover } from 'antd';
-import { UserOutlined, EditOutlined, DeleteOutlined, CloseOutlined, SendOutlined, SmileOutlined, FileOutlined, LinkOutlined, FileTextOutlined, ArrowRightOutlined } from '@ant-design/icons';
+import { UserOutlined, EditOutlined, DeleteOutlined, CloseOutlined, SendOutlined, SmileOutlined, FileOutlined, LinkOutlined, FileTextOutlined, ArrowRightOutlined, DownloadOutlined } from '@ant-design/icons';
 import type { ColumnType } from 'antd/es/table';
 import EmojiPicker, { EmojiClickData } from 'emoji-picker-react';
 import { useNavigate } from 'react-router-dom';
@@ -190,10 +190,8 @@ export const WbsGanttCustom: React.FC = () => {
   };
 
   const handleItemClick = async (item: Item) => {
-    console.log('WBS Item clicked:', item);
     try {
       const fullItem = await itemsApi.getItemById(item.id);
-      console.log('Full item loaded:', fullItem);
       setSelectedItem(fullItem);
       setCommentContent('');
       await fetchComments(item.id);
@@ -975,86 +973,94 @@ export const WbsGanttCustom: React.FC = () => {
                           border: '1px solid #f0f0f0',
                           borderRadius: '4px'
                         }}
+                        size="small"
                         dataSource={relatedDocs}
                         renderItem={(doc) => {
                           const isFile = doc.type === 'file';
                           const data = doc.data as any;
-                          const canDelete = user?.role === 'ADMIN' || data.uploadedById === user?.id;
+                          const canDelete = user?.role === 'ADMIN' || user?.id === (isFile ? data.uploadedById : data.createdById);
 
                           return (
                             <List.Item
-                              style={{
-                                padding: '12px 16px',
-                                borderBottom: '1px solid #f5f5f5',
-                              }}
-                              actions={
-                                canDelete
-                                  ? [
-                                      <Popconfirm
-                                        title={`${isFile ? '파일' : '링크'}을 삭제하시겠습니까?`}
-                                        onConfirm={() => handleDeleteRelatedDoc(doc.type, data.id)}
-                                        okText="삭제"
-                                        cancelText="취소"
-                                      >
-                                        <Button
-                                          type="text"
-                                          size="small"
-                                          icon={<DeleteOutlined />}
-                                          danger
-                                        />
-                                      </Popconfirm>,
-                                    ]
-                                  : []
-                              }
+                              style={{ padding: '8px 12px' }}
+                              actions={[
+                                isFile ? (
+                                  <Button
+                                    type="link"
+                                    size="small"
+                                    icon={<DownloadOutlined />}
+                                    href={filesApi.getFileUrl(data.filename)}
+                                    target="_blank"
+                                  >
+                                    다운로드
+                                  </Button>
+                                ) : (
+                                  <Button
+                                    type="link"
+                                    size="small"
+                                    icon={<LinkOutlined />}
+                                    href={data.url}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                  >
+                                    열기
+                                  </Button>
+                                ),
+                                canDelete && (
+                                  <Popconfirm
+                                    title={isFile ? "파일 삭제" : "링크 삭제"}
+                                    description={`이 ${isFile ? '파일' : '링크'}을 삭제하시겠습니까?`}
+                                    onConfirm={() => handleDeleteRelatedDoc(doc.type, data.id)}
+                                    okText="삭제"
+                                    cancelText="취소"
+                                  >
+                                    <Button
+                                      type="link"
+                                      size="small"
+                                      danger
+                                      icon={<DeleteOutlined />}
+                                    >
+                                      삭제
+                                    </Button>
+                                  </Popconfirm>
+                                ),
+                              ].filter(Boolean)}
                             >
                               <List.Item.Meta
                                 avatar={
-                                  <Avatar
-                                    icon={isFile ? <FileOutlined /> : <LinkOutlined />}
-                                    style={{ backgroundColor: isFile ? '#1890ff' : '#52c41a' }}
-                                  />
+                                  isFile ? (
+                                    <FileOutlined style={{ fontSize: 20, color: '#1890ff' }} />
+                                  ) : (
+                                    <LinkOutlined style={{ fontSize: 20, color: '#52c41a' }} />
+                                  )
                                 }
                                 title={
-                                  <div>
-                                    {isFile ? (
-                                      <a
-                                        href={`/uploads/${data.filePath}`}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        style={{ fontWeight: 500 }}
-                                      >
-                                        {data.originalName}
-                                      </a>
-                                    ) : (
-                                      <a
-                                        href={data.url}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        style={{ fontWeight: 500 }}
-                                      >
-                                        {data.title}
-                                      </a>
-                                    )}
-                                  </div>
+                                  <Space>
+                                    {isFile ? data.originalName : data.displayName}
+                                    <span style={{
+                                      fontSize: 11,
+                                      padding: '2px 6px',
+                                      borderRadius: 4,
+                                      backgroundColor: isFile ? '#e6f7ff' : '#f6ffed',
+                                      color: isFile ? '#1890ff' : '#52c41a',
+                                      fontWeight: 600
+                                    }}>
+                                      {isFile ? '파일' : '링크'}
+                                    </span>
+                                  </Space>
                                 }
                                 description={
-                                  <div style={{ fontSize: '12px', color: '#8c8c8c' }}>
-                                    {isFile ? (
+                                  <Space size="small" style={{ fontSize: 12 }}>
+                                    {isFile && (
                                       <>
-                                        {formatFileSize(data.fileSize)} · {data.UploadedBy?.displayName || '알 수 없음'} · {new Date(data.createdAt).toLocaleDateString('ko-KR')}
-                                        {data.Item && (
-                                          <> · <Tag style={{ margin: '0 0 0 8px', fontSize: '11px' }}>{data.Item.name}</Tag></>
-                                        )}
-                                      </>
-                                    ) : (
-                                      <>
-                                        {data.CreatedBy?.displayName || '알 수 없음'} · {new Date(data.createdAt).toLocaleDateString('ko-KR')}
-                                        {data.Item && (
-                                          <> · <Tag style={{ margin: '0 0 0 8px', fontSize: '11px' }}>{data.Item.name}</Tag></>
-                                        )}
+                                        <span>{formatFileSize(data.filesize)}</span>
+                                        <span>•</span>
                                       </>
                                     )}
-                                  </div>
+                                    <span>{isFile ? data.UploadedBy?.displayName : data.CreatedBy?.displayName || '알 수 없음'}</span>
+                                    <span>•</span>
+                                    <span>{new Date(data.createdAt).toLocaleDateString('ko-KR')}</span>
+                                  </Space>
                                 }
                               />
                             </List.Item>
@@ -1068,17 +1074,16 @@ export const WbsGanttCustom: React.FC = () => {
                       color: '#bfbfbf',
                       fontStyle: 'italic',
                       backgroundColor: '#fafafa',
-                      borderRadius: '4px',
-                      border: '1px solid #f0f0f0'
+                      borderRadius: '4px'
                     }}>
-                      등록된 문서가 없습니다.
+                      관련된 문서가 없습니다
                     </div>
                   )}
                 </div>
               </div>
 
               {/* 우측 30%: 댓글 */}
-              <div style={{ flex: '0 0 30%', display: 'flex', flexDirection: 'column', borderLeft: '1px solid #f0f0f0', paddingLeft: '24px' }}>
+              <div style={{ flex: '0 0 30%', display: 'flex', flexDirection: 'column', borderLeft: '1px solid #f0f0f0', paddingLeft: '24px', paddingRight: '24px' }}>
                 <div style={{ color: '#8c8c8c', fontSize: '12px', marginBottom: 12, fontWeight: 600 }}>
                   댓글 ({comments.length})
                 </div>
@@ -1296,6 +1301,9 @@ export const WbsGanttCustom: React.FC = () => {
           scroll={{ x: 'max-content' }}
           size="small"
           bordered
+          expandable={{
+            showExpandColumn: false,
+          }}
           onRow={(record) => ({
             onClick: () => handleItemClick(record),
             style: { cursor: 'pointer' },

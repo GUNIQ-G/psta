@@ -25,28 +25,35 @@ model Client {
 }
 
 model Item {
-  id                          String     @id
+  id                          String       @id
   type                        ItemType
   name                        String
-  status                      ItemStatus @default(NOT_STARTED)
-  progress                    Float      @default(0)
-  isOnHold                    Boolean    @default(false)
+  status                      ItemStatus   @default(NOT_STARTED)
+  progress                    Float        @default(0)
+  isOnHold                    Boolean      @default(false)
   startDate                   DateTime?
   endDate                     DateTime?
-  timeSpent                   Float      @default(0)
+  timeSpent                   Float        @default(0)
   description                 String?
-  order                       Int        @default(0)
+  order                       Int          @default(0)
   clientId                    String?
   parentId                    String?
+  serviceTeamId               String?
   assigneeId                  String?
   createdById                 String
-  createdAt                   DateTime   @default(now())
+  isDeleted                   Boolean      @default(false)
+  deletedAt                   DateTime?
+  deletedById                 String?
+  createdAt                   DateTime     @default(now())
   updatedAt                   DateTime
-  User_Item_assigneeIdToUser  User?      @relation("Item_assigneeIdToUser", fields: [assigneeId], references: [id])
-  Client                      Client?    @relation(fields: [clientId], references: [id])
-  User_Item_createdByIdToUser User          @relation("Item_createdByIdToUser", fields: [createdById], references: [id])
-  Item                        Item?         @relation("ItemToItem", fields: [parentId], references: [id], onDelete: Cascade)
-  other_Item                  Item[]        @relation("ItemToItem")
+  User_Item_assigneeIdToUser  User?        @relation("Item_assigneeIdToUser", fields: [assigneeId], references: [id])
+  Client                      Client?      @relation(fields: [clientId], references: [id])
+  User_Item_createdByIdToUser User         @relation("Item_createdByIdToUser", fields: [createdById], references: [id])
+  User_Item_deletedByIdToUser User?        @relation("Item_deletedByIdToUser", fields: [deletedById], references: [id])
+  ServiceTeam                 ServiceTeam? @relation("ServiceTeamActions", fields: [serviceTeamId], references: [id], onDelete: SetNull)
+  Item                        Item?        @relation("ItemToItem", fields: [parentId], references: [id], onDelete: SetNull)
+  other_Item                  Item[]       @relation("ItemToItem")
+  ServiceTeamsAsService       ServiceTeam[] @relation("ServiceTeamService")
   Comment                     Comment[]
   File                        File[]
   Link                        Link[]
@@ -59,8 +66,11 @@ model Item {
   @@index([assigneeId])
   @@index([clientId])
   @@index([parentId])
+  @@index([serviceTeamId])
   @@index([status])
   @@index([type])
+  @@index([isDeleted])
+  @@index([deletedById])
 }
 
 model Project {
@@ -116,6 +126,11 @@ model WorkRequest {
   targetItemType      ItemType?
   createdItemId       String?
 
+  // Soft delete fields
+  isDeleted           Boolean             @default(false)
+  deletedAt           DateTime?
+  deletedById         String?
+
   createdAt           DateTime            @default(now())
   updatedAt           DateTime
 
@@ -123,6 +138,7 @@ model WorkRequest {
   Assignee       User?               @relation("WorkRequestAssignee", fields: [assigneeId], references: [id])
   AssigneeTeam   Team?               @relation("WorkRequestAssigneeTeam", fields: [assigneeTeamId], references: [id])
   ApprovedBy     User?               @relation("WorkRequestApprovedBy", fields: [approvedById], references: [id])
+  DeletedBy      User?               @relation("WorkRequest_deletedByIdToUser", fields: [deletedById], references: [id])
   Action         Item?               @relation("WorkRequestAction", fields: [actionId], references: [id])
   Project        Item?               @relation("WorkRequestProject", fields: [projectId], references: [id], onDelete: SetNull)
   Service        Item?               @relation("WorkRequestService", fields: [serviceId], references: [id], onDelete: SetNull)
@@ -146,6 +162,8 @@ model WorkRequest {
   @@index([parentWorkRequestId])
   @@index([requestType])
   @@index([createdItemId])
+  @@index([isDeleted])
+  @@index([deletedById])
 }
 
 enum WorkRequestPriority {
@@ -194,6 +212,11 @@ model User {
   role                        UserRole       @default(MEMBER)
   teamId                      String?
   organizationId              String?
+  title                       String?        // 직위 (대리, 과장, 부장 등)
+  position                    String?        // 직책 원본 텍스트 (LDAP employeeType)
+  positionType                PositionType   @default(NONE)  // 직책 enum (v1.1.20)
+  roleOverride                UserRole?      // 역할 수동 override (null이면 직책 기반 자동 계산)
+  departmentNumber            String?        // 부서 코드
   isVerified                  Boolean        @default(false)
   isActive                    Boolean        @default(true)
   approvalRequested           Boolean        @default(false)
@@ -203,18 +226,25 @@ model User {
   updatedAt                   DateTime
   Item_Item_assigneeIdToUser  Item[]         @relation("Item_assigneeIdToUser")
   Item_Item_createdByIdToUser Item[]         @relation("Item_createdByIdToUser")
+  Item_Item_deletedByIdToUser Item[]         @relation("Item_deletedByIdToUser")
   Project                     Project[]
   Comment                     Comment[]
+  DeletedComments             Comment[]      @relation("Comment_deletedByIdToUser")
   NotificationsFrom           Notification[] @relation("NotificationFrom")
   NotificationsTo             Notification[] @relation("NotificationTo")
   MessagesFrom                Message[]      @relation("MessageFrom")
   MessagesTo                  Message[]      @relation("MessageTo")
   UploadedFiles               File[]         @relation("FileUploadedBy")
+  DeletedFiles                File[]         @relation("File_deletedByIdToUser")
   CreatedLinks                Link[]         @relation("LinkCreatedBy")
+  DeletedLinks                Link[]         @relation("Link_deletedByIdToUser")
   RequestedWorks              WorkRequest[]    @relation("WorkRequestRequester")
   AssignedWorks               WorkRequest[]    @relation("WorkRequestAssignee")
   ApprovedWorks               WorkRequest[]    @relation("WorkRequestApprovedBy")
+  DeletedWorkRequests         WorkRequest[]    @relation("WorkRequest_deletedByIdToUser")
   CreatedSnapshots            ReportSnapshot[] @relation("SnapshotCreatedBy")
+  CreatedFeedbacks            Feedback[]       @relation("FeedbackCreatedBy")
+  ResolvedFeedbacks           Feedback[]       @relation("FeedbackResolvedBy")
   Team                        Team?            @relation(fields: [teamId], references: [id])
   Organization                Organization?    @relation(fields: [organizationId], references: [id])
 
@@ -246,37 +276,100 @@ enum UserRole {
   MEMBER
 }
 
+// 직책 enum (v1.1.20: 직책 기반 역할 매핑)
+enum PositionType {
+  NONE          // 직책 없음 (일반 사원)
+  PART_LEADER   // 파트장 → PM
+  TEAM_LEADER   // 팀장 → PM
+  DIRECTOR      // 실장 → PO
+  HEAD          // 본부장 → PO
+  EXECUTIVE     // 이사 → PO
+  SENIOR_EXEC   // 상무 → PO
+  VICE_PRES     // 전무 → PO
+}
+
 model Team {
   id                      String        @id
   name                    String        @unique
   ldapDn                  String?       @unique
+  departmentNumber        String?       @unique  // v1.1.19: LDAP departmentNumber (DEPT001~DEPT014)
   description             String?
   isActive                Boolean       @default(true)
   createdAt               DateTime      @default(now())
   updatedAt               DateTime
+
+  // 계층형 구조 필드 (v1.1.18)
+  parentId                String?
+  level                   Int           @default(0)
+  ldapType                String?
+
+  // 계층형 관계 (자체 참조)
+  Parent                  Team?         @relation("TeamHierarchy", fields: [parentId], references: [id], onDelete: SetNull)
+  Children                Team[]        @relation("TeamHierarchy")
+
+  // 기존 관계
   User                    User[]
   AssignedWorkRequests    WorkRequest[] @relation("WorkRequestAssigneeTeam")
+  ServiceTeams            ServiceTeam[]
+
+  @@index([parentId])
+}
+
+model ServiceTeam {
+  id          String   @id
+  serviceId   String
+  teamId      String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime
+  Service     Item     @relation("ServiceTeamService", fields: [serviceId], references: [id], onDelete: Cascade)
+  Team        Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  Actions     Item[]   @relation("ServiceTeamActions")
+
+  @@unique([serviceId, teamId])
+  @@index([serviceId])
+  @@index([teamId])
 }
 
 model LdapConfig {
-  id                        String   @id
-  name                      String   @unique
+  id                        String    @id
+  name                      String    @unique
   host                      String
-  port                      Int      @default(389)
-  protocol                  String   @default("LDAP")
+  port                      Int       @default(389)
+  protocol                  String    @default("LDAP")
   bindDn                    String
   bindPassword              String
   searchBase                String
   searchFilter              String?
-  timeout                   Int      @default(30)
-  enableDynamicUserCreation Boolean  @default(true)
-  attributeLoginId          String   @default("uid")
-  attributeName             String   @default("cn")
-  attributeSurname          String   @default("sn")
-  attributeEmail            String   @default("Email")
-  isActive                  Boolean  @default(true)
-  createdAt                 DateTime @default(now())
+  timeout                   Int       @default(30)
+  enableDynamicUserCreation Boolean   @default(true)
+  attributeLoginId          String    @default("uid")
+  attributeName             String    @default("cn")
+  attributeSurname          String    @default("sn")
+  attributeEmail            String    @default("Email")
+  isActive                  Boolean   @default(true)
+  createdAt                 DateTime  @default(now())
   updatedAt                 DateTime
+
+  // v1.1.18: 계층형 구조 지원 및 개선
+  rootOu                    String?   @default("Organizations")
+  description               String?
+  lastTestedAt              DateTime?
+  lastTestSuccess           Boolean?
+
+  // v1.1.19: 확장된 LDAP 설정
+  userBaseDn                String?   // 사용자 검색 Base DN (예: ou=people,dc=ldap,dc=dztechwill,dc=com)
+  orgBaseDn                 String?   // 조직 검색 Base DN (예: ou=organization,dc=ldap,dc=dztechwill,dc=com)
+  searchScope               String    @default("sub") // 검색 범위: sub, one, base
+  filterActiveOnly          Boolean   @default(true)  // 재직자만 조회
+  filterEmailRequired       Boolean   @default(false) // 이메일 있는 사용자만
+  hiddenOrgs                String?   // 숨길 조직 (쉼표 구분, 예: "퇴사자,테스트팀")
+  maxDepth                  Int       @default(10)    // 최대 계층 깊이 (1~20)
+  showRootOu                Boolean   @default(false) // 루트 OU 표시 여부
+  sortOrder                 String    @default("name") // 정렬: name, department, title
+  displayNameFormat         String    @default("{sn}{cn}") // 이름 표시 형식
+  attributeTitle            String    @default("title") // 직위 속성
+  attributeDepartment       String    @default("ou")    // 부서 속성
+  attributeDeptNumber       String    @default("departmentNumber") // 부서 코드 속성
 
   @@index([name])
 }
@@ -341,13 +434,19 @@ model Comment {
   itemId    String
   userId    String
   reactions String?  @default("{}")  // JSON: {"👍": ["userId1", "userId2"], "❤️": ["userId3"]}
+  isDeleted Boolean  @default(false)
+  deletedAt DateTime?
+  deletedById String?
   createdAt DateTime @default(now())
   updatedAt DateTime
-  Item      Item     @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  Item      Item     @relation(fields: [itemId], references: [id], onDelete: SetNull)
   User      User     @relation(fields: [userId], references: [id])
+  DeletedBy User?    @relation("Comment_deletedByIdToUser", fields: [deletedById], references: [id])
 
   @@index([itemId])
   @@index([userId])
+  @@index([isDeleted])
+  @@index([deletedById])
 }
 
 model Notification {
@@ -396,16 +495,22 @@ model File {
   serviceId    String?
   teamId       String?
   uploadedById String
+  isDeleted    Boolean  @default(false)
+  deletedAt    DateTime?
+  deletedById  String?
   createdAt    DateTime @default(now())
   updatedAt    DateTime
-  Item         Item     @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  Item         Item     @relation(fields: [itemId], references: [id], onDelete: SetNull)
   UploadedBy   User     @relation("FileUploadedBy", fields: [uploadedById], references: [id])
+  DeletedBy    User?    @relation("File_deletedByIdToUser", fields: [deletedById], references: [id])
 
   @@index([itemId])
   @@index([uploadedById])
   @@index([projectId])
   @@index([serviceId])
   @@index([teamId])
+  @@index([isDeleted])
+  @@index([deletedById])
 }
 
 model Link {
@@ -417,16 +522,22 @@ model Link {
   serviceId    String?
   teamId       String?
   createdById  String
+  isDeleted    Boolean  @default(false)
+  deletedAt    DateTime?
+  deletedById  String?
   createdAt    DateTime @default(now())
   updatedAt    DateTime
-  Item         Item     @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  Item         Item     @relation(fields: [itemId], references: [id], onDelete: SetNull)
   CreatedBy    User     @relation("LinkCreatedBy", fields: [createdById], references: [id])
+  DeletedBy    User?    @relation("Link_deletedByIdToUser", fields: [deletedById], references: [id])
 
   @@index([itemId])
   @@index([createdById])
   @@index([projectId])
   @@index([serviceId])
   @@index([teamId])
+  @@index([isDeleted])
+  @@index([deletedById])
 }
 
 model Organization {
@@ -471,4 +582,40 @@ model ReportSnapshot {
   @@index([clientId])
   @@index([createdById])
   @@index([createdAt])
+}
+
+// 피드백 게시판 (v1.1.27)
+model Feedback {
+  id            String          @id
+  title         String
+  content       String
+  type          FeedbackType
+  status        FeedbackStatus  @default(PENDING)
+  adminComment  String?         // 관리자 답변
+  createdById   String
+  resolvedAt    DateTime?
+  resolvedById  String?
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime
+
+  CreatedBy     User            @relation("FeedbackCreatedBy", fields: [createdById], references: [id])
+  ResolvedBy    User?           @relation("FeedbackResolvedBy", fields: [resolvedById], references: [id])
+
+  @@index([createdById])
+  @@index([type])
+  @@index([status])
+  @@index([createdAt])
+}
+
+enum FeedbackType {
+  BUG           // 버그 신고
+  FEATURE       // 기능 요청
+  IMPROVEMENT   // 개선 사항
+}
+
+enum FeedbackStatus {
+  PENDING       // 대기중
+  IN_PROGRESS   // 진행중
+  RESOLVED      // 해결됨
+  REJECTED      // 반려
 }

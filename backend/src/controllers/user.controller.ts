@@ -8,7 +8,8 @@ import { AuthRequest } from '../middleware/auth';
 export const getAllUsers = async (req: Request, res: Response) => {
   try {
     const includeInactive = req.query.includeInactive === 'true';
-    const users = await userService.getAllUsers(includeInactive);
+    const includeRetired = req.query.includeRetired === 'true'; // v1.1.18: Filter out 퇴사자/휴직자
+    const users = await userService.getAllUsers(includeInactive, includeRetired);
     res.json(users);
   } catch (error: any) {
     res.status(500).json({ error: error.message });

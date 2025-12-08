@@ -11,6 +11,13 @@
   },
   "dependencies": {
     "@ant-design/icons": "^5.2.6",
+    "@tiptap/extension-bubble-menu": "^3.13.0",
+    "@tiptap/extension-image": "^3.13.0",
+    "@tiptap/extension-link": "^3.13.0",
+    "@tiptap/extension-placeholder": "^3.13.0",
+    "@tiptap/pm": "^3.13.0",
+    "@tiptap/react": "^3.13.0",
+    "@tiptap/starter-kit": "^3.13.0",
     "antd": "^5.12.5",
     "axios": "^1.6.5",
     "dayjs": "^1.11.18",

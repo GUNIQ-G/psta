@@ -1,579 +1,391 @@
 import React, { useEffect, useState } from 'react';
 import {
-  Layout,
-  Tree,
   Card,
+  Tree,
+  Spin,
+  message,
+  Tag,
+  Avatar,
+  List,
+  Row,
+  Col,
   Descriptions,
   Button,
   Space,
-  Tag,
-  Modal,
-  Form,
-  Input,
-  Select,
-  message,
-  Spin,
   Statistic,
-  Row,
-  Col,
+  Input,
+  Typography,
   Empty,
-  Tooltip,
-  Popconfirm,
+  Modal,
+  Steps,
+  Alert,
+  Result,
+  Select,
 } from 'antd';
 import {
   TeamOutlined,
   UserOutlined,
-  SyncOutlined,
-  PlusOutlined,
-  EditOutlined,
-  DeleteOutlined,
-  SearchOutlined,
   ReloadOutlined,
+  ApartmentOutlined,
+  BankOutlined,
+  SyncOutlined,
+  MailOutlined,
+  PhoneOutlined,
+  SearchOutlined,
+  DeleteOutlined,
+  ExclamationCircleOutlined,
+  WarningOutlined,
+  LockOutlined,
 } from '@ant-design/icons';
 import type { DataNode } from 'antd/es/tree';
-import { teamApi } from '../api/team';
-import { userApi } from '../api/user';
-import { ldapSyncApi } from '../api/ldap-sync';
-import { Team, User } from '../types/user';
+import axios from '../api/axios';
+import type { Team, User, UserRole } from '../types/user';
 import { useAuthStore } from '../store/authStore';
+import { userApi } from '../api/user';
 
-const { Content, Sider } = Layout;
 const { Search } = Input;
 
-interface TreeNodeData {
-  key: string;
-  title: string;
-  type: 'team' | 'user';
-  data: Team | User;
-  icon?: React.ReactNode;
-  children?: TreeNodeData[];
-  isLeaf?: boolean;
+interface TeamWithUsers extends Team {
+  User?: User[];
+  children?: TeamWithUsers[];
 }
 
 const OrganizationManagement: React.FC = () => {
-  const user = useAuthStore((state) => state.user);
-  const [teams, setTeams] = useState<Team[]>([]);
-  const [users, setUsers] = useState<User[]>([]);
-  const [treeData, setTreeData] = useState<TreeNodeData[]>([]);
-  const [expandedKeys, setExpandedKeys] = useState<React.Key[]>([]);
-  const [selectedKeys, setSelectedKeys] = useState<React.Key[]>([]);
-  const [selectedNode, setSelectedNode] = useState<TreeNodeData | null>(null);
-  const [searchValue, setSearchValue] = useState('');
+  const currentUser = useAuthStore((state) => state.user);
+  const [teamTree, setTeamTree] = useState<TeamWithUsers[]>([]);
+  const [selectedTeam, setSelectedTeam] = useState<TeamWithUsers | null>(null);
   const [loading, setLoading] = useState(false);
-  const [syncing, setSyncing] = useState(false);
+  const [expandedKeys, setExpandedKeys] = useState<string[]>([]);
+  const [searchValue, setSearchValue] = useState('');
 
-  // Modal states
-  const [isTeamModalVisible, setIsTeamModalVisible] = useState(false);
-  const [isUserModalVisible, setIsUserModalVisible] = useState(false);
-  const [editingTeam, setEditingTeam] = useState<Team | null>(null);
-  const [editingUser, setEditingUser] = useState<User | null>(null);
+  // Statistics
+  const [stats, setStats] = useState({
+    totalTeams: 0,
+    totalUsers: 0,
+    ldapTeams: 0,
+    ldapUsers: 0,
+  });
 
-  const [teamForm] = Form.useForm();
-  const [userForm] = Form.useForm();
+  // Reset modal state
+  const [resetModalVisible, setResetModalVisible] = useState(false);
+  const [resetStep, setResetStep] = useState(0);
+  const [resetPassword, setResetPassword] = useState('');
+  const [resetLoading, setResetLoading] = useState(false);
+  const [resetResult, setResetResult] = useState<{
+    success: boolean;
+    deletedTeams?: number;
+    updatedUsers?: number;
+    error?: string;
+  } | null>(null);
 
-  // Load data on mount
   useEffect(() => {
-    loadData();
+    loadTeamHierarchy();
   }, []);
 
-  // Build tree data when teams or users change
-  useEffect(() => {
-    buildTreeData();
-  }, [teams, users, searchValue]);
-
-  const loadData = async () => {
-    setLoading(true);
+  const loadTeamHierarchy = async () => {
     try {
-      const [teamsData, usersData] = await Promise.all([
-        teamApi.getAll(),
-        userApi.getAll(true), // Include inactive users
-      ]);
+      setLoading(true);
+      const response = await axios.get('/teams/hierarchy');
+      setTeamTree(response.data);
 
-      setTeams(teamsData);
-      setUsers(usersData);
+      // Calculate statistics
+      const calcStats = (teams: TeamWithUsers[]) => {
+        let teamCount = 0;
+        let userCount = 0;
+        let ldapTeamCount = 0;
+        let ldapUserCount = 0;
+
+        const traverse = (items: TeamWithUsers[]) => {
+          items.forEach(team => {
+            teamCount++;
+            if (team.ldapDn) ldapTeamCount++;
+            if (team.User) {
+              userCount += team.User.length;
+              ldapUserCount += team.User.filter(u => (u as any).ldapDn).length;
+            }
+            if (team.children) traverse(team.children);
+          });
+        };
+        traverse(teams);
+
+        return { totalTeams: teamCount, totalUsers: userCount, ldapTeams: ldapTeamCount, ldapUsers: ldapUserCount };
+      };
+
+      setStats(calcStats(response.data));
+
+      // Auto-expand first level
+      const firstLevelKeys = response.data.map((team: TeamWithUsers) => team.id);
+      setExpandedKeys(firstLevelKeys);
     } catch (error: any) {
-      message.error('데이터 로드 실패: ' + error.message);
+      message.error('팀 계층 구조 로드 실패: ' + (error.response?.data?.error || error.message));
     } finally {
       setLoading(false);
     }
   };
 
-  const buildTreeData = () => {
-    const filteredTeams = teams.filter(team => {
-      if (!searchValue) return true;
-      const searchLower = searchValue.toLowerCase();
-      return team.name.toLowerCase().includes(searchLower);
-    });
+  // Filter teams by search value
+  const filterTeams = (teams: TeamWithUsers[], search: string): TeamWithUsers[] => {
+    if (!search) return teams;
 
-    const filteredUsers = users.filter(user => {
-      if (!searchValue) return true;
-      const searchLower = searchValue.toLowerCase();
-      return (
-        user.username.toLowerCase().includes(searchLower) ||
-        user.displayName.toLowerCase().includes(searchLower) ||
-        user.email.toLowerCase().includes(searchLower)
-      );
-    });
+    const searchLower = search.toLowerCase();
 
-    const tree: TreeNodeData[] = filteredTeams.map(team => {
-      const teamUsers = filteredUsers.filter(user => user.teamId === team.id && user.isActive);
+    const filterRecursive = (items: TeamWithUsers[]): TeamWithUsers[] => {
+      return items.reduce((acc: TeamWithUsers[], team) => {
+        const teamMatches = team.name.toLowerCase().includes(searchLower);
+        const userMatches = team.User?.some(u =>
+          u.displayName.toLowerCase().includes(searchLower) ||
+          u.username.toLowerCase().includes(searchLower) ||
+          u.email.toLowerCase().includes(searchLower)
+        );
 
-      const userNodes: TreeNodeData[] = teamUsers.map(user => ({
-        key: `user-${user.id}`,
-        title: `${user.displayName} (${user.username})`,
-        type: 'user',
-        data: user,
-        icon: <UserOutlined />,
-        isLeaf: true,
-      }));
+        const filteredChildren = team.children ? filterRecursive(team.children) : [];
+
+        if (teamMatches || userMatches || filteredChildren.length > 0) {
+          acc.push({
+            ...team,
+            children: filteredChildren.length > 0 ? filteredChildren : team.children,
+          });
+        }
+
+        return acc;
+      }, []);
+    };
+
+    return filterRecursive(teams);
+  };
+
+  // Convert team hierarchy to Ant Design Tree data
+  const convertToTreeData = (teams: TeamWithUsers[]): DataNode[] => {
+    return teams.map(team => {
+      const memberCount = team.User?.length || 0;
+      const childCount = team.children?.length || 0;
+
+      // Determine icon and color based on level or type
+      let icon = <TeamOutlined />;
+      let color = '#1890ff';
+
+      if (team.ldapType === 'OU') {
+        if (team.level === 1) {
+          icon = <BankOutlined />;
+          color = '#722ed1';
+        } else if (team.level === 2) {
+          icon = <ApartmentOutlined />;
+          color = '#2f54eb';
+        } else {
+          icon = <TeamOutlined />;
+          color = '#13c2c2';
+        }
+      } else {
+        icon = <TeamOutlined />;
+        color = '#fa8c16';
+      }
 
       return {
-        key: `team-${team.id}`,
-        title: `${team.name} (${teamUsers.length}명)`,
-        type: 'team',
-        data: team,
-        icon: <TeamOutlined />,
-        children: userNodes,
-      };
-    });
-
-    // Add users without team
-    const usersWithoutTeam = filteredUsers.filter(user => !user.teamId && user.isActive);
-    if (usersWithoutTeam.length > 0) {
-      const noTeamNode: TreeNodeData = {
-        key: 'team-no-team',
-        title: `미배정 사용자 (${usersWithoutTeam.length}명)`,
-        type: 'team',
-        data: { id: 'no-team', name: '미배정', isActive: true, ldapDn: null, createdAt: '', updatedAt: '' },
-        icon: <TeamOutlined />,
-        children: usersWithoutTeam.map(user => ({
-          key: `user-${user.id}`,
-          title: `${user.displayName} (${user.username})`,
-          type: 'user',
-          data: user,
-          icon: <UserOutlined />,
-          isLeaf: true,
-        })),
-      };
-      tree.push(noTeamNode);
-    }
-
-    setTreeData(tree);
-
-    // Auto-expand all if searching
-    if (searchValue) {
-      const allKeys = tree.map(node => node.key);
-      setExpandedKeys(allKeys);
-    }
-  };
-
-  const onSelect = (selectedKeys: React.Key[], info: any) => {
-    setSelectedKeys(selectedKeys);
-    if (selectedKeys.length > 0) {
-      setSelectedNode(info.node as TreeNodeData);
-    } else {
-      setSelectedNode(null);
-    }
-  };
-
-  const onExpand = (expandedKeys: React.Key[]) => {
-    setExpandedKeys(expandedKeys);
-  };
-
-  const handleLdapSync = () => {
-    Modal.confirm({
-      title: 'LDAP 동기화',
-      content: (
-        <div>
-          <p>LDAP 서버의 조직 정보를 PSTA와 동기화합니다.</p>
-          <ul>
-            <li>LDAP에 없는 팀은 비활성화됩니다</li>
-            <li>LDAP에 없는 사용자는 비활성화됩니다</li>
-            <li>팀 멤버십이 자동으로 업데이트됩니다</li>
-          </ul>
-          <p style={{ color: '#ff4d4f', marginTop: 16 }}>
-            <strong>⚠️ 주의:</strong> 이 작업은 되돌릴 수 없습니다.
-          </p>
-        </div>
-      ),
-      okText: '동기화 실행',
-      okType: 'primary',
-      cancelText: '취소',
-      onOk: async () => {
-        setSyncing(true);
-        try {
-          const response = await ldapSyncApi.triggerSync(false);
-          if (response.success) {
-            const result = response.result;
-            Modal.success({
-              title: '동기화 완료',
-              content: (
-                <div>
-                  <p>LDAP 동기화가 성공적으로 완료되었습니다.</p>
-                  <ul>
-                    <li>팀 생성: {result.teamsCreated}개</li>
-                    <li>팀 비활성화: {result.teamsDeactivated}개</li>
-                    <li>사용자 비활성화: {result.usersDeactivated}개</li>
-                    <li>멤버십 업데이트: {result.teamMembershipsUpdated}개</li>
-                  </ul>
-                </div>
-              ),
-            });
-            await loadData();
-          }
-        } catch (error: any) {
-          message.error('LDAP 동기화 실패: ' + error.message);
-        } finally {
-          setSyncing(false);
-        }
-      },
-    });
-  };
-
-  // Team CRUD operations
-  const handleCreateTeam = () => {
-    setEditingTeam(null);
-    teamForm.resetFields();
-    setIsTeamModalVisible(true);
-  };
-
-  const handleEditTeam = (team: Team) => {
-    setEditingTeam(team);
-    teamForm.setFieldsValue({
-      name: team.name,
-      isActive: team.isActive,
-    });
-    setIsTeamModalVisible(true);
-  };
-
-  const handleDeleteTeam = async (teamId: string) => {
-    try {
-      await teamApi.delete(teamId);
-      message.success('팀이 삭제되었습니다');
-      await loadData();
-      setSelectedNode(null);
-      setSelectedKeys([]);
-    } catch (error: any) {
-      message.error('팀 삭제 실패: ' + error.message);
-    }
-  };
-
-  const handleTeamModalOk = async () => {
-    try {
-      const values = await teamForm.validateFields();
-
-      if (editingTeam) {
-        // Update team
-        await teamApi.update(editingTeam.id, values);
-        message.success('팀이 수정되었습니다');
-        await loadData();
-      } else {
-        // Create team
-        await teamApi.create(values);
-        message.success('팀이 생성되었습니다');
-        await loadData();
-      }
-
-      setIsTeamModalVisible(false);
-      teamForm.resetFields();
-    } catch (error: any) {
-      message.error('팀 저장 실패: ' + error.message);
-    }
-  };
-
-  // User CRUD operations
-  const handleCreateUser = () => {
-    setEditingUser(null);
-    userForm.resetFields();
-    setIsUserModalVisible(true);
-  };
-
-  const handleEditUser = (user: User) => {
-    setEditingUser(user);
-    userForm.setFieldsValue({
-      username: user.username,
-      displayName: user.displayName,
-      email: user.email,
-      role: user.role,
-      teamId: user.teamId,
-      isActive: user.isActive,
-    });
-    setIsUserModalVisible(true);
-  };
-
-  const handleDeleteUser = async (userId: string) => {
-    try {
-      await userApi.delete(userId);
-      message.success('사용자가 삭제되었습니다');
-      await loadData();
-      setSelectedNode(null);
-      setSelectedKeys([]);
-    } catch (error: any) {
-      message.error('사용자 삭제 실패: ' + error.message);
-    }
-  };
-
-  const handleUserModalOk = async () => {
-    try {
-      const values = await userForm.validateFields();
-
-      if (editingUser) {
-        // Update user
-        await userApi.update(editingUser.id, values);
-        message.success('사용자가 수정되었습니다');
-        await loadData();
-      } else {
-        // Create user - Note: user creation may not be supported in this API
-        message.warning('사용자 생성은 LDAP 동기화를 통해서만 가능합니다');
-        return;
-      }
-
-      setIsUserModalVisible(false);
-      userForm.resetFields();
-    } catch (error: any) {
-      message.error('사용자 저장 실패: ' + error.message);
-    }
-  };
-
-  // Render team detail panel
-  const renderTeamDetail = (team: Team) => {
-    const teamUsers = users.filter(user => user.teamId === team.id && user.isActive);
-    const isLdapTeam = !!team.ldapDn;
-
-    return (
-      <Card
-        bordered={false}
-        style={{
-          borderRadius: 8,
-          boxShadow: '0 1px 4px rgba(0,0,0,0.1)'
-        }}
-        title={
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <div style={{
-              width: 48,
-              height: 48,
-              borderRadius: 8,
-              background: 'rgb(0, 140, 214)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              color: '#fff',
-              fontSize: 20
-            }}>
-              <TeamOutlined />
-            </div>
-            <div>
-              <div style={{ fontSize: 18, fontWeight: 600, marginBottom: 4 }}>
-                {team.name}
-              </div>
-              <Space size={8}>
-                {isLdapTeam && <Tag color="blue">LDAP</Tag>}
-                {!team.isActive && <Tag color="red">비활성</Tag>}
-              </Space>
-            </div>
-          </div>
-        }
-      >
-        <Descriptions bordered column={1} size="small">
-          {/* <Descriptions.Item label="팀 ID">{team.id}</Descriptions.Item> */}
-          <Descriptions.Item label="팀명">{team.name}</Descriptions.Item>
-          <Descriptions.Item label="멤버 수">{teamUsers.length}명</Descriptions.Item>
-          {/* <Descriptions.Item label="LDAP DN">
-            {team.ldapDn || <Tag>없음</Tag>}
-          </Descriptions.Item> */}
-          <Descriptions.Item label="상태">
-            {team.isActive ? <Tag color="green">활성</Tag> : <Tag color="red">비활성</Tag>}
-          </Descriptions.Item>
-          <Descriptions.Item label="생성일">
-            {team.createdAt ? new Date(team.createdAt).toLocaleString('ko-KR') : '-'}
-          </Descriptions.Item>
-          <Descriptions.Item label="수정일">
-            {team.updatedAt ? new Date(team.updatedAt).toLocaleString('ko-KR') : '-'}
-          </Descriptions.Item>
-        </Descriptions>
-
-        {team.id !== 'no-team' && (
-          <div style={{
-            marginTop: 24,
-            padding: 20,
-            background: '#fafafa',
-            borderRadius: 8
-          }}>
-            <h3 style={{
-              marginTop: 0,
-              marginBottom: 16,
-              fontSize: 16,
-              fontWeight: 600,
-              color: '#262626'
-            }}>
-              팀 멤버 ({teamUsers.length}명)
-            </h3>
-            {teamUsers.length === 0 ? (
-              <Empty description="팀원이 없습니다" />
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                {teamUsers.map(user => (
-                  <Card
-                    key={user.id}
-                    size="small"
-                    hoverable
-                    bordered={false}
-                    onClick={() => {
-                      setSelectedKeys([`user-${user.id}`]);
-                      setSelectedNode({
-                        key: `user-${user.id}`,
-                        title: user.displayName,
-                        type: 'user',
-                        data: user,
-                      });
-                    }}
-                    style={{
-                      borderRadius: 6,
-                      cursor: 'pointer',
-                      transition: 'all 0.2s',
-                      boxShadow: '0 1px 3px rgba(0,0,0,0.08)'
-                    }}
-                    bodyStyle={{ padding: '10px 14px' }}
-                  >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                      <div style={{
-                        width: 32,
-                        height: 32,
-                        borderRadius: 6,
-                        background: 'rgb(0, 140, 214)',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        color: '#fff',
-                        fontSize: 14
-                      }}>
-                        <UserOutlined />
-                      </div>
-                      <div style={{ flex: 1 }}>
-                        <div style={{ fontWeight: 500, marginBottom: 4, fontSize: 14 }}>
-                          {user.displayName}
-                          <span style={{ marginLeft: 6, color: '#8c8c8c', fontWeight: 400, fontSize: 13 }}>
-                            ({user.username})
-                          </span>
-                        </div>
-                        <Space size={4}>
-                          <Tag
-                            color={user.role === 'ADMIN' ? 'red' : user.role === 'PM' ? 'blue' : user.role === 'PO' ? 'purple' : 'default'}
-                            style={{ margin: 0, fontSize: 11 }}
-                          >
-                            {user.role}
-                          </Tag>
-                          {user.ldapDn && <Tag color="blue" style={{ margin: 0, fontSize: 11 }}>LDAP</Tag>}
-                        </Space>
-                      </div>
-                    </div>
-                  </Card>
-                ))}
-              </div>
+        key: team.id,
+        title: (
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ color }}>{icon}</span>
+            <span style={{ fontWeight: 500 }}>{team.name}</span>
+            {memberCount > 0 && (
+              <Tag color="cyan" style={{ margin: 0, fontSize: 11 }}>{memberCount}명</Tag>
+            )}
+            {childCount > 0 && (
+              <Tag color="default" style={{ margin: 0, fontSize: 11 }}>{childCount}개 하위</Tag>
             )}
           </div>
-        )}
-      </Card>
-    );
+        ),
+        children: team.children && team.children.length > 0
+          ? convertToTreeData(team.children)
+          : undefined,
+      };
+    });
   };
 
-  // Render user detail panel
-  const renderUserDetail = (user: User) => {
-    const isLdapUser = !!user.ldapDn;
-
-    return (
-      <Card
-        bordered={false}
-        style={{
-          borderRadius: 8,
-          boxShadow: '0 1px 4px rgba(0,0,0,0.1)'
-        }}
-        title={
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <div style={{
-              width: 48,
-              height: 48,
-              borderRadius: 8,
-              background: 'rgb(0, 140, 214)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              color: '#fff',
-              fontSize: 20
-            }}>
-              <UserOutlined />
-            </div>
-            <div>
-              <div style={{ fontSize: 18, fontWeight: 600, marginBottom: 4 }}>
-                {user.displayName}
-              </div>
-              <Space size={8}>
-                {isLdapUser && <Tag color="blue">LDAP</Tag>}
-                {!user.isActive && <Tag color="red">비활성</Tag>}
-              </Space>
-            </div>
-          </div>
-        }
-      >
-        <Descriptions bordered column={1} size="small">
-          {/* <Descriptions.Item label="사용자 ID">{user.id}</Descriptions.Item> */}
-          <Descriptions.Item label="아이디">{user.username}</Descriptions.Item>
-          <Descriptions.Item label="이름">{user.displayName}</Descriptions.Item>
-          <Descriptions.Item label="이메일">{user.email}</Descriptions.Item>
-          <Descriptions.Item label="역할">
-            <Tag color={user.role === 'ADMIN' ? 'red' : user.role === 'PM' ? 'blue' : user.role === 'PO' ? 'purple' : 'default'}>
-              {user.role}
-            </Tag>
-          </Descriptions.Item>
-          <Descriptions.Item label="소속 팀">
-            {user.Team ? user.Team.name : <Tag>미배정</Tag>}
-          </Descriptions.Item>
-          {/* <Descriptions.Item label="LDAP DN">
-            {user.ldapDn || <Tag>없음</Tag>}
-          </Descriptions.Item> */}
-          <Descriptions.Item label="상태">
-            {user.isActive ? <Tag color="green">활성</Tag> : <Tag color="red">비활성</Tag>}
-          </Descriptions.Item>
-          <Descriptions.Item label="생성일">
-            {user.createdAt ? new Date(user.createdAt).toLocaleString('ko-KR') : '-'}
-          </Descriptions.Item>
-          <Descriptions.Item label="수정일">
-            {user.updatedAt ? new Date(user.updatedAt).toLocaleString('ko-KR') : '-'}
-          </Descriptions.Item>
-        </Descriptions>
-      </Card>
-    );
+  // Find team by id in hierarchy
+  const findTeamById = (teams: TeamWithUsers[], id: string): TeamWithUsers | null => {
+    for (const team of teams) {
+      if (team.id === id) return team;
+      if (team.children) {
+        const found = findTeamById(team.children, id);
+        if (found) return found;
+      }
+    }
+    return null;
   };
 
-  const activeTeamsCount = teams.filter(t => t.isActive).length;
-  const activeUsersCount = users.filter(u => u.isActive).length;
+  const handleSelect = (selectedKeys: React.Key[]) => {
+    if (selectedKeys.length > 0) {
+      const teamId = selectedKeys[0] as string;
+      const team = findTeamById(teamTree, teamId);
+      setSelectedTeam(team);
+    } else {
+      setSelectedTeam(null);
+    }
+  };
+
+  const handleExpand = (keys: React.Key[]) => {
+    setExpandedKeys(keys as string[]);
+  };
+
+  const handleExpandAll = () => {
+    const getAllKeys = (teams: TeamWithUsers[]): string[] => {
+      return teams.reduce((keys: string[], team) => {
+        keys.push(team.id);
+        if (team.children) keys.push(...getAllKeys(team.children));
+        return keys;
+      }, []);
+    };
+
+    if (expandedKeys.length === getAllKeys(teamTree).length) {
+      setExpandedKeys([]);
+    } else {
+      setExpandedKeys(getAllKeys(teamTree));
+    }
+  };
+
+  // Reset organization functions
+  const openResetModal = () => {
+    setResetModalVisible(true);
+    setResetStep(0);
+    setResetPassword('');
+    setResetResult(null);
+  };
+
+  const closeResetModal = () => {
+    setResetModalVisible(false);
+    setResetStep(0);
+    setResetPassword('');
+    setResetResult(null);
+  };
+
+  const handleResetNext = () => {
+    if (resetStep < 2) {
+      setResetStep(resetStep + 1);
+    }
+  };
+
+  const handleResetPrev = () => {
+    if (resetStep > 0) {
+      setResetStep(resetStep - 1);
+    }
+  };
+
+  const executeReset = async () => {
+    if (!resetPassword) {
+      message.error('비밀번호를 입력해주세요.');
+      return;
+    }
+
+    setResetLoading(true);
+    try {
+      const response = await axios.post('/teams/reset', { password: resetPassword });
+      if (response.data.success) {
+        setResetResult({
+          success: true,
+          deletedTeams: response.data.result.deletedTeams,
+          updatedUsers: response.data.result.updatedUsers,
+        });
+        setResetStep(3); // Move to result step
+        loadTeamHierarchy(); // Reload team data
+      } else {
+        setResetResult({
+          success: false,
+          error: response.data.error || '초기화에 실패했습니다.',
+        });
+        setResetStep(3);
+      }
+    } catch (error: any) {
+      setResetResult({
+        success: false,
+        error: error.response?.data?.error || error.message || '초기화에 실패했습니다.',
+      });
+      setResetStep(3);
+    } finally {
+      setResetLoading(false);
+    }
+  };
+
+  // 멤버 정렬 함수: 역할 > 직급 > 이름
+  const sortMembers = (users: User[]) => {
+    const roleOrder: Record<string, number> = { PO: 0, PM: 1, ADMIN: 2, MEMBER: 3 };
+    const positionOrder: Record<string, number> = { '수석': 0, '책임': 1, '선임': 2, '사원': 3 };
+
+    return [...users].sort((a, b) => {
+      // 1차: 역할 정렬
+      const roleA = roleOrder[a.role] ?? 99;
+      const roleB = roleOrder[b.role] ?? 99;
+      if (roleA !== roleB) return roleA - roleB;
+
+      // 2차: 직급 정렬
+      const posA = positionOrder[a.position || ''] ?? 99;
+      const posB = positionOrder[b.position || ''] ?? 99;
+      if (posA !== posB) return posA - posB;
+
+      // 3차: 이름 가나다순
+      return (a.displayName || '').localeCompare(b.displayName || '', 'ko');
+    });
+  };
+
+  // 사용자 역할 변경 핸들러
+  const handleRoleChange = async (userId: string, newRole: UserRole) => {
+    try {
+      await userApi.update(userId, { role: newRole });
+      message.success('역할이 변경되었습니다');
+      // 팀 데이터 새로고침
+      loadTeamHierarchy();
+    } catch (error: any) {
+      message.error('역할 변경에 실패했습니다: ' + (error.response?.data?.error || error.message));
+    }
+  };
+
+  const filteredTree = filterTeams(teamTree, searchValue);
+  const treeData = convertToTreeData(filteredTree);
+
+  // Auto-expand all when searching
+  useEffect(() => {
+    if (searchValue) {
+      const getAllKeys = (teams: TeamWithUsers[]): string[] => {
+        return teams.reduce((keys: string[], team) => {
+          keys.push(team.id);
+          if (team.children) keys.push(...getAllKeys(team.children));
+          return keys;
+        }, []);
+      };
+      setExpandedKeys(getAllKeys(filteredTree));
+    }
+  }, [searchValue, filteredTree]);
 
   return (
     <div>
-      {/* Header Section */}
+      {/* Header */}
       <div style={{
         marginBottom: 16,
         display: 'flex',
-        justifyContent: 'flex-end',
+        justifyContent: 'space-between',
         alignItems: 'center',
         flexWrap: 'wrap',
         gap: 16
       }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Tag color="blue" icon={<SyncOutlined />}>LDAP 연동</Tag>
+          <Typography.Text type="secondary" style={{ fontSize: 13 }}>
+            조직 정보는 LDAP 서버에서 동기화됩니다
+          </Typography.Text>
+        </div>
         <Space>
-          {user?.role === 'ADMIN' && (
+          {currentUser?.role === 'ADMIN' && (
             <Button
-              type="primary"
-              icon={<SyncOutlined spin={syncing} />}
-              onClick={handleLdapSync}
-              loading={syncing}
+              danger
+              icon={<DeleteOutlined />}
+              onClick={openResetModal}
               size="large"
             >
-              LDAP 동기화
+              초기화
             </Button>
           )}
           <Button
             icon={<ReloadOutlined />}
-            onClick={loadData}
+            onClick={loadTeamHierarchy}
             loading={loading}
             size="large"
           >
@@ -582,246 +394,451 @@ const OrganizationManagement: React.FC = () => {
         </Space>
       </div>
 
-      {/* Statistics Cards */}
-      <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
-        <Col xs={24} sm={12} lg={6}>
-          <Card
-            bordered={false}
-            style={{
-              borderRadius: 8,
-              boxShadow: '0 1px 4px rgba(0,0,0,0.1)'
-            }}
-          >
+      {/* Statistics */}
+      <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
+        <Col xs={12} sm={6}>
+          <Card bordered={false} style={{ borderRadius: 8, boxShadow: '0 1px 4px rgba(0,0,0,0.1)' }}>
             <Statistic
-              title="활성 팀"
-              value={activeTeamsCount}
-              suffix={<span style={{ fontSize: 16, color: '#8c8c8c' }}>/ {teams.length}</span>}
-              prefix={<TeamOutlined style={{ color: 'rgb(0, 140, 214)' }} />}
-              valueStyle={{ color: '#262626' }}
+              title="전체 팀"
+              value={stats.totalTeams}
+              prefix={<TeamOutlined style={{ color: '#1890ff' }} />}
             />
           </Card>
         </Col>
-        <Col xs={24} sm={12} lg={6}>
-          <Card
-            bordered={false}
-            style={{
-              borderRadius: 8,
-              boxShadow: '0 1px 4px rgba(0,0,0,0.1)'
-            }}
-          >
+        <Col xs={12} sm={6}>
+          <Card bordered={false} style={{ borderRadius: 8, boxShadow: '0 1px 4px rgba(0,0,0,0.1)' }}>
             <Statistic
-              title="활성 사용자"
-              value={activeUsersCount}
-              suffix={<span style={{ fontSize: 16, color: '#8c8c8c' }}>/ {users.length}</span>}
-              prefix={<UserOutlined style={{ color: 'rgb(0, 140, 214)' }} />}
-              valueStyle={{ color: '#262626' }}
+              title="전체 사용자"
+              value={stats.totalUsers}
+              prefix={<UserOutlined style={{ color: '#52c41a' }} />}
             />
           </Card>
         </Col>
-        <Col xs={24} sm={12} lg={6}>
-          <Card
-            bordered={false}
-            style={{
-              borderRadius: 8,
-              boxShadow: '0 1px 4px rgba(0,0,0,0.1)'
-            }}
-          >
+        <Col xs={12} sm={6}>
+          <Card bordered={false} style={{ borderRadius: 8, boxShadow: '0 1px 4px rgba(0,0,0,0.1)' }}>
             <Statistic
               title="LDAP 팀"
-              value={teams.filter(t => t.ldapDn).length}
-              prefix={<TeamOutlined style={{ color: 'rgb(0, 140, 214)' }} />}
-              valueStyle={{ color: '#262626' }}
+              value={stats.ldapTeams}
+              prefix={<ApartmentOutlined style={{ color: '#722ed1' }} />}
             />
           </Card>
         </Col>
-        <Col xs={24} sm={12} lg={6}>
-          <Card
-            bordered={false}
-            style={{
-              borderRadius: 8,
-              boxShadow: '0 1px 4px rgba(0,0,0,0.1)'
-            }}
-          >
+        <Col xs={12} sm={6}>
+          <Card bordered={false} style={{ borderRadius: 8, boxShadow: '0 1px 4px rgba(0,0,0,0.1)' }}>
             <Statistic
               title="LDAP 사용자"
-              value={users.filter(u => u.ldapDn).length}
-              prefix={<UserOutlined style={{ color: 'rgb(0, 140, 214)' }} />}
-              valueStyle={{ color: '#262626' }}
+              value={stats.ldapUsers}
+              prefix={<UserOutlined style={{ color: '#fa8c16' }} />}
             />
           </Card>
         </Col>
       </Row>
 
-      {/* Main Content Layout */}
-      <Layout style={{ background: '#fff', minHeight: 600, border: '1px solid #f0f0f0' }}>
-        <Sider
-          width={360}
-          style={{
-            background: '#fafafa',
-            borderRight: '1px solid #e8e8e8'
-          }}
-        >
-          <div style={{ padding: 16 }}>
+      {/* Main Content */}
+      <Row gutter={[16, 16]}>
+        {/* Left: Tree */}
+        <Col xs={24} lg={10}>
+          <Card
+            title={
+              <Space>
+                <ApartmentOutlined />
+                <span>조직 구조</span>
+              </Space>
+            }
+            extra={
+              <Button size="small" onClick={handleExpandAll}>
+                {expandedKeys.length > 0 ? '모두 접기' : '모두 펼치기'}
+              </Button>
+            }
+            bordered={false}
+            style={{ borderRadius: 8, boxShadow: '0 1px 4px rgba(0,0,0,0.1)', height: '100%' }}
+          >
             <Search
-              placeholder="팀 또는 사용자 검색"
+              placeholder="팀 또는 사용자 검색..."
               allowClear
               prefix={<SearchOutlined />}
               onChange={e => setSearchValue(e.target.value)}
               style={{ marginBottom: 16 }}
             />
-            {loading ? (
-              <div style={{ textAlign: 'center', padding: 60 }}>
-                <Spin size="large" />
+            <Spin spinning={loading}>
+              <div style={{ maxHeight: 'calc(100vh - 420px)', overflowY: 'auto' }}>
+                {treeData.length > 0 ? (
+                  <Tree
+                    showLine={{ showLeafIcon: false }}
+                    expandedKeys={expandedKeys}
+                    onExpand={handleExpand}
+                    onSelect={handleSelect}
+                    treeData={treeData}
+                  />
+                ) : (
+                  <Empty
+                    image={Empty.PRESENTED_IMAGE_SIMPLE}
+                    description={
+                      searchValue ? '검색 결과가 없습니다' : (
+                        <div>
+                          <div>조직도가 없습니다</div>
+                          <div style={{ fontSize: 12, marginTop: 4 }}>
+                            LDAP 관리에서 조직을 동기화하세요
+                          </div>
+                        </div>
+                      )
+                    }
+                  />
+                )}
               </div>
+            </Spin>
+          </Card>
+        </Col>
+
+        {/* Right: Detail Panel */}
+        <Col xs={24} lg={14}>
+          {selectedTeam ? (
+            <Card
+              bordered={false}
+              style={{ borderRadius: 8, boxShadow: '0 1px 4px rgba(0,0,0,0.1)' }}
+              title={
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                  <div style={{
+                    width: 48,
+                    height: 48,
+                    borderRadius: 8,
+                    background: '#1890ff',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: '#fff',
+                    fontSize: 20
+                  }}>
+                    <TeamOutlined />
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 18, fontWeight: 600 }}>{selectedTeam.name}</div>
+                    <Space size={4}>
+                      {selectedTeam.ldapType && (
+                        <Tag color={selectedTeam.ldapType === 'OU' ? 'blue' : 'green'}>
+                          {selectedTeam.ldapType === 'OU' ? '조직 단위' : '그룹'}
+                        </Tag>
+                      )}
+                      {selectedTeam.ldapDn && <Tag color="purple">LDAP</Tag>}
+                      <Tag>Level {selectedTeam.level}</Tag>
+                    </Space>
+                  </div>
+                </div>
+              }
+            >
+              {/* Team Info */}
+              <Descriptions bordered column={2} size="small" style={{ marginBottom: 24 }}>
+                <Descriptions.Item label="팀 이름">{selectedTeam.name}</Descriptions.Item>
+                <Descriptions.Item label="계층 레벨">Level {selectedTeam.level}</Descriptions.Item>
+                <Descriptions.Item label="멤버 수">{selectedTeam.User?.length || 0}명</Descriptions.Item>
+                <Descriptions.Item label="하위 팀">{selectedTeam.children?.length || 0}개</Descriptions.Item>
+                {selectedTeam.description && (
+                  <Descriptions.Item label="설명" span={2}>{selectedTeam.description}</Descriptions.Item>
+                )}
+              </Descriptions>
+
+              {/* Team Members */}
+              <div>
+                <h4 style={{ marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <UserOutlined />
+                  <span>팀 멤버</span>
+                  <Tag color="cyan">{selectedTeam.User?.length || 0}명</Tag>
+                </h4>
+                {selectedTeam.User && selectedTeam.User.length > 0 ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    {sortMembers(selectedTeam.User).map((user) => {
+                      const isPOorPM = user.role === 'PO' || user.role === 'PM';
+                      return (
+                      <Card
+                        key={user.id}
+                        size="small"
+                        bordered={isPOorPM}
+                        style={{
+                          background: isPOorPM ? '#f0f5ff' : '#fafafa',
+                          borderRadius: 8,
+                          borderColor: isPOorPM ? '#adc6ff' : undefined,
+                        }}
+                        styles={{ body: { padding: '12px 16px' } }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                          <Avatar
+                            style={{ backgroundColor: '#1890ff', flexShrink: 0 }}
+                            icon={<UserOutlined />}
+                          />
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontWeight: 500, marginBottom: 4 }}>
+                              {user.displayName}
+                              <span style={{ marginLeft: 8, color: '#8c8c8c', fontWeight: 400, fontSize: 13 }}>
+                                ({user.username})
+                              </span>
+                            </div>
+                            <Space size={4} wrap>
+                              {user.position && <Tag color="blue" style={{ margin: 0 }}>{user.position}</Tag>}
+                              {user.title && <Tag color="cyan" style={{ margin: 0 }}>{user.title}</Tag>}
+                              {currentUser?.role === 'ADMIN' ? (
+                                <Select
+                                  size="small"
+                                  value={user.role}
+                                  onChange={(value) => handleRoleChange(user.id, value as UserRole)}
+                                  style={{ width: 105 }}
+                                  options={[
+                                    { value: 'PO', label: 'PO' },
+                                    { value: 'PM', label: 'PM' },
+                                    { value: 'MEMBER', label: 'MEMBER' },
+                                  ]}
+                                />
+                              ) : (
+                                <Tag
+                                  color={user.role === 'ADMIN' ? 'red' : user.role === 'PM' ? 'geekblue' : user.role === 'PO' ? 'purple' : 'default'}
+                                  style={{ margin: 0 }}
+                                >
+                                  {user.role}
+                                </Tag>
+                              )}
+                            </Space>
+                          </div>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'flex-end', color: '#8c8c8c', fontSize: 12 }}>
+                            {user.email && (
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                                <MailOutlined />
+                                <span>{user.email}</span>
+                              </div>
+                            )}
+                            {user.phoneNumber && (
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                                <PhoneOutlined />
+                                <span>{user.phoneNumber}</span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </Card>
+                    )})}
+                  </div>
+                ) : (
+                  <Empty
+                    image={Empty.PRESENTED_IMAGE_SIMPLE}
+                    description="이 팀에 멤버가 없습니다"
+                    style={{ padding: '40px 0', background: '#fafafa', borderRadius: 8 }}
+                  />
+                )}
+              </div>
+
+              {/* Sub Teams */}
+              {selectedTeam.children && selectedTeam.children.length > 0 && (
+                <div style={{ marginTop: 24 }}>
+                  <h4 style={{ marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <ApartmentOutlined />
+                    <span>하위 팀</span>
+                    <Tag>{selectedTeam.children.length}개</Tag>
+                  </h4>
+                  <Row gutter={[8, 8]}>
+                    {selectedTeam.children.map((childTeam) => (
+                      <Col xs={24} sm={12} key={childTeam.id}>
+                        <Card
+                          size="small"
+                          hoverable
+                          onClick={() => setSelectedTeam(childTeam)}
+                          style={{ borderRadius: 8 }}
+                        >
+                          <Space>
+                            <TeamOutlined style={{ color: '#1890ff' }} />
+                            <span style={{ fontWeight: 500 }}>{childTeam.name}</span>
+                            {childTeam.User && childTeam.User.length > 0 && (
+                              <Tag color="cyan">{childTeam.User.length}명</Tag>
+                            )}
+                          </Space>
+                        </Card>
+                      </Col>
+                    ))}
+                  </Row>
+                </div>
+              )}
+            </Card>
+          ) : (
+            <Card
+              bordered={false}
+              style={{ borderRadius: 8, boxShadow: '0 1px 4px rgba(0,0,0,0.1)', height: '100%', minHeight: 400 }}
+            >
+              <Empty
+                image={<ApartmentOutlined style={{ fontSize: 64, color: '#d9d9d9' }} />}
+                description={
+                  <div>
+                    <div style={{ fontSize: 16, marginBottom: 8 }}>팀을 선택하세요</div>
+                    <div style={{ color: '#8c8c8c' }}>왼쪽 조직 구조에서 팀을 클릭하여 상세 정보를 확인하세요</div>
+                  </div>
+                }
+                style={{ marginTop: 80 }}
+              />
+            </Card>
+          )}
+        </Col>
+      </Row>
+
+      {/* Reset Organization Modal */}
+      <Modal
+        title={
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <WarningOutlined style={{ color: '#ff4d4f', fontSize: 20 }} />
+            <span>조직도 초기화</span>
+          </div>
+        }
+        open={resetModalVisible}
+        onCancel={closeResetModal}
+        width={600}
+        footer={null}
+        maskClosable={false}
+      >
+        <Steps
+          current={resetStep}
+          size="small"
+          style={{ marginBottom: 24 }}
+          items={[
+            { title: '경고 확인' },
+            { title: '최종 확인' },
+            { title: '비밀번호 입력' },
+            { title: '완료' },
+          ]}
+        />
+
+        {/* Step 0: Warning */}
+        {resetStep === 0 && (
+          <div>
+            <Alert
+              type="error"
+              showIcon
+              icon={<ExclamationCircleOutlined />}
+              message="주의: 되돌릴 수 없는 작업입니다"
+              description={
+                <div>
+                  <p>이 작업은 다음을 수행합니다:</p>
+                  <ul style={{ marginLeft: 16 }}>
+                    <li><strong>{stats.totalTeams}개</strong>의 모든 팀/조직이 삭제됩니다</li>
+                    <li><strong>{stats.totalUsers}명</strong>의 사용자 팀 배정이 해제됩니다</li>
+                    <li>삭제된 데이터는 복구할 수 없습니다</li>
+                  </ul>
+                </div>
+              }
+              style={{ marginBottom: 16 }}
+            />
+            <div style={{ textAlign: 'right' }}>
+              <Space>
+                <Button onClick={closeResetModal}>취소</Button>
+                <Button type="primary" danger onClick={handleResetNext}>
+                  이해했습니다, 계속 진행
+                </Button>
+              </Space>
+            </div>
+          </div>
+        )}
+
+        {/* Step 1: Final Confirmation */}
+        {resetStep === 1 && (
+          <div>
+            <Alert
+              type="warning"
+              showIcon
+              message="최종 확인"
+              description={
+                <div>
+                  <p style={{ fontSize: 16, fontWeight: 500, marginBottom: 8 }}>
+                    정말로 모든 조직 데이터를 삭제하시겠습니까?
+                  </p>
+                  <p style={{ color: '#8c8c8c' }}>
+                    이 작업 후 LDAP에서 조직을 다시 동기화해야 합니다.
+                  </p>
+                </div>
+              }
+              style={{ marginBottom: 16 }}
+            />
+            <div style={{ textAlign: 'right' }}>
+              <Space>
+                <Button onClick={handleResetPrev}>이전</Button>
+                <Button type="primary" danger onClick={handleResetNext}>
+                  예, 초기화합니다
+                </Button>
+              </Space>
+            </div>
+          </div>
+        )}
+
+        {/* Step 2: Password Input */}
+        {resetStep === 2 && (
+          <div>
+            <Alert
+              type="info"
+              showIcon
+              icon={<LockOutlined />}
+              message="관리자 인증 필요"
+              description="보안을 위해 관리자 비밀번호를 입력해주세요."
+              style={{ marginBottom: 16 }}
+            />
+            <div style={{ marginBottom: 16 }}>
+              <Typography.Text strong style={{ display: 'block', marginBottom: 8 }}>
+                비밀번호
+              </Typography.Text>
+              <Input.Password
+                placeholder="관리자 비밀번호를 입력하세요"
+                value={resetPassword}
+                onChange={(e) => setResetPassword(e.target.value)}
+                onPressEnter={executeReset}
+                prefix={<LockOutlined />}
+                size="large"
+              />
+            </div>
+            <div style={{ textAlign: 'right' }}>
+              <Space>
+                <Button onClick={handleResetPrev}>이전</Button>
+                <Button
+                  type="primary"
+                  danger
+                  onClick={executeReset}
+                  loading={resetLoading}
+                  disabled={!resetPassword}
+                >
+                  초기화 실행
+                </Button>
+              </Space>
+            </div>
+          </div>
+        )}
+
+        {/* Step 3: Result */}
+        {resetStep === 3 && resetResult && (
+          <div>
+            {resetResult.success ? (
+              <Result
+                status="success"
+                title="초기화 완료"
+                subTitle={
+                  <div>
+                    <p>{resetResult.deletedTeams}개의 팀이 삭제되었습니다.</p>
+                    <p>{resetResult.updatedUsers}명의 사용자 팀 배정이 해제되었습니다.</p>
+                  </div>
+                }
+                extra={
+                  <Button type="primary" onClick={closeResetModal}>
+                    확인
+                  </Button>
+                }
+              />
             ) : (
-              <div style={{
-                maxHeight: 'calc(100vh - 320px)',
-                overflowY: 'auto'
-              }}>
-                <Tree
-                  showIcon
-                  treeData={treeData}
-                  selectedKeys={selectedKeys}
-                  expandedKeys={expandedKeys}
-                  onSelect={onSelect}
-                  onExpand={onExpand}
-                  style={{ background: 'transparent' }}
-                />
-              </div>
+              <Result
+                status="error"
+                title="초기화 실패"
+                subTitle={resetResult.error}
+                extra={
+                  <Space>
+                    <Button onClick={() => setResetStep(2)}>다시 시도</Button>
+                    <Button type="primary" onClick={closeResetModal}>
+                      닫기
+                    </Button>
+                  </Space>
+                }
+              />
             )}
           </div>
-        </Sider>
-        <Content style={{
-          padding: 24,
-          minHeight: 600,
-          background: '#fff'
-        }}>
-          {selectedNode ? (
-            <div>
-              {selectedNode.type === 'team' ? (
-                renderTeamDetail(selectedNode.data as Team)
-              ) : (
-                renderUserDetail(selectedNode.data as User)
-              )}
-            </div>
-          ) : (
-            <Empty
-              description="트리에서 팀 또는 사용자를 선택하세요"
-              style={{
-                marginTop: 120
-              }}
-            />
-          )}
-        </Content>
-      </Layout>
-
-      {/* Team Modal */}
-      <Modal
-        title={editingTeam ? '팀 수정' : '팀 생성'}
-        open={isTeamModalVisible}
-        onOk={handleTeamModalOk}
-        onCancel={() => {
-          setIsTeamModalVisible(false);
-          teamForm.resetFields();
-        }}
-        okText="저장"
-        cancelText="취소"
-      >
-        <Form form={teamForm} layout="vertical">
-          <Form.Item
-            label="팀명"
-            name="name"
-            rules={[{ required: true, message: '팀명을 입력하세요' }]}
-          >
-            <Input placeholder="팀명 입력" />
-          </Form.Item>
-          <Form.Item
-            label="상태"
-            name="isActive"
-            initialValue={true}
-            rules={[{ required: true }]}
-          >
-            <Select>
-              <Select.Option value={true}>활성</Select.Option>
-              <Select.Option value={false}>비활성</Select.Option>
-            </Select>
-          </Form.Item>
-        </Form>
-      </Modal>
-
-      {/* User Modal */}
-      <Modal
-        title={editingUser ? '사용자 수정' : '사용자 생성'}
-        open={isUserModalVisible}
-        onOk={handleUserModalOk}
-        onCancel={() => {
-          setIsUserModalVisible(false);
-          userForm.resetFields();
-        }}
-        okText="저장"
-        cancelText="취소"
-      >
-        <Form form={userForm} layout="vertical">
-          <Form.Item
-            label="아이디"
-            name="username"
-            rules={[{ required: true, message: '아이디를 입력하세요' }]}
-          >
-            <Input placeholder="아이디 입력" disabled={!!editingUser} />
-          </Form.Item>
-          <Form.Item
-            label="이름"
-            name="displayName"
-            rules={[{ required: true, message: '이름을 입력하세요' }]}
-          >
-            <Input placeholder="이름 입력" />
-          </Form.Item>
-          <Form.Item
-            label="이메일"
-            name="email"
-            rules={[
-              { required: true, message: '이메일을 입력하세요' },
-              { type: 'email', message: '올바른 이메일 형식이 아닙니다' },
-            ]}
-          >
-            <Input placeholder="이메일 입력" />
-          </Form.Item>
-          <Form.Item
-            label="역할"
-            name="role"
-            initialValue="MEMBER"
-            rules={[{ required: true }]}
-          >
-            <Select>
-              <Select.Option value="ADMIN">관리자</Select.Option>
-              <Select.Option value="PM">PM</Select.Option>
-              <Select.Option value="PO">PO</Select.Option>
-              <Select.Option value="MEMBER">멤버</Select.Option>
-            </Select>
-          </Form.Item>
-          <Form.Item label="소속 팀" name="teamId">
-            <Select allowClear placeholder="팀 선택">
-              {teams
-                .filter(t => t.isActive && t.id !== 'no-team')
-                .map(team => (
-                  <Select.Option key={team.id} value={team.id}>
-                    {team.name}
-                  </Select.Option>
-                ))}
-            </Select>
-          </Form.Item>
-          <Form.Item
-            label="상태"
-            name="isActive"
-            initialValue={true}
-            rules={[{ required: true }]}
-          >
-            <Select>
-              <Select.Option value={true}>활성</Select.Option>
-              <Select.Option value={false}>비활성</Select.Option>
-            </Select>
-          </Form.Item>
-        </Form>
+        )}
       </Modal>
     </div>
   );

@@ -6,6 +6,7 @@ export const itemsApi = {
     clientId?: string;
     type?: string;
     parentId?: string | null;
+    assigneeId?: string;
   }): Promise<Item[]> => {
     const response = await axios.get<Item[]>('/items', { params });
     return response.data;
@@ -13,14 +14,7 @@ export const itemsApi = {
 
   getItemTree: async (clientId?: string, userTeamId?: string): Promise<Item[]> => {
     const response = await axios.get<Item[]>('/items/tree', {
-      params: { clientId, userTeamId },
-    });
-    return response.data;
-  },
-
-  getMyTasks: async (): Promise<Item[]> => {
-    const response = await axios.get<Item[]>('/items/my-tasks', {
-      params: { _t: Date.now() }, // Cache buster
+      params: { clientId, userTeamId, _t: Date.now() }, // Cache buster
     });
     return response.data;
   },
@@ -40,12 +34,13 @@ export const itemsApi = {
     return response.data;
   },
 
-  moveItem: async (id: string, parentId: string): Promise<Item> => {
-    const response = await axios.patch<Item>(`/items/${id}/move`, { parentId });
+  moveItem: async (id: string, parentId?: string, serviceTeamId?: string): Promise<Item> => {
+    const response = await axios.patch<Item>(`/items/${id}/move`, { parentId, serviceTeamId });
     return response.data;
   },
 
-  deleteItem: async (id: string): Promise<void> => {
-    await axios.delete(`/items/${id}`);
+  deleteItem: async (id: string): Promise<any> => {
+    const response = await axios.delete(`/items/${id}`);
+    return response.data;
   },
 };

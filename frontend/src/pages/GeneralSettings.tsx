@@ -121,20 +121,24 @@ export const GeneralSettings: React.FC = () => {
   };
 
   const updateFaviconInBrowser = (url: string) => {
-    const link = document.querySelector("link[rel*='icon']") as HTMLLinkElement || document.createElement('link');
-    link.type = 'image/x-icon';
-    link.rel = 'shortcut icon';
+    const link = document.querySelector("link[rel='icon']") as HTMLLinkElement || document.createElement('link');
+    link.rel = 'icon';
+    // 파일 확장자에 따라 타입 설정
+    if (url.endsWith('.png')) {
+      link.type = 'image/png';
+    } else if (url.endsWith('.svg')) {
+      link.type = 'image/svg+xml';
+    } else if (url.endsWith('.gif')) {
+      link.type = 'image/gif';
+    } else {
+      link.type = 'image/x-icon';
+    }
     link.href = url;
-    document.getElementsByTagName('head')[0].appendChild(link);
+    document.head.appendChild(link);
   };
 
   return (
     <div style={{ padding: 24 }}>
-      <Title level={2}>일반 설정</Title>
-      <Text type="secondary">시스템의 기본 설정을 관리합니다.</Text>
-
-      <Divider />
-
       <Form
         form={form}
         layout="vertical"

@@ -4,11 +4,23 @@ import { randomUUID } from 'crypto';
 const prisma = new PrismaClient();
 
 class UserService {
-  async getAllUsers(includeInactive = false) {
+  async getAllUsers(includeInactive = false, includeRetired = false) {
+    // v1.1.18: Exclude 퇴사자 and 휴직자 by default
+    const excludedTeamNames = includeRetired ? [] : ['퇴사자', '휴직자'];
+
     return prisma.user.findMany({
       where: {
         ...(includeInactive ? {} : { isActive: true }),
         role: { not: UserRole.ADMIN },
+        ...(excludedTeamNames.length > 0
+          ? {
+              Team: {
+                name: {
+                  notIn: excludedTeamNames,
+                },
+              },
+            }
+          : {}),
       },
       include: {
         Team: {

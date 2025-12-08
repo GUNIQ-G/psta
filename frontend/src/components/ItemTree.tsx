@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Table, Tag, Progress, Button, Dropdown, Tooltip, Space, Badge } from 'antd';
 import {
   PlusOutlined,
@@ -40,8 +40,8 @@ const typeIcons: Record<ItemType, React.ReactNode> = {
 const typeIndent: Record<ItemType, number> = {
   PROJECT: 0,
   SERVICE: 20,
-  TEAM: 40,
-  ACTION: 60,
+  TEAM: 20,
+  ACTION: 20,
 };
 
 const statusColors: Record<ItemStatus, string> = {
@@ -67,6 +67,7 @@ interface ItemTreeProps {
   expandedTypes?: Set<ItemType>;
   hasDetailPanel?: boolean;
   hideUnassignedIds?: string[];
+  hideEmptyTeams?: boolean;
   selectedClientIds?: string[];
   selectedProjectIds?: string[];
   searchKeyword?: string;
@@ -81,6 +82,7 @@ export const ItemTree: React.FC<ItemTreeProps> = ({
   expandedTypes,
   hasDetailPanel = false,
   hideUnassignedIds = [],
+  hideEmptyTeams = false,
   selectedClientIds = [],
   selectedProjectIds = [],
   searchKeyword = '',
@@ -88,21 +90,27 @@ export const ItemTree: React.FC<ItemTreeProps> = ({
   const [items, setItems] = useState<Item[]>([]);
   const [loading, setLoading] = useState(false);
   const [expandedRowKeys, setExpandedRowKeys] = useState<React.Key[]>([]);
+  const fetchInProgressRef = useRef(false);
 
   // 재귀적으로 미정 항목 필터링
-  const filterUnassignedItems = (items: Item[]): Item[] => {
+  const filterUnassignedItems = useCallback((items: Item[]): Item[] => {
     return items
-      .filter(item => !hideUnassignedIds.includes(item.id))
+      .filter(item => {
+        // ID 배열 체크 또는 이름에 "미정" 포함 여부 체크
+        const isUnassignedById = hideUnassignedIds.includes(item.id);
+        const isUnassignedByName = item.name.includes('미정');
+        return !(isUnassignedById || isUnassignedByName);
+      })
       .map(item => ({
         ...item,
         children: item.children ? filterUnassignedItems(item.children) : undefined,
       }));
-  };
+  }, [hideUnassignedIds]);
 
   // 고객/프로젝트 필터링 (다중 선택)
-  const filterByHierarchy = (items: Item[], ancestorProjectId?: string): Item[] => {
+  const filterByHierarchy = useCallback((items: Item[], ancestorProjectId?: string): Item[] => {
     return items
-      .map(item => {
+      .map((item): (Item & { children?: Item[] }) | null => {
         // 현재 항목의 프로젝트 컨텍스트 결정
         const currentProjectId = item.type === ItemType.PROJECT ? item.id : ancestorProjectId;
 
@@ -134,11 +142,11 @@ export const ItemTree: React.FC<ItemTreeProps> = ({
           children: filteredChildren,
         };
       })
-      .filter((item): item is Item => item !== null);
-  };
+      .filter((item): item is Item & { children?: Item[] } => item !== null);
+  }, [selectedClientIds, selectedProjectIds]);
 
   // 검색 필터링: 검색어가 있으면 매칭되는 항목과 그 상위/하위 항목 모두 표시
-  const filterBySearch = (items: Item[]): Item[] => {
+  const filterBySearch = useCallback((items: Item[]): Item[] => {
     if (!searchKeyword || searchKeyword.trim() === '') {
       return items;
     }
@@ -190,17 +198,108 @@ export const ItemTree: React.FC<ItemTreeProps> = ({
     };
 
     return filterItems(items);
-  };
+  }, [searchKeyword]);
 
-  const fetchItems = async () => {
+  // 삭제된 항목 필터링 (방어적 필터링)
+  const filterDeletedItems = useCallback((items: Item[]): Item[] => {
+    return items
+      .filter(item => {
+        // deletedAt이나 isDeleted가 있으면 제외
+        const itemAny = item as any;
+        return !itemAny.deletedAt && !itemAny.isDeleted;
+      })
+      .map(item => {
+        // 자식이 있으면 재귀적으로 필터링
+        const filteredChildren = item.children ? filterDeletedItems(item.children) : undefined;
+
+        return {
+          ...item,
+          children: filteredChildren,
+        };
+      });
+  }, []);
+
+  // 빈 팀 필터링: 액션이 없는 팀 숨기기
+  const filterEmptyTeams = useCallback((items: Item[]): Item[] => {
+    return items
+      .map(item => {
+        // 자식이 있으면 재귀적으로 필터링
+        const filteredChildren = item.children ? filterEmptyTeams(item.children) : undefined;
+
+        return {
+          ...item,
+          children: filteredChildren,
+        };
+      })
+      .filter(item => {
+        // TEAM 타입이 아니면 항상 유지
+        if (item.type !== ItemType.TEAM) {
+          return true;
+        }
+
+        // TEAM 타입인 경우, ACTION 자식이 있는지 확인
+        const hasActionChildren = (team: Item): boolean => {
+          if (!team.children || team.children.length === 0) {
+            return false;
+          }
+
+          return team.children.some(child => child.type === ItemType.ACTION);
+        };
+
+        return hasActionChildren(item);
+      });
+  }, []);
+
+  const fetchItems = useCallback(async () => {
+    // 중복 호출 방지
+    if (fetchInProgressRef.current) {
+      return;
+    }
+
+    fetchInProgressRef.current = true;
     setLoading(true);
+
     try {
       const data = await itemsApi.getItemTree(undefined, userTeamId);
-      console.log('ItemTree data:', data);
-      console.log('First item _count:', data[0]?._count);
+
+      // 중복 ID 찾기
+      const findDuplicateIds = (items: Item[], path: string = ''): void => {
+        const idMap = new Map<string, string[]>();
+
+        const traverse = (items: Item[], currentPath: string) => {
+          items.forEach((item, index) => {
+            const itemPath = `${currentPath}/${item.type}[${index}]:${item.name}`;
+
+            if (idMap.has(item.id)) {
+              idMap.get(item.id)!.push(itemPath);
+            } else {
+              idMap.set(item.id, [itemPath]);
+            }
+
+            if (item.children && item.children.length > 0) {
+              traverse(item.children, itemPath);
+            }
+          });
+        };
+
+        traverse(items, path);
+
+        // 중복된 ID만 출력
+        idMap.forEach((paths, id) => {
+          if (paths.length > 1) {
+            console.error('🔴 Duplicate ID found:', id);
+            console.error('   Appears in:', paths);
+          }
+        });
+      };
+
+      findDuplicateIds(data, 'ROOT');
 
       // 필터링 적용
       let filteredData = data;
+
+      // 0. 삭제된 항목 필터링 (방어적 필터링)
+      filteredData = filterDeletedItems(filteredData);
 
       // 1. 미정 항목 필터링
       if (hideUnassignedIds.length > 0) {
@@ -212,9 +311,49 @@ export const ItemTree: React.FC<ItemTreeProps> = ({
         filteredData = filterByHierarchy(filteredData);
       }
 
-      // 3. 검색 필터링
+      // 3. 빈 팀 필터링
+      if (hideEmptyTeams) {
+        filteredData = filterEmptyTeams(filteredData);
+      }
+
+      // 4. 검색 필터링
       if (searchKeyword && searchKeyword.trim() !== '') {
         filteredData = filterBySearch(filteredData);
+      }
+
+      // 5. 미정 항목을 상단에 고정하는 재귀 함수 (미정 항목 숨기기가 해제되어 있을 때만)
+      const sortUnassignedToTop = (items: Item[]): Item[] => {
+        return items.map(item => {
+          // 자식이 있으면 재귀적으로 정렬
+          const sortedChildren = item.children ? sortUnassignedToTop(item.children) : undefined;
+
+          // 자식들을 미정 서비스 우선으로 정렬
+          const finalChildren = sortedChildren?.sort((a, b) => {
+            const aIsUnassigned = a.name.includes('미정') && a.type === ItemType.SERVICE;
+            const bIsUnassigned = b.name.includes('미정') && b.type === ItemType.SERVICE;
+
+            if (aIsUnassigned && !bIsUnassigned) return -1;
+            if (!aIsUnassigned && bIsUnassigned) return 1;
+            return 0;
+          });
+
+          return {
+            ...item,
+            children: finalChildren,
+          };
+        }).sort((a, b) => {
+          // 프로젝트 레벨에서 미정 프로젝트를 상단으로
+          const aIsUnassigned = a.name.includes('미정') && a.type === ItemType.PROJECT;
+          const bIsUnassigned = b.name.includes('미정') && b.type === ItemType.PROJECT;
+
+          if (aIsUnassigned && !bIsUnassigned) return -1;
+          if (!aIsUnassigned && bIsUnassigned) return 1;
+          return 0;
+        });
+      };
+
+      if (hideUnassignedIds.length === 0) {
+        filteredData = sortUnassignedToTop(filteredData);
       }
 
       setItems(filteredData);
@@ -225,12 +364,13 @@ export const ItemTree: React.FC<ItemTreeProps> = ({
       console.error('Failed to fetch items:', error);
     } finally {
       setLoading(false);
+      fetchInProgressRef.current = false;
     }
-  };
+  }, [userTeamId, hideUnassignedIds, hideEmptyTeams, selectedClientIds, selectedProjectIds, searchKeyword, filterDeletedItems, filterUnassignedItems, filterByHierarchy, filterEmptyTeams, filterBySearch]);
 
   useEffect(() => {
     fetchItems();
-  }, [userTeamId, hideUnassignedIds, selectedClientIds, selectedProjectIds, searchKeyword]);
+  }, [fetchItems]);
 
   // 계층별 펼치기/접기 처리 (위에서 아래로 내려보기)
   useEffect(() => {
@@ -408,29 +548,270 @@ export const ItemTree: React.FC<ItemTreeProps> = ({
 
   const columns: ColumnsType<Item> = [
     {
-      title: '업무 계층',
-      key: 'expandToggle',
-      width: 100,
+      title: '고객',
+      key: 'client',
+      width: 120,
       fixed: 'left',
+      render: (_, record) => {
+        if (record.type !== ItemType.PROJECT) return null;
+        const client = record.Client;
+        if (!client) return null;
+
+        return (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            {/* 고객 썸네일 */}
+            {client.logoUrl ? (
+              <img
+                src={client.logoUrl}
+                alt={client.name}
+                style={{
+                  width: '28px',
+                  height: '28px',
+                  objectFit: 'cover',
+                  borderRadius: '50%',
+                  border: '1px solid #f0f0f0',
+                  cursor: 'pointer'
+                }}
+              />
+            ) : (
+              <div
+                style={{
+                  width: '28px',
+                  height: '28px',
+                  backgroundColor: '#f0f0f0',
+                  borderRadius: '50%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: '12px',
+                  color: '#999',
+                  fontWeight: 'bold',
+                  cursor: 'pointer',
+                  border: '1px solid #e0e0e0',
+                  flexShrink: 0,
+                }}
+              >
+                {client.name.charAt(0).toUpperCase()}
+              </div>
+            )}
+            {/* 고객명 */}
+            <span style={{
+              fontSize: '13px',
+              fontWeight: 500,
+              color: '#595959',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+            }}>
+              {client.name}
+            </span>
+          </div>
+        );
+      },
+    },
+    {
+      title: '업무명',
+      key: 'name',
+      render: (_, record: Item) => {
+        const commentCount = record._count?.Comment || 0;
+        const fileCount = (record._count?.File || 0) + (record._count?.Link || 0);
+        const indent = typeIndent[record.type];
+        const isUnassigned = record.name.includes('미정') && (record.type === ItemType.PROJECT || record.type === ItemType.SERVICE);
+
+        return (
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            paddingLeft: indent,
+            backgroundColor: isUnassigned ? '#fff9e6' : 'transparent',
+            cursor: 'pointer',
+          }}
+          onClick={() => onItemClick?.(record)}
+          >
+            {/* 액션 팀 태그 (3단계 구조: 생성자의 팀 표시) - A 태그 앞에 배치 */}
+            {record.type === ItemType.ACTION && (
+              <Tag
+                color="green"
+                style={{
+                  fontSize: '10px',
+                  padding: '0 4px',
+                  margin: 0,
+                  lineHeight: '18px',
+                  width: '60px',
+                  textAlign: 'center',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {(record as any).User_Item_createdByIdToUser?.Team?.name || '-'}
+              </Tag>
+            )}
+
+            {/* 타입 아이콘 */}
+            <span style={{ color: typeColors[record.type] }}>
+              {typeIcons[record.type]}
+            </span>
+
+            {/* PSTA명 + 댓글 수 그룹 */}
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              flex: 1,
+              minWidth: 0,
+              overflow: 'hidden',
+            }}>
+              {/* PSTA명 */}
+              <span style={{
+                fontWeight: 500,
+                fontSize: '14px',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+                flexShrink: 1,
+              }}>
+                {record.name}
+              </span>
+
+              {/* 댓글 수 */}
+              {commentCount > 0 && (
+                <span style={{
+                  fontSize: '12px',
+                  color: '#8c8c8c',
+                  flexShrink: 0,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '2px'
+                }}>
+                  💬{commentCount}
+                </span>
+              )}
+
+              {/* 관련문서 수 */}
+              {fileCount > 0 && (
+                <span style={{
+                  fontSize: '12px',
+                  color: '#8c8c8c',
+                  flexShrink: 0,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '2px'
+                }}>
+                  📎{fileCount}
+                </span>
+              )}
+            </div>
+          </div>
+        );
+      },
+    },
+    {
+      title: '담당자',
+      key: 'assignee',
+      width: 120,
+      render: (_, record: Item) => {
+        return (
+          <span style={{
+            fontSize: '13px',
+            color: '#595959',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'flex-start',
+            gap: '4px'
+          }}>
+            <span>👤</span>
+            <span style={{
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap'
+            }}>
+              {record.User_Item_assigneeIdToUser?.displayName || '-'}
+            </span>
+          </span>
+        );
+      },
+    },
+    {
+      title: '상태',
+      key: 'status',
+      width: 80,
+      render: (_, record: Item) => {
+        return (
+          <Tag color={statusColors[record.status]} style={{
+            margin: 0,
+            fontSize: '11px',
+            padding: '1px 8px',
+            minWidth: '50px',
+            textAlign: 'center'
+          }}>
+            {statusLabels[record.status]}
+          </Tag>
+        );
+      },
+    },
+    {
+      title: '진행률',
+      key: 'progress',
+      width: 120,
+      render: (_, record: Item) => {
+        const progressDisplay = record.progress === 100 ? '✓' : `${record.progress}%`;
+
+        return (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+            <Progress
+              percent={record.progress}
+              size="small"
+              strokeColor={record.progress === 100 ? '#52c41a' : '#1890ff'}
+              showInfo={false}
+              style={{ flex: 1, minWidth: 0 }}
+            />
+            <span style={{
+              fontSize: '11px',
+              fontWeight: 600,
+              color: record.progress === 100 ? '#52c41a' : '#1890ff',
+              minWidth: '30px',
+              textAlign: 'right'
+            }}>
+              {progressDisplay}
+            </span>
+          </div>
+        );
+      },
+    },
+    {
+      title: '기간',
+      key: 'date',
+      width: 220,
+      render: (_, record: Item) => {
+        const dateRange = record.startDate && record.endDate
+          ? `${dayjs(record.startDate).format('YYYY.MM.DD')} - ${dayjs(record.endDate).format('YYYY.MM.DD')}`
+          : '미정';
+
+        return (
+          <span style={{
+            fontSize: '12px',
+            color: '#595959',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'flex-start',
+            gap: '4px'
+          }}>
+            <span>📅</span>
+            <span>{dateRange}</span>
+          </span>
+        );
+      },
+    },
+    {
+      title: 'PSTA',
+      key: 'expandToggle',
+      width: 130,
       className: 'interactive-column',
-      onHeaderCell: () => ({
-        style: {
-          backgroundColor: '#f0f5ff',
-          fontWeight: 600,
-        },
-      }),
-      onCell: () => ({
-        style: {
-          backgroundColor: '#fafafa',
-        },
-      }),
       render: (_, record) => {
         if (record.type !== ItemType.PROJECT) return null;
 
-        // 각 레벨별 상태 확인
-        // 서비스를 보려면 PROJECT가 펼쳐져야 함
-        // 팀을 보려면 SERVICE가 펼쳐져야 함
-        // 액션을 보려면 TEAM이 펼쳐져야 함
         const projectKeys = getKeysOfType(record, ItemType.PROJECT);
         const serviceKeys = getKeysOfType(record, ItemType.SERVICE);
         const teamKeys = getKeysOfType(record, ItemType.TEAM);
@@ -447,7 +828,6 @@ export const ItemTree: React.FC<ItemTreeProps> = ({
                 size="small"
                 onClick={(e) => {
                   e.stopPropagation();
-                  // 프로젝트 접기만 가능 (닫기 전용)
                   if (isProjectExpanded) {
                     setExpandedRowKeys(prev => prev.filter(key => key !== record.id));
                   }
@@ -549,165 +929,6 @@ export const ItemTree: React.FC<ItemTreeProps> = ({
         );
       },
     },
-    {
-      title: '고객',
-      dataIndex: ['Client', 'name'],
-      key: 'client',
-      width: 150,
-      render: (_: string, record: Item) => {
-        const client = record.Client;
-        if (!client) return '-';
-
-        return (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            {client.logoUrl ? (
-              <img
-                src={client.logoUrl}
-                alt={client.name}
-                style={{
-                  width: '24px',
-                  height: '24px',
-                  objectFit: 'contain',
-                  borderRadius: '2px'
-                }}
-              />
-            ) : (
-              <div
-                style={{
-                  width: '24px',
-                  height: '24px',
-                  backgroundColor: '#f0f0f0',
-                  borderRadius: '2px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  fontSize: '10px',
-                  color: '#999',
-                  fontWeight: 'bold'
-                }}
-              >
-                {client.name.charAt(0).toUpperCase()}
-              </div>
-            )}
-            <span>{client.name}</span>
-          </div>
-        );
-      },
-    },
-    {
-      title: 'PSTA 명',
-      dataIndex: 'name',
-      key: 'name',
-      width: 400,
-      render: (name: string, record: Item) => {
-        const commentCount = record._count?.Comment || 0;
-        const indent = typeIndent[record.type];
-        const hasTreeLine = indent > 0;
-
-        return (
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              cursor: 'pointer',
-              padding: '0',
-              paddingLeft: `${indent}px`,
-            }}
-            onClick={() => onItemClick?.(record)}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.backgroundColor = '#f5f5f5';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.backgroundColor = 'transparent';
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              {hasTreeLine && (
-                <div style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  marginRight: '4px',
-                }}>
-                  {/* 세로선 */}
-                  <div style={{
-                    width: '1px',
-                    height: '24px',
-                    backgroundColor: '#d9d9d9',
-                    position: 'relative',
-                    marginRight: '8px',
-                  }}>
-                    {/* 가로선 */}
-                    <div style={{
-                      position: 'absolute',
-                      top: '50%',
-                      left: '0',
-                      width: '12px',
-                      height: '1px',
-                      backgroundColor: '#d9d9d9',
-                    }} />
-                  </div>
-                </div>
-              )}
-              <span style={{ color: typeColors[record.type] }}>
-                {typeIcons[record.type]}
-              </span>
-              <span>{name}</span>
-            </div>
-            {commentCount > 0 && (
-              <span style={{ display: 'flex', alignItems: 'center', gap: '4px', color: '#8c8c8c', fontSize: '12px' }}>
-                <MessageOutlined style={{ fontSize: '12px' }} />
-                <span>{commentCount}</span>
-              </span>
-            )}
-          </div>
-        );
-      },
-    },
-    {
-      title: '진행 일정',
-      key: 'schedule',
-      width: 200,
-      render: (_, record) => {
-        if (!record.startDate || !record.endDate) return '-';
-        return `${dayjs(record.startDate).format('YYYY.MM.DD')} → ${dayjs(record.endDate).format('YYYY.MM.DD')}`;
-      },
-    },
-    {
-      title: '담당자',
-      dataIndex: ['User_Item_assigneeIdToUser', 'displayName'],
-      key: 'assignee',
-      width: 120,
-    },
-    {
-      title: '상태',
-      dataIndex: 'status',
-      key: 'status',
-      width: 100,
-      render: (status: ItemStatus) => (
-        <Tag color={statusColors[status]}>{statusLabels[status]}</Tag>
-      ),
-    },
-    {
-      title: '진행률',
-      dataIndex: 'progress',
-      key: 'progress',
-      width: 70,
-      align: 'center',
-      render: (progress: number) => (
-        <Progress
-          type="circle"
-          percent={progress}
-          size={40}
-          strokeWidth={6}
-          format={(percent) => (
-            <span style={{ fontSize: '11px', fontWeight: 600 }}>
-              {percent}%
-            </span>
-          )}
-        />
-      ),
-    },
   ];
 
   const [tableHeight, setTableHeight] = useState(500);
@@ -736,14 +957,22 @@ export const ItemTree: React.FC<ItemTreeProps> = ({
     <div ref={containerRef} style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
       <style>{`
         .compact-table .ant-table-tbody > tr > td {
-          padding: 4px 8px !important;
-          line-height: 1.2 !important;
+          padding: 2px 6px !important;
+          line-height: 1.3 !important;
+          border-bottom: none !important;
         }
         .compact-table .ant-table-thead > tr > th {
-          padding: 8px 8px !important;
+          padding: 6px 8px !important;
+          font-size: 12px !important;
         }
         .compact-table .ant-table-cell {
           vertical-align: middle !important;
+        }
+        .compact-table .ant-table-tbody > tr:hover > td {
+          background-color: #e6f7ff !important;
+        }
+        .compact-table .ant-table-row {
+          transition: all 0.2s ease;
         }
       `}</style>
       <Table
@@ -765,7 +994,7 @@ export const ItemTree: React.FC<ItemTreeProps> = ({
           },
           showExpandColumn: false,
         }}
-        scroll={{ x: 1270, y: tableHeight - 60 }}
+        scroll={{ x: 1000, y: tableHeight - 60 }}
         size="small"
       />
     </div>

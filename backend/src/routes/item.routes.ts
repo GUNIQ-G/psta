@@ -8,7 +8,6 @@ router.use(authMiddleware as RequestHandler);
 
 router.get('/', itemController.getItems as RequestHandler);
 router.get('/tree', itemController.getItemTree as RequestHandler);
-router.get('/my-tasks', itemController.getMyTasks as RequestHandler);
 
 // Test endpoint to check _count for specific item
 router.get('/test-count', async (req: any, res: any) => {

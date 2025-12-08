@@ -1,7 +1,7 @@
 # PSTA 개발 가이드
 
-**문서 버전**: v1.1.3
-**작성일**: 2025-10-29
+**문서 버전**: v1.1.20
+**작성일**: 2025-11-28
 **대상**: 백엔드/프론트엔드 개발자
 
 ---
@@ -245,6 +245,36 @@ serve -s dist -l 3000 -n                # 정적 파일 서빙
 **프로세스 감지**:
 - Frontend: `pgrep -f "serve -s dist"` (v1.1.3+)
 - Backend: `pgrep -f "node.*dist/index.js"` 또는 systemd 상태
+
+### 2.6 유틸리티 스크립트
+
+`backend/src/scripts/` 디렉터리에 데이터 관리 및 마이그레이션용 스크립트가 있습니다.
+
+**실행 방법**:
+```bash
+cd /app/psta/backend
+npx ts-node src/scripts/<script-name>.ts
+```
+
+**스크립트 목록**:
+
+| 스크립트 | 용도 |
+|----------|------|
+| `run-full-sync.ts` | LDAP 전체 동기화 실행 |
+| `check-ldap-structure.ts` | LDAP 서버 구조 확인 |
+| `update-team-department-numbers.ts` | 팀 부서번호 업데이트 |
+| `fix-team-names.ts` | 팀 이름 수정 |
+| `add-undecided-services.ts` | 미정 서비스 추가 |
+| `migrate-to-service-team.ts` | ServiceTeam 관계로 마이그레이션 |
+| `restore-service-teams.ts` | ServiceTeam 관계 복원 |
+| `cleanup-duplicate-teams.ts` | 중복 팀 정리 |
+| `cleanup-orphan-actions.ts` | 고아 액션 정리 |
+| `check-duplicate-actions.ts` | 중복 액션 확인 |
+| `check-serviceteam-issue.ts` | ServiceTeam 이슈 진단 |
+| `check-specific-project.ts` | 특정 프로젝트 상세 확인 |
+| `verify-actions.ts` | 액션 데이터 검증 |
+
+**주의**: 프로덕션 환경에서 실행 전 반드시 백업을 권장합니다.
 
 ---
 
@@ -711,36 +741,23 @@ if (!canUserEdit(req.user, item)) {
 }
 ```
 
-### 7.4 LDAP 동기화 시스템 (v1.1.5)
+### 7.4 LDAP 동기화 시스템 (v1.1.5, 수정: v1.1.24)
 
-**자동 스케줄 동기화**:
-```typescript
-// backend/src/jobs/ldap-sync.job.ts
-import cron from 'node-cron';
+> **⚠️ 변경사항 (v1.1.24)**: 자동 동기화(매일 02:00) 삭제됨. 조직 계층 구조 보존을 위해 수동 동기화만 지원.
 
-cron.schedule('0 2 * * *', async () => {
-  const result = await ldapSyncService.syncFromLdap(false);
-  // 매일 02:00 KST 자동 실행
-}, { timezone: 'Asia/Seoul' });
-```
+**수동 동기화 방법**:
+- LDAP 인증 페이지(`/ldap-auth`)에서 미리보기 후 선택 적용
+- 선택한 항목만 동기화되어 기존 계층 구조 보존
 
 **동기화 플로우**:
 ```
-1. LDAP 그룹 조회
+1. LDAP 그룹 조회 (미리보기)
    ↓
-2. PSTA 팀과 비교
+2. 사용자가 적용할 항목 선택
    ↓
-3. 새 팀 생성 (LDAP에만 존재)
+3. 선택된 팀/사용자만 생성/업데이트
    ↓
-4. 팀 비활성화 (PSTA에만 존재)
-   ↓
-5. LDAP 사용자 조회
-   ↓
-6. 사용자 비활성화 (LDAP에 없음)
-   ↓
-7. 팀 멤버십 업데이트
-   ↓
-8. 동기화 이력 저장 (LdapSyncHistory)
+4. 기존 계층 구조 유지
 ```
 
 **Dry-run 패턴**:

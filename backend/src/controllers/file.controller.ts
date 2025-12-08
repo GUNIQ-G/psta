@@ -166,6 +166,12 @@ export const getAllFiles = async (req: AuthRequest, res: Response) => {
             id: true,
             username: true,
             displayName: true,
+            Team: {
+              select: {
+                id: true,
+                name: true,
+              },
+            },
           },
         },
         Item: {
@@ -220,6 +226,7 @@ export const getHierarchicalDocuments = async (req: AuthRequest, res: Response) 
 
     let itemIds: string[] = [itemId];
 
+    // 3단계 구조: PROJECT → SERVICE → ACTION
     // Collect all descendant item IDs based on hierarchy
     switch (item.type) {
       case 'PROJECT':
@@ -231,17 +238,9 @@ export const getHierarchicalDocuments = async (req: AuthRequest, res: Response) 
         const serviceIds = services.map(s => s.id);
         itemIds = [...itemIds, ...serviceIds];
 
-        // Get all teams under these services
-        const teams = await prisma.item.findMany({
-          where: { parentId: { in: serviceIds }, type: 'TEAM' },
-          select: { id: true },
-        });
-        const teamIds = teams.map(t => t.id);
-        itemIds = [...itemIds, ...teamIds];
-
-        // Get all actions under these teams
+        // Get all actions under these services (3단계 구조)
         const actions = await prisma.item.findMany({
-          where: { parentId: { in: teamIds }, type: 'ACTION' },
+          where: { parentId: { in: serviceIds }, type: 'ACTION' },
           select: { id: true },
         });
         const actionIds = actions.map(a => a.id);
@@ -249,31 +248,13 @@ export const getHierarchicalDocuments = async (req: AuthRequest, res: Response) 
         break;
 
       case 'SERVICE':
-        // Get all teams under this service
-        const serviceTeams = await prisma.item.findMany({
-          where: { parentId: itemId, type: 'TEAM' },
-          select: { id: true },
-        });
-        const serviceTeamIds = serviceTeams.map(t => t.id);
-        itemIds = [...itemIds, ...serviceTeamIds];
-
-        // Get all actions under these teams
+        // Get all actions under this service (3단계 구조)
         const serviceActions = await prisma.item.findMany({
-          where: { parentId: { in: serviceTeamIds }, type: 'ACTION' },
+          where: { parentId: itemId, type: 'ACTION' },
           select: { id: true },
         });
         const serviceActionIds = serviceActions.map(a => a.id);
         itemIds = [...itemIds, ...serviceActionIds];
-        break;
-
-      case 'TEAM':
-        // Get all actions under this team
-        const teamActions = await prisma.item.findMany({
-          where: { parentId: itemId, type: 'ACTION' },
-          select: { id: true },
-        });
-        const teamActionIds = teamActions.map(a => a.id);
-        itemIds = [...itemIds, ...teamActionIds];
         break;
 
       case 'ACTION':
@@ -281,7 +262,7 @@ export const getHierarchicalDocuments = async (req: AuthRequest, res: Response) 
         break;
     }
 
-    // Get all files for these items
+    // Get all files for these items (with hierarchy info)
     const files = await prisma.file.findMany({
       where: { itemId: { in: itemIds } },
       include: {
@@ -290,6 +271,33 @@ export const getHierarchicalDocuments = async (req: AuthRequest, res: Response) 
             id: true,
             username: true,
             displayName: true,
+            Team: {
+              select: {
+                id: true,
+                name: true,
+              },
+            },
+          },
+        },
+        Item: {
+          select: {
+            id: true,
+            name: true,
+            type: true,
+            Item: {
+              select: {
+                id: true,
+                name: true,
+                type: true,
+                Item: {
+                  select: {
+                    id: true,
+                    name: true,
+                    type: true,
+                  },
+                },
+              },
+            },
           },
         },
       },
@@ -298,7 +306,7 @@ export const getHierarchicalDocuments = async (req: AuthRequest, res: Response) 
       },
     });
 
-    // Get all links for these items
+    // Get all links for these items (with hierarchy info)
     const links = await prisma.link.findMany({
       where: { itemId: { in: itemIds } },
       include: {
@@ -307,6 +315,33 @@ export const getHierarchicalDocuments = async (req: AuthRequest, res: Response) 
             id: true,
             username: true,
             displayName: true,
+            Team: {
+              select: {
+                id: true,
+                name: true,
+              },
+            },
+          },
+        },
+        Item: {
+          select: {
+            id: true,
+            name: true,
+            type: true,
+            Item: {
+              select: {
+                id: true,
+                name: true,
+                type: true,
+                Item: {
+                  select: {
+                    id: true,
+                    name: true,
+                    type: true,
+                  },
+                },
+              },
+            },
           },
         },
       },

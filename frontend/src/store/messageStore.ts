@@ -17,7 +17,7 @@ interface MessageState {
   stopPolling: () => void;
 }
 
-let pollingInterval: NodeJS.Timeout | null = null;
+let pollingInterval: ReturnType<typeof setInterval> | null = null;
 
 export const useMessageStore = create<MessageState>((set, get) => ({
   receivedMessages: [],

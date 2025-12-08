@@ -38,11 +38,12 @@ export const WorkRequests: React.FC = () => {
   const [myWorkRequests, setMyWorkRequests] = useState<WorkRequest[]>([]);
   const [assignedWorkRequests, setAssignedWorkRequests] = useState<WorkRequest[]>([]);
   const [teamWorkRequests, setTeamWorkRequests] = useState<WorkRequest[]>([]);
+  const [allWorkRequests, setAllWorkRequests] = useState<WorkRequest[]>([]);
   const [loading, setLoading] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [detailModalOpen, setDetailModalOpen] = useState(false);
   const [selectedWorkRequest, setSelectedWorkRequest] = useState<WorkRequest | null>(null);
-  const [activeTab, setActiveTab] = useState('received');
+  const [activeTab, setActiveTab] = useState(user?.role === 'ADMIN' ? 'all' : 'received');
   const [receivedFilter, setReceivedFilter] = useState<'all' | 'assigned' | 'team'>('all');
   const [sentSearchText, setSentSearchText] = useState('');
   const [receivedSearchText, setReceivedSearchText] = useState('');
@@ -69,6 +70,8 @@ export const WorkRequests: React.FC = () => {
   const [forwardUsers, setForwardUsers] = useState<any[]>([]);
   const [selectedForwardUser, setSelectedForwardUser] = useState<string | undefined>();
   const [forwarding, setForwarding] = useState(false);
+  const [allSearchText, setAllSearchText] = useState('');
+  const [cancelling, setCancelling] = useState(false);
 
   useEffect(() => {
     loadWorkRequests();
@@ -97,16 +100,28 @@ export const WorkRequests: React.FC = () => {
   };
 
   const loadWorkRequests = async () => {
+    if (!user?.id) return;
+
     setLoading(true);
     try {
-      const [myData, assignedData, teamData] = await Promise.all([
-        workRequestsApi.getMyWorkRequests(),
-        workRequestsApi.getAssignedWorkRequests(),
+      const promises: Promise<WorkRequest[]>[] = [
+        workRequestsApi.getWorkRequests({ requesterId: user.id }),
+        workRequestsApi.getWorkRequests({ assigneeId: user.id }),
         workRequestsApi.getTeamWorkRequests(),
-      ]);
-      setMyWorkRequests(myData);
-      setAssignedWorkRequests(assignedData);
-      setTeamWorkRequests(teamData);
+      ];
+
+      // Load all work requests for admin
+      if (user?.role === 'ADMIN') {
+        promises.push(workRequestsApi.getAllWorkRequests());
+      }
+
+      const results = await Promise.all(promises);
+      setMyWorkRequests(results[0]);
+      setAssignedWorkRequests(results[1]);
+      setTeamWorkRequests(results[2]);
+      if (user?.role === 'ADMIN' && results[3]) {
+        setAllWorkRequests(results[3]);
+      }
     } catch (error) {
       console.error('Failed to load work requests:', error);
       message.error('작업 요청 목록을 불러오는데 실패했습니다.');
@@ -483,6 +498,34 @@ export const WorkRequests: React.FC = () => {
     }
   };
 
+  const handleCancel = async () => {
+    if (!selectedWorkRequest) return;
+
+    setCancelling(true);
+    try {
+      await workRequestsApi.cancelWorkRequest(selectedWorkRequest.id);
+      message.success('작업 요청이 취소되었습니다.');
+      setDetailModalOpen(false);
+      await loadWorkRequests();
+    } catch (error: any) {
+      message.error(error.response?.data?.error || '취소에 실패했습니다.');
+    } finally {
+      setCancelling(false);
+    }
+  };
+
+  const handleAdminDelete = async (id: string) => {
+    try {
+      await workRequestsApi.adminDeleteWorkRequest(id);
+      message.success('작업 요청이 관리자에 의해 삭제되었습니다.');
+      setDetailModalOpen(false);
+      loadWorkRequests();
+    } catch (error: any) {
+      console.error('Admin delete error:', error);
+      message.error(error.response?.data?.error || '삭제에 실패했습니다.');
+    }
+  };
+
   const handleDelete = async (id: string) => {
     try {
       await workRequestsApi.deleteWorkRequest(id);
@@ -561,7 +604,7 @@ export const WorkRequests: React.FC = () => {
       case ItemStatus.COMPLETED:
         return '완료';
       case WorkRequestStatus.CANCELLED:
-        return '취소';
+        return '취소됨';
       case WorkRequestStatus.REJECTED:
         return '반려';
       case WorkRequestStatus.IN_NEGOTIATION:
@@ -616,6 +659,7 @@ export const WorkRequests: React.FC = () => {
         { text: '승인됨', value: 'APPROVED' },
         { text: '반려', value: 'REJECTED' },
         { text: '협의중', value: 'IN_NEGOTIATION' },
+        { text: '취소됨', value: 'CANCELLED' },
         { text: '시작 전', value: 'ACTION_NOT_STARTED' },
         { text: '진행중', value: 'ACTION_IN_PROGRESS' },
         { text: '완료', value: 'ACTION_COMPLETED' },
@@ -636,6 +680,7 @@ export const WorkRequests: React.FC = () => {
         if (value === 'APPROVED' && record.isApproved && !record.isRecalled) return true;
         if (value === 'REJECTED' && record.status === WorkRequestStatus.REJECTED) return true;
         if (value === 'IN_NEGOTIATION' && record.status === WorkRequestStatus.IN_NEGOTIATION) return true;
+        if (value === 'CANCELLED' && record.status === WorkRequestStatus.CANCELLED) return true;
         if (value === 'PENDING' && !record.isRecalled && !record.isApproved && record.status === WorkRequestStatus.PENDING) return true;
 
         return false;
@@ -728,14 +773,11 @@ export const WorkRequests: React.FC = () => {
       <div
         style={{
           display: 'flex',
-          justifyContent: 'space-between',
+          justifyContent: 'flex-end',
           alignItems: 'center',
           marginBottom: 16,
         }}
       >
-        <Title level={2} style={{ margin: 0 }}>
-          작업요청
-        </Title>
         <Button
           type="primary"
           icon={<PlusOutlined />}
@@ -782,9 +824,39 @@ export const WorkRequests: React.FC = () => {
                 />
               </>
             )}
+            {activeTab === 'all' && (
+              <Input
+                prefix={<SearchOutlined />}
+                placeholder="제목 검색"
+                value={allSearchText}
+                onChange={(e) => setAllSearchText(e.target.value)}
+                allowClear
+                style={{ width: 300 }}
+              />
+            )}
           </div>
         }
         items={[
+          // Admin only tab - All Requests (first for admin)
+          ...(user?.role === 'ADMIN'
+            ? [
+                {
+                  key: 'all',
+                  label: `모든 요청 (${allWorkRequests.length})`,
+                  children: (
+                    <Table
+                      columns={columns}
+                      dataSource={allWorkRequests.filter((wr) =>
+                        wr.title.toLowerCase().includes(allSearchText.toLowerCase())
+                      )}
+                      rowKey="id"
+                      loading={loading}
+                      pagination={{ pageSize: 10 }}
+                    />
+                  ),
+                },
+              ]
+            : []),
           {
             key: 'received',
             label: `받은 요청 (${assignedWorkRequests.length + teamWorkRequests.length})`,
@@ -1173,6 +1245,28 @@ export const WorkRequests: React.FC = () => {
               );
             }
 
+            // 취소 버튼 (협의중 또는 반려 상태인 경우에만)
+            if (
+              selectedWorkRequest.status === WorkRequestStatus.IN_NEGOTIATION ||
+              selectedWorkRequest.status === WorkRequestStatus.REJECTED
+            ) {
+              buttons.push(
+                <Popconfirm
+                  key="cancel"
+                  title="작업 요청을 취소하시겠습니까?"
+                  description="취소된 요청은 더 이상 진행되지 않습니다."
+                  onConfirm={handleCancel}
+                  okText="취소 처리"
+                  cancelText="닫기"
+                  okButtonProps={{ danger: true, loading: cancelling }}
+                >
+                  <Button danger icon={<CloseCircleOutlined />}>
+                    취소 처리
+                  </Button>
+                </Popconfirm>
+              );
+            }
+
             // 액션 생성 버튼
             if (selectedWorkRequest.isApproved && !selectedWorkRequest.actionId) {
               buttons.push(
@@ -1342,6 +1436,25 @@ export const WorkRequests: React.FC = () => {
                 );
               }
             }
+          }
+
+          // 관리자 강제 삭제 버튼 (액션이 없고, 요청자가 아닌 경우에만)
+          if (user.role === 'ADMIN' && !isRequester && !selectedWorkRequest.actionId) {
+            buttons.push(
+              <Popconfirm
+                key="admin-delete"
+                title="관리자 권한으로 삭제하시겠습니까?"
+                description="이 작업은 되돌릴 수 없습니다."
+                onConfirm={() => handleAdminDelete(selectedWorkRequest.id)}
+                okText="삭제"
+                cancelText="취소"
+                okButtonProps={{ danger: true }}
+              >
+                <Button danger icon={<DeleteOutlined />}>
+                  관리자 삭제
+                </Button>
+              </Popconfirm>
+            );
           }
 
           return buttons;

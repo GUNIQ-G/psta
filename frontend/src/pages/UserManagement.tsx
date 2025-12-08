@@ -295,6 +295,17 @@ export const UserManagement: React.FC = () => {
       key: 'email',
     },
     {
+      title: '직위/직책',
+      key: 'job',
+      render: (_: any, record: User) => (
+        <Space size={4}>
+          {record.position && <Tag color="blue">{record.position}</Tag>}
+          {record.title && <Tag color="cyan">{record.title}</Tag>}
+          {!record.position && !record.title && <span style={{ color: '#999' }}>-</span>}
+        </Space>
+      ),
+    },
+    {
       title: '가입일',
       dataIndex: 'createdAt',
       key: 'createdAt',
@@ -408,6 +419,17 @@ export const UserManagement: React.FC = () => {
         ) : (
           <Tag color="default">미배정</Tag>
         ),
+    },
+    {
+      title: '직위/직책',
+      key: 'job',
+      render: (_: any, record: User) => (
+        <Space size={4}>
+          {record.position && <Tag color="blue">{record.position}</Tag>}
+          {record.title && <Tag color="cyan">{record.title}</Tag>}
+          {!record.position && !record.title && <span style={{ color: '#999' }}>-</span>}
+        </Space>
+      ),
     },
     {
       title: '상태',

@@ -10,9 +10,9 @@ const prisma = new PrismaClient();
 export const getWorkRequests = async (req: AuthRequest, res: Response) => {
   try {
     const userId = req.user?.id;
-    const { status, priority, assigneeId } = req.query;
+    const { status, priority, assigneeId, requesterId } = req.query;
 
-    const where: any = {};
+    const where: any = { isDeleted: false };
 
     // Filter by status
     if (status) {
@@ -27,6 +27,11 @@ export const getWorkRequests = async (req: AuthRequest, res: Response) => {
     // Filter by assignee
     if (assigneeId) {
       where.assigneeId = assigneeId;
+    }
+
+    // Filter by requester
+    if (requesterId) {
+      where.requesterId = requesterId;
     }
 
     const workRequests = await prisma.workRequest.findMany({
@@ -812,161 +817,6 @@ export const createActionFromWorkRequest = async (req: AuthRequest, res: Respons
   }
 };
 
-// Get my work requests (requests I made)
-export const getMyWorkRequests = async (req: AuthRequest, res: Response) => {
-  try {
-    const userId = req.user?.id;
-    if (!userId) {
-      return res.status(401).json({ error: 'Unauthorized' });
-    }
-
-    const workRequests = await prisma.workRequest.findMany({
-      where: {
-        requesterId: userId,
-      },
-      include: {
-        Requester: {
-          select: {
-            id: true,
-            username: true,
-            displayName: true,
-            email: true,
-          },
-        },
-        Assignee: {
-          select: {
-            id: true,
-            username: true,
-            displayName: true,
-            email: true,
-          },
-        },
-        AssigneeTeam: {
-          select: {
-            id: true,
-            name: true,
-            description: true,
-          },
-        },
-        ApprovedBy: {
-          select: {
-            id: true,
-            username: true,
-            displayName: true,
-            email: true,
-          },
-        },
-        Action: true,
-        Project: {
-          select: {
-            id: true,
-            name: true,
-          },
-        },
-        Service: {
-          select: {
-            id: true,
-            name: true,
-          },
-        },
-        Team: {
-          select: {
-            id: true,
-            name: true,
-          },
-        },
-      },
-      orderBy: [
-        { status: 'asc' },
-        { createdAt: 'desc' },
-      ],
-    });
-
-    res.json(workRequests);
-  } catch (error) {
-    console.error('Get my work requests error:', error);
-    res.status(500).json({ error: 'Failed to get my work requests' });
-  }
-};
-
-// Get assigned work requests (requests assigned to me)
-export const getAssignedWorkRequests = async (req: AuthRequest, res: Response) => {
-  try {
-    const userId = req.user?.id;
-    if (!userId) {
-      return res.status(401).json({ error: 'Unauthorized' });
-    }
-
-    const workRequests = await prisma.workRequest.findMany({
-      where: {
-        assigneeId: userId,
-      },
-      include: {
-        Requester: {
-          select: {
-            id: true,
-            username: true,
-            displayName: true,
-            email: true,
-          },
-        },
-        Assignee: {
-          select: {
-            id: true,
-            username: true,
-            displayName: true,
-            email: true,
-          },
-        },
-        AssigneeTeam: {
-          select: {
-            id: true,
-            name: true,
-            description: true,
-          },
-        },
-        ApprovedBy: {
-          select: {
-            id: true,
-            username: true,
-            displayName: true,
-            email: true,
-          },
-        },
-        Action: true,
-        Project: {
-          select: {
-            id: true,
-            name: true,
-          },
-        },
-        Service: {
-          select: {
-            id: true,
-            name: true,
-          },
-        },
-        Team: {
-          select: {
-            id: true,
-            name: true,
-          },
-        },
-      },
-      orderBy: [
-        { status: 'asc' },
-        { priority: 'desc' },
-        { createdAt: 'desc' },
-      ],
-    });
-
-    res.json(workRequests);
-  } catch (error) {
-    console.error('Get assigned work requests error:', error);
-    res.status(500).json({ error: 'Failed to get assigned work requests' });
-  }
-};
-
 // Get team work requests (requests where teamId matches user's teams)
 export const getTeamWorkRequests = async (req: AuthRequest, res: Response) => {
   try {
@@ -1570,8 +1420,39 @@ export const createHierarchyRequest = async (req: AuthRequest, res: Response) =>
       },
     });
 
-    // TODO: Send notification
-    // NotificationService.notifyHierarchyRequest(...)
+    // Send notification to assignee
+    if (assigneeId) {
+      // Get project/service names for notification context
+      let projectName: string | undefined;
+      let serviceName: string | undefined;
+
+      if (projectId) {
+        const project = await prisma.item.findUnique({
+          where: { id: projectId },
+          select: { name: true },
+        });
+        projectName = project?.name;
+      }
+
+      if (serviceId) {
+        const service = await prisma.item.findUnique({
+          where: { id: serviceId },
+          select: { name: true },
+        });
+        serviceName = service?.name;
+      }
+
+      NotificationService.notifyHierarchyRequest({
+        workRequestId: workRequest.id,
+        requestType,
+        targetItemType,
+        requesterId: userId,
+        assigneeId,
+        parentWorkRequestId,
+        projectName,
+        serviceName,
+      }).catch(err => console.error('Failed to send hierarchy request notification:', err));
+    }
 
     res.status(201).json(workRequest);
   } catch (error) {
@@ -1619,13 +1500,257 @@ export const linkCreatedHierarchy = async (req: AuthRequest, res: Response) => {
         data: updateData,
       });
 
-      // TODO: Notify original requester
+      // Notify original requester that hierarchy was created
+      const parentRequest = await prisma.workRequest.findUnique({
+        where: { id: workRequest.parentWorkRequestId },
+        select: { requesterId: true, assigneeId: true },
+      });
+
+      const createdItem = await prisma.item.findUnique({
+        where: { id: createdItemId },
+        select: { name: true },
+      });
+
+      if (parentRequest && createdItem) {
+        // Notify the assignee of the parent request (who triggered the hierarchy request)
+        const notifyUserId = parentRequest.assigneeId || parentRequest.requesterId;
+        const creatorId = req.user?.id || workRequest.requesterId;
+
+        if (notifyUserId && creatorId) {
+          const itemType = workRequest.requestType === 'SERVICE_CREATE' ? 'SERVICE' : 'TEAM';
+
+          NotificationService.notifyHierarchyCreated({
+            itemType,
+            itemName: createdItem.name,
+            originalRequesterId: notifyUserId,
+            originalWorkRequestId: workRequest.parentWorkRequestId,
+            createdById: creatorId,
+          }).catch(err => console.error('Failed to send hierarchy created notification:', err));
+        }
+      }
     }
 
     res.json(updated);
   } catch (error) {
     console.error('Link created hierarchy error:', error);
     res.status(500).json({ error: 'Failed to link created hierarchy' });
+  }
+};
+
+// Get all work requests (Admin only)
+export const getAllWorkRequests = async (req: AuthRequest, res: Response) => {
+  try {
+    const userRole = req.user?.role;
+
+    if (userRole !== 'ADMIN') {
+      return res.status(403).json({ error: 'Only administrators can view all work requests' });
+    }
+
+    const workRequests = await prisma.workRequest.findMany({
+      include: {
+        Requester: {
+          select: {
+            id: true,
+            username: true,
+            displayName: true,
+            email: true,
+          },
+        },
+        Assignee: {
+          select: {
+            id: true,
+            username: true,
+            displayName: true,
+            email: true,
+          },
+        },
+        AssigneeTeam: {
+          select: {
+            id: true,
+            name: true,
+            description: true,
+          },
+        },
+        ApprovedBy: {
+          select: {
+            id: true,
+            username: true,
+            displayName: true,
+            email: true,
+          },
+        },
+        Action: {
+          include: {
+            User_Item_assigneeIdToUser: {
+              select: {
+                id: true,
+                username: true,
+                displayName: true,
+                email: true,
+              },
+            },
+          },
+        },
+        Project: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+        Service: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+        Team: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+      },
+      orderBy: [
+        { createdAt: 'desc' },
+      ],
+    });
+
+    res.json(workRequests);
+  } catch (error) {
+    console.error('Get all work requests error:', error);
+    res.status(500).json({ error: 'Failed to get all work requests' });
+  }
+};
+
+// Cancel work request (assignee can cancel IN_NEGOTIATION requests)
+export const cancelWorkRequest = async (req: AuthRequest, res: Response) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user?.id;
+
+    if (!userId) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const workRequest = await prisma.workRequest.findUnique({
+      where: { id },
+      include: {
+        AssigneeTeam: {
+          include: {
+            User: {
+              select: { id: true },
+            },
+          },
+        },
+      },
+    });
+
+    if (!workRequest) {
+      return res.status(404).json({ error: 'Work request not found' });
+    }
+
+    // Check permission: assignee or team member
+    let canCancel = false;
+    if (workRequest.assigneeId === userId) {
+      canCancel = true;
+    }
+    if (workRequest.assigneeTeamId && workRequest.AssigneeTeam) {
+      const isTeamMember = workRequest.AssigneeTeam.User.some((u) => u.id === userId);
+      if (isTeamMember) canCancel = true;
+    }
+
+    if (!canCancel) {
+      return res.status(403).json({ error: 'Only assignee or team member can cancel work request' });
+    }
+
+    // Can only cancel if IN_NEGOTIATION or REJECTED status
+    if (
+      workRequest.status !== WorkRequestStatus.IN_NEGOTIATION &&
+      workRequest.status !== WorkRequestStatus.REJECTED
+    ) {
+      return res.status(400).json({ error: 'Can only cancel work requests in negotiation or rejected status' });
+    }
+
+    // Cannot cancel if already approved or has action
+    if (workRequest.isApproved) {
+      return res.status(400).json({ error: 'Cannot cancel approved work request' });
+    }
+    if (workRequest.actionId) {
+      return res.status(400).json({ error: 'Cannot cancel work request with action' });
+    }
+
+    const updatedWorkRequest = await prisma.workRequest.update({
+      where: { id },
+      data: {
+        status: 'CANCELLED',
+        updatedAt: new Date(),
+      },
+      include: {
+        Requester: {
+          select: { id: true, username: true, displayName: true, email: true },
+        },
+        Assignee: {
+          select: { id: true, username: true, displayName: true, email: true },
+        },
+        AssigneeTeam: {
+          select: { id: true, name: true, description: true },
+        },
+        ApprovedBy: {
+          select: { id: true, username: true, displayName: true, email: true },
+        },
+      },
+    });
+
+    // 알림 전송
+    await prisma.notification.create({
+      data: {
+        id: randomUUID(),
+        type: 'work_request_cancelled',
+        content: `작업 요청 "${workRequest.title}"이(가) 취소되었습니다.`,
+        fromUserId: userId,
+        toUserId: workRequest.requesterId,
+        createdAt: new Date(),
+      },
+    });
+
+    res.json(updatedWorkRequest);
+  } catch (error) {
+    console.error('Cancel work request error:', error);
+    res.status(500).json({ error: 'Failed to cancel work request' });
+  }
+};
+
+// Admin force delete work request
+export const adminDeleteWorkRequest = async (req: AuthRequest, res: Response) => {
+  try {
+    const { id } = req.params;
+    const userRole = req.user?.role;
+
+    if (userRole !== 'ADMIN') {
+      return res.status(403).json({ error: 'Only administrators can force delete work requests' });
+    }
+
+    const workRequest = await prisma.workRequest.findUnique({
+      where: { id },
+    });
+
+    if (!workRequest) {
+      return res.status(404).json({ error: 'Work request not found' });
+    }
+
+    // Cannot delete if action exists
+    if (workRequest.actionId) {
+      return res.status(400).json({ error: 'Cannot delete work request with existing action' });
+    }
+
+    await prisma.workRequest.delete({
+      where: { id },
+    });
+
+    res.json({ message: 'Work request deleted successfully by admin' });
+  } catch (error) {
+    console.error('Admin delete work request error:', error);
+    res.status(500).json({ error: 'Failed to delete work request' });
   }
 };
 

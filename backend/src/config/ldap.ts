@@ -24,6 +24,7 @@ export interface LdapConfig {
   attributeLoginId?: string;
   attributeName?: string;
   attributeEmail?: string;
+  orgBaseDn?: string | null;
 }
 
 export class LdapService {
@@ -53,6 +54,7 @@ export class LdapService {
       attributeLoginId: dbConfig.attributeLoginId,
       attributeName: dbConfig.attributeName,
       attributeEmail: dbConfig.attributeEmail,
+      orgBaseDn: (dbConfig as any).orgBaseDn || null,
     };
   }
 
@@ -109,7 +111,10 @@ export class LdapService {
 
         console.log('[LDAP] Admin bind successful, searching for user...');
 
-        const searchFilter = config.searchFilter.replace('{{username}}', username);
+        // Support both {username} and {{username}} placeholders
+        const searchFilter = config.searchFilter
+          .replace('{{username}}', username)
+          .replace('{username}', username);
         const loginAttr = config.attributeLoginId || 'uid';
 
         console.log(`[LDAP] Search filter: ${searchFilter}`);
@@ -142,9 +147,11 @@ export class LdapService {
             console.log('[LDAP] User found:', dn);
 
             // Get attributes with fallbacks
-            const displayNameValue = entry.attributes.find(attr => attr.type === 'displayName')?.values[0] ||
-                                    entry.attributes.find(attr => attr.type === 'cn')?.values[0] ||
-                                    username;
+            const snValue = entry.attributes.find(attr => attr.type === 'sn')?.values[0] || '';
+            const cnValue = entry.attributes.find(attr => attr.type === 'cn')?.values[0] || '';
+            const displayNameAttr = entry.attributes.find(attr => attr.type === 'displayName')?.values[0];
+            // displayName 우선, 없으면 성+이름 조합
+            const displayNameValue = displayNameAttr || (snValue + cnValue) || username;
             const emailValue = entry.attributes.find(attr => attr.type === 'mail')?.values[0] ||
                               `${username}@example.com`;
             const phoneValue = entry.attributes.find(attr => attr.type === 'telephoneNumber')?.values[0] || null;
@@ -287,6 +294,76 @@ export class LdapService {
     });
   }
 
+  /**
+   * Get all organizational units (OUs) from LDAP
+   * Used for hierarchical team structure (v1.1.18)
+   */
+  async getOrganizationalUnits(): Promise<any[]> {
+    const config = await this.getActiveConfig();
+
+    if (!config) {
+      throw new Error('LDAP is not configured');
+    }
+
+    return new Promise((resolve, reject) => {
+      const client = ldap.createClient({
+        url: config.url,
+        reconnect: false,
+      });
+
+      client.bind(config.bindDn, config.bindPassword, (bindErr) => {
+        if (bindErr) {
+          client.unbind();
+          return reject(new Error(`LDAP bind failed: ${bindErr.message}`));
+        }
+
+        const opts: ldap.SearchOptions = {
+          // people, Organizations, Groups 등 시스템 OU 제외
+          filter: '(&(objectClass=organizationalUnit)(!(ou=people))(!(ou=Organizations))(!(ou=Groups))(!(ou=users)))',
+          scope: 'sub',
+          attributes: ['dn', 'ou', 'description', 'departmentNumber'],  // v1.1.19: Added departmentNumber
+        };
+
+        client.search(config.searchBase, opts, (searchErr, searchRes) => {
+          if (searchErr) {
+            client.unbind();
+            return reject(new Error(`LDAP search failed: ${searchErr.message}`));
+          }
+
+          const ous: any[] = [];
+
+          searchRes.on('searchEntry', (entry) => {
+            // Convert DN to string properly
+            let dn = '';
+            if (typeof entry.objectName === 'string') {
+              dn = entry.objectName;
+            } else if (entry.objectName && typeof entry.objectName === 'object') {
+              dn = (entry.objectName as any).toString();
+            }
+
+            const ou = {
+              dn: dn,
+              name: entry.attributes.find(attr => attr.type === 'ou')?.values[0],
+              description: entry.attributes.find(attr => attr.type === 'description')?.values[0],
+              departmentNumber: entry.attributes.find(attr => attr.type === 'departmentNumber')?.values[0],  // v1.1.19
+            };
+            ous.push(ou);
+          });
+
+          searchRes.on('error', (err) => {
+            client.unbind();
+            reject(new Error(`LDAP search error: ${err.message}`));
+          });
+
+          searchRes.on('end', () => {
+            client.unbind();
+            resolve(ous);
+          });
+        });
+      });
+    });
+  }
+
   async getUserGroups(userDn: string): Promise<string[]> {
     const config = await this.getActiveConfig();
 
@@ -364,7 +441,7 @@ export class LdapService {
         const opts: ldap.SearchOptions = {
           filter: '(objectClass=inetOrgPerson)',
           scope: 'sub',
-          attributes: ['dn', 'uid', 'cn', 'sn', 'mail', 'displayName', 'telephoneNumber', 'title', 'departmentNumber'],
+          attributes: ['dn', 'uid', 'cn', 'sn', 'mail', 'displayName', 'telephoneNumber', 'title', 'employeeType', 'departmentNumber', 'ou', 'department'],
         };
 
         client.search(config.searchBase, opts, (searchErr, searchRes) => {
@@ -392,7 +469,10 @@ export class LdapService {
               displayName: entry.attributes.find(attr => attr.type === 'displayName')?.values[0],
               telephoneNumber: entry.attributes.find(attr => attr.type === 'telephoneNumber')?.values[0],
               title: entry.attributes.find(attr => attr.type === 'title')?.values[0],
+              employeeType: entry.attributes.find(attr => attr.type === 'employeeType')?.values[0],
               departmentNumber: entry.attributes.find(attr => attr.type === 'departmentNumber')?.values[0],
+              ou: entry.attributes.find(attr => attr.type === 'ou')?.values[0],
+              department: entry.attributes.find(attr => attr.type === 'department')?.values[0],
             };
             users.push(user);
           });
@@ -808,16 +888,27 @@ export class LdapService {
         const opts: ldap.SearchOptions = {
           filter: '(objectClass=organizationalUnit)',
           scope: 'sub',
-          attributes: ['ou', 'description'],
+          attributes: ['ou', 'description', 'departmentNumber'],
         };
 
-        client.search(config.searchBase, opts, (searchErr, searchRes) => {
+        // Use orgBaseDn if available, otherwise fallback to searchBase
+        const orgSearchBase = (config as any).orgBaseDn || config.searchBase;
+        client.search(orgSearchBase, opts, (searchErr, searchRes) => {
           if (searchErr) {
             client.unbind();
             return reject(new Error(`LDAP search failed: ${searchErr.message}`));
           }
 
           const ous: any[] = [];
+
+          // Helper to convert Buffer/string value to UTF-8 string
+          const toUtf8String = (val: any): string | undefined => {
+            if (val === undefined || val === null) return undefined;
+            if (Buffer.isBuffer(val)) return val.toString('utf8');
+            if (typeof val === 'string') return val;
+            return String(val);
+          };
+
           searchRes.on('searchEntry', (entry) => {
             let dn = '';
             if (typeof entry.objectName === 'string') {
@@ -826,10 +917,15 @@ export class LdapService {
               dn = (entry.objectName as any).toString();
             }
 
+            const ouAttr = entry.attributes.find((attr: any) => attr.type === 'ou');
+            const descAttr = entry.attributes.find((attr: any) => attr.type === 'description');
+            const deptNumAttr = entry.attributes.find((attr: any) => attr.type === 'departmentNumber');
+
             const ou = {
               dn: dn,
-              name: entry.attributes.find((attr: any) => attr.type === 'ou')?.values[0],
-              description: entry.attributes.find((attr: any) => attr.type === 'description')?.values[0],
+              name: toUtf8String(ouAttr?.values[0]),
+              description: toUtf8String(descAttr?.values[0]),
+              departmentNumber: toUtf8String(deptNumAttr?.values[0]),
             };
             ous.push(ou);
           });
