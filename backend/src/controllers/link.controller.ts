@@ -3,6 +3,8 @@ import { AuthRequest } from '../middleware/auth';
 import prisma from '../config/database';
 import { randomUUID } from 'crypto';
 import { UserRole } from '@prisma/client';
+import https from 'https';
+import http from 'http';
 
 /**
  * Create link for item (action, team, service, or project)
@@ -228,3 +230,190 @@ export const deleteLink = async (req: AuthRequest, res: Response) => {
     res.status(500).json({ message: 'Failed to delete link' });
   }
 };
+
+/**
+ * Get Nextcloud settings from database
+ */
+async function getNextcloudSettings(): Promise<{ url: string; username: string; password: string } | null> {
+  try {
+    const settings = await prisma.systemSetting.findMany({
+      where: { category: 'nextcloud' },
+    });
+
+    const settingsMap: Record<string, string> = {};
+    settings.forEach((s) => {
+      settingsMap[s.key] = s.value;
+    });
+
+    if (settingsMap.nextcloud_url && settingsMap.nextcloud_username && settingsMap.nextcloud_app_password) {
+      return {
+        url: settingsMap.nextcloud_url,
+        username: settingsMap.nextcloud_username,
+        password: settingsMap.nextcloud_app_password,
+      };
+    }
+    return null;
+  } catch (error) {
+    console.error('Error loading Nextcloud settings:', error);
+    return null;
+  }
+}
+
+/**
+ * Fetch title from URL (for Nextcloud and other pages)
+ * Extracts document name from page title or og:title meta tag
+ */
+export const fetchTitle = async (req: AuthRequest, res: Response) => {
+  try {
+    const { url } = req.query;
+
+    if (!url || typeof url !== 'string') {
+      return res.status(400).json({ message: 'URL is required' });
+    }
+
+    // Validate URL
+    let parsedUrl: URL;
+    try {
+      parsedUrl = new URL(url);
+    } catch {
+      return res.status(400).json({ message: 'Invalid URL format' });
+    }
+
+    // Check if URL is a Nextcloud internal link and get auth settings
+    const nextcloudSettings = await getNextcloudSettings();
+    let authHeader: string | undefined;
+
+    if (nextcloudSettings) {
+      const nextcloudHost = new URL(nextcloudSettings.url).hostname;
+      if (parsedUrl.hostname === nextcloudHost) {
+        // This is a Nextcloud URL, use authentication
+        const credentials = Buffer.from(`${nextcloudSettings.username}:${nextcloudSettings.password}`).toString('base64');
+        authHeader = `Basic ${credentials}`;
+      }
+    }
+
+    // Fetch the page HTML
+    const html = await fetchHtml(parsedUrl.href, authHeader);
+
+    // Extract title from HTML
+    const title = extractTitle(html);
+
+    if (title) {
+      res.json({ title, url });
+    } else {
+      // Fallback: extract filename from URL path
+      const pathParts = parsedUrl.pathname.split('/').filter(Boolean);
+      const fallbackTitle = pathParts[pathParts.length - 1] || parsedUrl.hostname;
+      res.json({ title: decodeURIComponent(fallbackTitle), url });
+    }
+  } catch (error) {
+    console.error('Error fetching title:', error);
+    res.status(500).json({ message: 'Failed to fetch title from URL' });
+  }
+};
+
+/**
+ * Helper: Fetch HTML from URL (with optional auth)
+ */
+function fetchHtml(url: string, authHeader?: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const protocol = url.startsWith('https') ? https : http;
+
+    const headers: Record<string, string> = {
+      'User-Agent': 'Mozilla/5.0 (compatible; PSTA/1.0)',
+      'Accept': 'text/html,application/xhtml+xml',
+      'Accept-Language': 'ko-KR,ko;q=0.9,en;q=0.8',
+    };
+
+    if (authHeader) {
+      headers['Authorization'] = authHeader;
+    }
+
+    const request = protocol.get(url, {
+      timeout: 10000,
+      headers,
+    }, (response) => {
+      // Handle redirects (preserve auth header for same host)
+      if (response.statusCode && response.statusCode >= 300 && response.statusCode < 400 && response.headers.location) {
+        const redirectUrl = response.headers.location.startsWith('http')
+          ? response.headers.location
+          : new URL(response.headers.location, url).href;
+
+        // Keep auth header only if redirecting to same host
+        const originalHost = new URL(url).hostname;
+        const redirectHost = new URL(redirectUrl).hostname;
+        const keepAuth = originalHost === redirectHost ? authHeader : undefined;
+
+        fetchHtml(redirectUrl, keepAuth).then(resolve).catch(reject);
+        return;
+      }
+
+      if (response.statusCode !== 200) {
+        reject(new Error(`HTTP ${response.statusCode}`));
+        return;
+      }
+
+      let data = '';
+      response.setEncoding('utf8');
+      response.on('data', (chunk) => { data += chunk; });
+      response.on('end', () => resolve(data));
+      response.on('error', reject);
+    });
+
+    request.on('error', reject);
+    request.on('timeout', () => {
+      request.destroy();
+      reject(new Error('Request timeout'));
+    });
+  });
+}
+
+/**
+ * Helper: Extract title from HTML
+ * Tries og:title first, then <title> tag
+ */
+function extractTitle(html: string): string | null {
+  // Try og:title first (often has cleaner filename for Nextcloud)
+  const ogTitleMatch = html.match(/<meta[^>]*property=["']og:title["'][^>]*content=["']([^"']+)["']/i) ||
+                       html.match(/<meta[^>]*content=["']([^"']+)["'][^>]*property=["']og:title["']/i);
+  if (ogTitleMatch && ogTitleMatch[1]) {
+    return cleanTitle(ogTitleMatch[1]);
+  }
+
+  // Try <title> tag
+  const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
+  if (titleMatch && titleMatch[1]) {
+    return cleanTitle(titleMatch[1]);
+  }
+
+  // Try h1 tag as last resort
+  const h1Match = html.match(/<h1[^>]*>([^<]+)<\/h1>/i);
+  if (h1Match && h1Match[1]) {
+    return cleanTitle(h1Match[1]);
+  }
+
+  return null;
+}
+
+/**
+ * Helper: Clean up extracted title
+ * Removes common suffixes like " - Nextcloud", decodes HTML entities
+ */
+function cleanTitle(title: string): string {
+  let cleaned = title.trim();
+
+  // Decode HTML entities
+  cleaned = cleaned
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#039;/g, "'")
+    .replace(/&#x([0-9a-f]+);/gi, (_, hex) => String.fromCharCode(parseInt(hex, 16)))
+    .replace(/&#(\d+);/g, (_, dec) => String.fromCharCode(parseInt(dec, 10)));
+
+  // Remove common Nextcloud suffixes
+  cleaned = cleaned.replace(/\s*[-–—]\s*(Nextcloud|Files|Documents).*$/i, '');
+
+  return cleaned;
+}

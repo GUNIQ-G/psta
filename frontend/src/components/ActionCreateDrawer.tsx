@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Drawer, Button, Space, Select, Form, Input, InputNumber, DatePicker, App, Upload, Divider, Modal, List, Popconfirm, Card, Tag, Row, Col } from 'antd';
+import { Drawer, Button, Space, Select, Form, Input, InputNumber, DatePicker, App, Upload, Divider, List, Popconfirm, Card, Tag, Row, Col } from 'antd';
 import { FolderOutlined, AppstoreOutlined, ArrowLeftOutlined, ArrowRightOutlined, UploadOutlined, DeleteOutlined, LinkOutlined, FileOutlined } from '@ant-design/icons';
+import { LinkAddModal } from './modals/LinkAddModal';
 import { itemsApi } from '../api/items';
 import { userApi } from '../api/user';
 import { teamApi } from '../api/team';
@@ -47,7 +48,6 @@ export const ActionCreateDrawer: React.FC<ActionCreateDrawerProps> = ({
   const [uploading, setUploading] = useState(false);
   const [linkList, setLinkList] = useState<Array<{url: string, displayName: string}>>([]);
   const [linkModalOpen, setLinkModalOpen] = useState(false);
-  const [linkForm] = Form.useForm();
 
   useEffect(() => {
     if (open && userTeamId) {
@@ -337,19 +337,13 @@ export const ActionCreateDrawer: React.FC<ActionCreateDrawerProps> = ({
   };
 
   const handleLinkAdd = () => {
-    linkForm.resetFields();
     setLinkModalOpen(true);
   };
 
-  const handleLinkSubmit = async () => {
-    try {
-      const values = await linkForm.validateFields();
-      setLinkList([...linkList, { url: values.url, displayName: values.displayName }]);
-      message.success('링크가 추가되었습니다');
-      setLinkModalOpen(false);
-    } catch (error) {
-      // Form validation error
-    }
+  const handleLinkSubmit = (url: string, displayName: string) => {
+    setLinkList([...linkList, { url, displayName }]);
+    message.success('링크가 추가되었습니다');
+    setLinkModalOpen(false);
   };
 
   const handleLinkRemove = (index: number) => {
@@ -474,11 +468,22 @@ export const ActionCreateDrawer: React.FC<ActionCreateDrawerProps> = ({
               <Input placeholder="업무명을 입력하세요" size="large" />
             </Form.Item>
 
-            {/* 2행: 상태 + 진행률 */}
+            {/* 2행: 상태 + 진행률 (자동 연동) */}
             <Row gutter={16}>
               <Col span={12}>
                 <Form.Item name="status" label="상태">
-                  <Select size="large">
+                  <Select
+                    size="large"
+                    onChange={(value) => {
+                      // 상태 → 진행률 자동 연동
+                      if (value === ItemStatus.NOT_STARTED) {
+                        form.setFieldsValue({ progress: 0 });
+                      } else if (value === ItemStatus.COMPLETED) {
+                        form.setFieldsValue({ progress: 100 });
+                      }
+                      // 진행중/보류는 기존 진행률 유지
+                    }}
+                  >
                     <Select.Option value={ItemStatus.NOT_STARTED}>시작 전</Select.Option>
                     <Select.Option value={ItemStatus.IN_PROGRESS}>진행중</Select.Option>
                     <Select.Option value={ItemStatus.COMPLETED}>완료</Select.Option>
@@ -488,7 +493,26 @@ export const ActionCreateDrawer: React.FC<ActionCreateDrawerProps> = ({
               </Col>
               <Col span={12}>
                 <Form.Item name="progress" label="진행률 (%)">
-                  <InputNumber min={0} max={100} style={{ width: '100%' }} size="large" />
+                  <InputNumber
+                    min={0}
+                    max={100}
+                    style={{ width: '100%' }}
+                    size="large"
+                    onChange={(value) => {
+                      // 진행률 → 상태 자동 연동
+                      if (value === 0) {
+                        form.setFieldsValue({ status: ItemStatus.NOT_STARTED });
+                      } else if (value === 100) {
+                        form.setFieldsValue({ status: ItemStatus.COMPLETED });
+                      } else if (value !== null && value > 0 && value < 100) {
+                        const currentStatus = form.getFieldValue('status');
+                        // 보류 상태가 아닐 때만 진행중으로 변경
+                        if (currentStatus !== ItemStatus.ON_HOLD) {
+                          form.setFieldsValue({ status: ItemStatus.IN_PROGRESS });
+                        }
+                      }
+                    }}
+                  />
                 </Form.Item>
               </Col>
             </Row>
@@ -664,35 +688,12 @@ export const ActionCreateDrawer: React.FC<ActionCreateDrawerProps> = ({
       </Form>
     </Drawer>
 
-    {/* 링크 추가 모달 */}
-    <Modal
-      title="링크 추가"
+    {/* 링크 추가 모달 (공통 컴포넌트) */}
+    <LinkAddModal
       open={linkModalOpen}
-      onOk={handleLinkSubmit}
       onCancel={() => setLinkModalOpen(false)}
-      okText="추가"
-      cancelText="취소"
-    >
-      <Form form={linkForm} layout="vertical">
-        <Form.Item
-          name="displayName"
-          label="표시명"
-          rules={[{ required: true, message: '표시명을 입력해주세요' }]}
-        >
-          <Input placeholder="예: 프로젝트 문서, API 명세서" />
-        </Form.Item>
-        <Form.Item
-          name="url"
-          label="URL"
-          rules={[
-            { required: true, message: 'URL을 입력해주세요' },
-            { type: 'url', message: '올바른 URL 형식이 아닙니다' }
-          ]}
-        >
-          <Input placeholder="https://example.com" />
-        </Form.Item>
-      </Form>
-    </Modal>
+      onSubmit={handleLinkSubmit}
+    />
     </>
   );
 };

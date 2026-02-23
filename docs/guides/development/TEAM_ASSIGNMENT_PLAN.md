@@ -1,8 +1,17 @@
 # 팀 할당 관리 페이지 구현 계획
 
+> ⚠️ **아카이브 문서**
+>
+> 이 문서는 v1.1.21에서 구현된 "팀 할당 관리" 기능의 기록입니다.
+> **v1.1.26에서 ServiceTeam이 완전 제거**되면서 이 기능은 **"팀별 현황 조회"**로 대체되었습니다.
+>
+> - **현재 기능**: `frontend/src/pages/TeamStatusOverview.tsx`
+> - **삭제된 파일**: `TeamAssignmentManagement.tsx`, `team-assignment.controller.ts` 등
+> - **변경 이유**: 3단계 구조(P-S-A) 전환으로 ServiceTeam 기반 팀 할당이 불필요해짐
+
 **버전**: v1.0.0
 **작성일**: 2025-11-28
-**상태**: ✅ 완료
+**상태**: 📦 아카이브 (v1.1.26에서 ServiceTeam 제거로 폐기)
 **목표 버전**: v1.1.21
 
 ---

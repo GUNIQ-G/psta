@@ -1,7 +1,7 @@
 # PSTA 기능 소개서
 
-**버전**: v1.1.27
-**작성일**: 2025-12-08
+**버전**: v1.1.29
+**작성일**: 2025-12-31
 **대상**: 관리자, 의사결정자, 신규 사용자
 
 ---
@@ -32,6 +32,12 @@ Project (프로젝트)
 - ✅ 상태/진행률 자동 산정
   - SERVICE/PROJECT는 하위 항목 기반으로 자동 계산
   - ACTION만 수동 입력
+- ✅ **상태-진행률 양방향 연동** ⭐ NEW (v1.1.29)
+  - 상태 '완료' 선택 시 → 진행률 자동 100%
+  - 상태 '시작전' 선택 시 → 진행률 자동 0%
+  - 진행률 100% 입력 시 → 상태 자동 '완료'
+  - 진행률 0% 입력 시 → 상태 자동 '시작전'
+  - 진행률 1~99% 입력 시 → 상태 자동 '진행중' (보류 상태 제외)
 - ✅ 컬러 코딩 (P=보라, S=파랑, T=녹색, A=주황)
 - ✅ **액션에 팀 태그 표시**: 액션 생성자의 팀을 녹색 태그로 표시
 - ✅ **아이템 이동 기능**
@@ -96,12 +102,14 @@ Project (프로젝트)
 - 📱 LINE (준비 중)
 - 📱 KakaoTalk (준비 중)
 
-**자동 알림**:
-- 💬 댓글 멘션 시 → DM 자동 발송
-- 📌 업무 할당 시 → 담당자에게 알림
-- 🔄 상태 변경 시 → 관련자에게 알림
-- ✅ 업무 완료 시 → 팀장/관리자에게 알림
-- ⏰ 마감 임박 시 → 자동 알림 (향후)
+**자동 알림** (DM 발송):
+- 💬 댓글 멘션 시 → 해당 사용자에게 DM
+- 📌 업무 할당 시 → 담당자에게 DM ⭐ NEW (v1.1.28)
+- 🔄 상태 변경 시 → 담당자에게 DM ⭐ NEW (v1.1.28)
+- ✅ 업무 완료 시 → 생성자에게 DM ⭐ NEW (v1.1.28)
+- 📋 작업 요청 생성 시 → 담당자/팀에게 DM
+- ✅ 작업 요청 승인/반려 시 → 요청자에게 DM
+- 🔄 작업 요청 협의 시 → 관련자에게 DM
 
 **커스터마이징**:
 - ✅ 플랫폼별 설정
@@ -262,7 +270,7 @@ Client | Level | Type | Name | Path | Status | Progress | Start Date | End Date 
 
 ---
 
-### 7. 파일 관리
+### 7. 파일 및 링크 관리
 
 **파일 첨부**:
 - 📎 액션별 파일 첨부 (최대 20MB)
@@ -272,13 +280,26 @@ Client | Level | Type | Name | Path | Status | Progress | Start Date | End Date 
 **허용 파일 타입**:
 - 이미지: JPEG, PNG, GIF, WebP
 - 문서: PDF, Word, Excel, PowerPoint
-- 기타: 텍스트, ZIP
+- 개발/기술: Markdown(.md), SQL, JSON, CSV, XML, YAML ⭐ NEW (v1.1.29)
+- 기타: 텍스트, 로그(.log), ZIP
 
-**특징**:
+**파일 특징**:
 - ✅ 계층 정보 자동 추출 (프로젝트/서비스/팀 ID)
 - ✅ 파일 업로더 정보 저장
 - ✅ 다운로드/삭제 권한 관리
 - ✅ 원본 파일명 보존
+
+**링크 관리** ⭐ NEW (v1.1.28):
+- 🔗 **문서명 자동 추출**: URL 입력 시 웹페이지 제목 자동 가져오기
+- 🔗 **Nextcloud 연동**: 공개 공유 링크에서 파일명 자동 추출
+- 🔗 **직접 편집 가능**: 자동 추출된 문서명 수동 수정 가능
+
+**링크 자동 추출 지원**:
+| 링크 유형 | 지원 | 설명 |
+|----------|-----|------|
+| Nextcloud 공유 링크 (`/s/...`) | ✅ | og:title에서 파일명 추출 |
+| 일반 웹페이지 | ✅ | title 태그에서 제목 추출 |
+| Nextcloud 내부 링크 (`/f/...`) | ⚠️ | JS 렌더링으로 수동 입력 필요 |
 
 ---
 
@@ -293,7 +314,7 @@ Client | Level | Type | Name | Path | Status | Progress | Start Date | End Date 
 **16개 리소스**:
 - 개인 작업: dashboard, requests
 - 프로젝트 일정: psta, wbs, report
-- 데이터 관리: clients, projects, services, team-assignments, actions
+- 데이터 관리: clients, projects, services, team-status, actions
 - 조직 관리: teams, users, organization, user-approval
 - 시스템 설정: ldap-auth, ldap-sync, permissions
 
@@ -447,4 +468,4 @@ Client | Level | Type | Name | Path | Status | Progress | Start Date | End Date 
 
 ---
 
-**PSTA v1.1.27 - 프로젝트 관리를 더 쉽게**
+**PSTA v1.1.29 - 프로젝트 관리를 더 쉽게**

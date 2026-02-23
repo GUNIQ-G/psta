@@ -50,7 +50,9 @@ const itemFileStorage = multer.diskStorage({
 // File filter for item files - allow more file types
 const itemFileFilter = (req: any, file: Express.Multer.File, cb: multer.FileFilterCallback) => {
   const allowedMimes = [
+    // 이미지
     'image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp',
+    // 문서
     'application/pdf',
     'application/msword',
     'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
@@ -58,15 +60,34 @@ const itemFileFilter = (req: any, file: Express.Multer.File, cb: multer.FileFilt
     'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     'application/vnd.ms-powerpoint',
     'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    // 텍스트 및 코드
     'text/plain',
+    'text/markdown',
+    'text/x-markdown',
+    // 데이터
+    'application/json',
+    'text/csv',
+    'application/xml',
+    'text/xml',
+    'text/yaml',
+    'text/x-yaml',
+    'application/x-yaml',
+    // SQL
+    'application/sql',
+    'text/x-sql',
+    // 압축
     'application/zip',
     'application/x-zip-compressed',
   ];
 
-  if (allowedMimes.includes(file.mimetype)) {
+  // 확장자 기반 추가 허용 (MIME 타입이 정확하지 않은 경우 대비)
+  const allowedExtensions = ['.md', '.sql', '.json', '.csv', '.xml', '.yaml', '.yml', '.log', '.txt'];
+  const ext = path.extname(file.originalname).toLowerCase();
+
+  if (allowedMimes.includes(file.mimetype) || allowedExtensions.includes(ext)) {
     cb(null, true);
   } else {
-    cb(new Error('Invalid file type. Allowed types: images, PDF, Word, Excel, PowerPoint, text, zip.'));
+    cb(new Error('Invalid file type. Allowed types: images, PDF, Word, Excel, PowerPoint, text, markdown, SQL, JSON, CSV, XML, YAML, zip.'));
   }
 };
 

@@ -82,15 +82,13 @@ export const ItemFormModal: React.FC<ItemFormModalProps> = ({
   const user = useAuthStore((state) => state.user);
   const [currentType, setCurrentType] = useState<ItemType | undefined>(fixedType || item?.type);
 
-  // Create shared form instances
+  // Create shared form instance
   const [sharedForm] = Form.useForm();
-  const [sharedLinkForm] = Form.useForm();
 
   // 통합 Hook - 모든 타입을 처리
   // open이 false일 때는 item을 undefined로 전달하여 Hook이 아무것도 하지 않도록 함
   const activeForm = useUnifiedItemForm({
     form: sharedForm,
-    linkForm: sharedLinkForm,
     item: open ? item : undefined,
     initialEditMode,
     clients,
@@ -101,18 +99,14 @@ export const ItemFormModal: React.FC<ItemFormModalProps> = ({
   });
   const {
     form,
-    linkForm,
     isEditing,
     setIsEditing,
     files,
     links,
     uploading,
-    linkModalOpen,
-    setLinkModalOpen,
     handleFileUpload,
     handleFileDelete,
-    handleLinkAdd,
-    handleLinkSubmit,
+    handleLinkCreate,
     handleLinkDelete,
     formatFileSize,
     toggleEditMode,
@@ -336,6 +330,7 @@ export const ItemFormModal: React.FC<ItemFormModalProps> = ({
             enableHierarchyEdit={enableActionHierarchyEdit}
             onProjectChange={activeForm.handleProjectChange}
             onServiceChange={activeForm.handleServiceChange}
+            form={form}
           />
         )}
 
@@ -362,15 +357,11 @@ export const ItemFormModal: React.FC<ItemFormModalProps> = ({
         files={files}
         links={links}
         uploading={uploading}
-        linkModalOpen={linkModalOpen}
-        linkForm={linkForm}
         user={user}
         onFileUpload={handleFileUpload}
         onFileDelete={handleFileDelete}
-        onLinkAdd={handleLinkAdd}
-        onLinkSubmit={handleLinkSubmit}
+        onLinkCreate={handleLinkCreate}
         onLinkDelete={handleLinkDelete}
-        setLinkModalOpen={setLinkModalOpen}
         formatFileSize={formatFileSize}
       />
     </Drawer>

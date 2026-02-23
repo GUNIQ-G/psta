@@ -7,7 +7,6 @@ import { useAuthStore } from '../store/authStore';
 
 interface UseUnifiedItemFormOptions {
   form: FormInstance;
-  linkForm: FormInstance;
   item?: Item | null;
   initialEditMode?: boolean;
   // SERVICE 타입 옵션
@@ -21,7 +20,6 @@ interface UseUnifiedItemFormOptions {
 
 export const useUnifiedItemForm = ({
   form,
-  linkForm,
   item,
   initialEditMode,
   clients = [],
@@ -30,7 +28,7 @@ export const useUnifiedItemForm = ({
   teams = [],
   enableHierarchyEdit = false,
 }: UseUnifiedItemFormOptions) => {
-  const baseForm = useItemForm(form, linkForm, item, initialEditMode);
+  const baseForm = useItemForm(form, item, initialEditMode);
   const user = useAuthStore((state) => state.user);
 
   // SERVICE 타입 상태

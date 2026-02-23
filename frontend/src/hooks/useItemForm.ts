@@ -8,7 +8,6 @@ import { linksApi } from '../api/links';
 
 export const useItemForm = (
   form: FormInstance,
-  linkForm: FormInstance,
   item?: Item | null,
   initialEditMode?: boolean
 ) => {
@@ -21,7 +20,6 @@ export const useItemForm = (
   const [links, setLinks] = useState<Link[]>([]);
   const [relatedDocs, setRelatedDocs] = useState<any[]>([]);
   const [uploading, setUploading] = useState(false);
-  const [linkModalOpen, setLinkModalOpen] = useState(false);
 
   // item 변경 시 isEditing 상태 재설정
   useEffect(() => {
@@ -54,7 +52,6 @@ export const useItemForm = (
     } else {
       // 생성 모드: 폼 초기화 (item === null)
       form.resetFields();
-      linkForm.resetFields();
       setFiles([]);
       setLinks([]);
       setRelatedDocs([]);
@@ -134,29 +131,19 @@ export const useItemForm = (
     }
   };
 
-  // 링크 추가 모달 열기
-  const handleLinkAdd = () => {
+  // 링크 추가 (URL과 표시명을 직접 받음)
+  const handleLinkCreate = async (url: string, displayName: string) => {
     if (!item) {
       message.error('항목을 먼저 저장한 후 링크를 추가할 수 있습니다.');
       return;
     }
-    linkForm.resetFields();
-    setLinkModalOpen(true);
-  };
-
-  // 링크 추가 제출
-  const handleLinkSubmit = async () => {
     try {
-      const values = await linkForm.validateFields();
-      const newLink = await linksApi.createLink(item!.id, values.url, values.displayName);
+      const newLink = await linksApi.createLink(item.id, url, displayName);
       setLinks([...links, newLink]);
-      if (item) loadRelatedDocuments(item.id);
+      loadRelatedDocuments(item.id);
       message.success('링크가 추가되었습니다.');
-      setLinkModalOpen(false);
     } catch (error: any) {
-      if (!error.errorFields) {
-        message.error(error.response?.data?.message || '링크 추가에 실패했습니다.');
-      }
+      message.error(error.response?.data?.message || '링크 추가에 실패했습니다.');
     }
   };
 
@@ -200,7 +187,6 @@ export const useItemForm = (
 
   return {
     form,
-    linkForm,
     isEditing,
     setIsEditing,
     files,
@@ -209,15 +195,12 @@ export const useItemForm = (
     setLinks,
     relatedDocs,
     uploading,
-    linkModalOpen,
-    setLinkModalOpen,
     loadFiles,
     loadLinks,
     loadRelatedDocuments,
     handleFileUpload,
     handleFileDelete,
-    handleLinkAdd,
-    handleLinkSubmit,
+    handleLinkCreate,
     handleLinkDelete,
     formatFileSize,
     toggleEditMode,

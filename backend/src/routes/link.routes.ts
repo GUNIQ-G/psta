@@ -16,6 +16,9 @@ router.get('/item/:itemId', linkController.getItemLinks as RequestHandler);
 // Get all links with hierarchy
 router.get('/', linkController.getAllLinks as RequestHandler);
 
+// Fetch title from URL (for auto-fill)
+router.get('/fetch-title', linkController.fetchTitle as RequestHandler);
+
 // Delete link (only ADMIN or creator)
 router.delete('/:id', linkController.deleteLink as RequestHandler);
 

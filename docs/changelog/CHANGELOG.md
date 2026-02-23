@@ -4,6 +4,161 @@
 
 ---
 
+## v1.1.29 (2025-12-31)
+
+### 📎 파일 업로드 확장자 확대
+
+#### 핵심 변경사항
+- ✅ **개발/기술 문서 파일 업로드 지원**: .md, .sql, .json, .csv, .xml, .yaml, .yml, .log 확장자 추가
+
+#### 추가된 파일 타입
+| 카테고리 | 확장자 | MIME 타입 |
+|---------|--------|----------|
+| 마크다운 | `.md` | `text/markdown`, `text/x-markdown` |
+| SQL | `.sql` | `application/sql`, `text/x-sql` |
+| 데이터 | `.json`, `.csv`, `.xml` | `application/json`, `text/csv`, `application/xml` |
+| 설정 | `.yaml`, `.yml` | `text/yaml`, `application/x-yaml` |
+| 로그 | `.log` | `text/plain` |
+
+#### 백엔드 변경
+- ✅ **multer.ts**: `itemFileFilter` 함수 확장
+  - MIME 타입 화이트리스트 확대
+  - 확장자 기반 추가 허용 (MIME 타입이 정확하지 않은 경우 대비)
+
+---
+
+### 🔄 상태-진행률 양방향 자동 연동
+
+#### 핵심 변경사항
+- ✅ **상태 변경 시 진행률 자동 설정**: 완료→100%, 시작전→0%
+- ✅ **진행률 변경 시 상태 자동 설정**: 100%→완료, 0%→시작전, 1~99%→진행중
+- ✅ **보류 상태 보호**: 보류 상태일 때는 진행률 변경해도 상태 유지
+
+#### 연동 규칙
+| 상태 변경 | 진행률 자동 설정 |
+|----------|----------------|
+| 시작전 | → 0% |
+| 완료 | → 100% |
+| 진행중/보류 | 유지 |
+
+| 진행률 변경 | 상태 자동 설정 |
+|------------|--------------|
+| 0% | → 시작전 |
+| 100% | → 완료 |
+| 1~99% | → 진행중 (보류일 때 제외) |
+
+#### 프론트엔드 변경
+- ✅ **ActionCreateDrawer.tsx**: 상태/진행률 Select/InputNumber에 onChange 핸들러 추가
+- ✅ **ActionFormSection.tsx**: form prop 추가, 양방향 연동 핸들러 구현
+- ✅ **ItemFormModal.tsx**: ActionFormSection에 form prop 전달
+
+#### 백엔드 변경
+- ✅ **item.controller.ts createItem**: 생성 시 상태-진행률 연동 로직 추가
+- ✅ **item.controller.ts updateItem**: 수정 시 상태-진행률 연동 로직 추가 (ACTION 타입만)
+
+---
+
+## v1.1.28 (2025-12-12)
+
+### 🔗 링크 자동 문서명 추출 기능
+
+#### 핵심 변경사항
+- ✅ **Nextcloud 문서명 자동 추출**: 링크 추가 시 URL에서 문서명 자동 가져오기
+- ✅ **LinkAddModal 공통 컴포넌트**: 링크 추가 모달을 단일 컴포넌트로 통합
+- ✅ **Nextcloud App Password 인증**: 시스템 설정에서 Nextcloud 인증 정보 관리
+
+#### 신규 파일
+- ✅ `frontend/src/components/modals/LinkAddModal.tsx` - 링크 추가 공통 모달 컴포넌트
+
+#### 백엔드 변경
+- ✅ **link.controller.ts**: `fetchTitle` 함수 추가
+  - URL에서 HTML 페이지 가져오기
+  - og:title, title 태그에서 문서명 추출
+  - Nextcloud URL 감지 시 Basic Auth 자동 적용
+  - `getNextcloudSettings()` 함수로 SystemSetting에서 인증 정보 로드
+- ✅ **link.routes.ts**: `/fetch-title` GET 라우트 추가
+
+#### 프론트엔드 변경
+- ✅ **LinkAddModal.tsx**: 새 공통 컴포넌트
+  - URL 입력 후 돋보기 버튼 클릭 또는 blur 시 자동 조회
+  - `App.useApp()` 훅으로 Ant Design message API 사용
+  - `destroyOnHidden` 속성으로 메모리 누수 방지
+- ✅ **links.ts**: `fetchTitle` API 함수 추가
+- ✅ **FileAndLinkSection.tsx**: LinkAddModal 사용으로 코드 간소화
+- ✅ **ActionCreateDrawer.tsx**: LinkAddModal 사용으로 중복 코드 제거
+- ✅ **useItemForm.ts**: `linkForm` 제거, `handleLinkCreate(url, displayName)` 방식으로 변경
+- ✅ **useUnifiedItemForm.ts**: `linkForm` 제거
+
+#### 시스템 설정
+- ✅ **SystemSetting 테이블**: Nextcloud 인증 정보 저장
+  - `nextcloud_url`: Nextcloud 서버 URL
+  - `nextcloud_username`: 사용자명
+  - `nextcloud_app_password`: 앱 비밀번호
+
+#### 기능 동작
+| 링크 유형 | 지원 여부 | 설명 |
+|----------|---------|------|
+| 공개 공유 링크 (`/s/...`) | ✅ 지원 | og:title에서 파일명 추출 |
+| 내부 링크 (`/f/...`) | ⚠️ 제한 | JavaScript 렌더링으로 서버 측 파싱 불가 |
+| 일반 웹페이지 | ✅ 지원 | title 태그에서 제목 추출 |
+
+#### 제한사항
+- Nextcloud 내부 링크(`/f/...`)는 JavaScript로 렌더링되어 서버 측 title 추출 불가
+- 내부 링크 사용 시 문서명 수동 입력 필요
+
+---
+
+### 🧹 레거시 Slack 채널 알림 시스템 제거
+
+#### 핵심 변경사항
+- ✅ **레거시 채널 알림 제거**: 사용하지 않는 `#psta-notifications` 채널 알림 시스템 정리
+- ✅ **현대식 DM 시스템 유지**: NotificationApp 기반 개인 DM 알림은 정상 유지
+
+#### 삭제된 파일
+- ❌ `backend/src/services/slack.service.ts` - 레거시 채널 알림 서비스
+- ❌ `backend/src/config/slack.ts` - 레거시 Slack 설정
+- ❌ `backend/src/routes/slack.routes.ts` - 레거시 라우트
+- ❌ `backend/src/controllers/slack.controller.ts` - 레거시 컨트롤러
+
+#### 백엔드 변경
+- ✅ **item.controller.ts**: slackService 호출 제거
+- ✅ **index.ts**: `/api/slack-configs` 라우트 제거
+
+#### DB 정리
+- ✅ **SlackConfig 테이블**: 레거시 설정 데이터 삭제
+- ✅ **SlackNotification 테이블**: 실패 로그 390건 삭제
+
+#### 시스템 비교
+| 구분 | 제거됨 (레거시) | 유지됨 (현대식) |
+|------|----------------|----------------|
+| 설정 테이블 | SlackConfig | NotificationApp |
+| 발송 방식 | 채널 포스팅 | 개인 DM |
+| API | `/api/slack-configs` | `/api/notification-apps` |
+| 기능 | 아이템 생성/변경 알림 | 멘션, 작업요청 등 |
+
+---
+
+### 🔔 아이템 알림 현대식 시스템 연결
+
+#### 핵심 변경사항
+- ✅ **업무 할당 알림**: 아이템 생성 시 담당자에게 DM 발송
+- ✅ **상태 변경 알림**: 아이템 상태 변경 시 담당자에게 DM 발송
+- ✅ **업무 완료 알림**: 아이템 완료 시 생성자에게 DM 발송
+
+#### 백엔드 변경
+- ✅ **item.controller.ts createItem**: `NotificationService.notifyItemAssigned` 호출 추가
+- ✅ **item.controller.ts updateItem**: `NotificationService.notifyStatusChanged` 호출 추가
+- ✅ **item.controller.ts updateItem**: `NotificationService.notifyItemCompleted` 호출 추가
+
+#### 알림 조건
+| 이벤트 | 수신자 | 조건 |
+|--------|--------|------|
+| 업무 할당 | 담당자 | 본인이 할당한 경우 제외 |
+| 상태 변경 | 담당자 | 본인이 변경한 경우 제외 |
+| 업무 완료 | 생성자 | 본인이 완료한 경우 제외 |
+
+---
+
 ## v1.1.27 (2025-12-08)
 
 ### 🐛 버그/건의 게시판 및 리치 텍스트 에디터
