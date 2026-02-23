@@ -71,11 +71,11 @@ PSTA is a **Project-Service-Team-Action** hierarchical project management system
 
 **Architecture**: Monorepo with backend (Express + TypeScript) and frontend (React + TypeScript + Ant Design)
 
-**Latest (v1.1.27)**: 버그/건의 게시판, 팀별 그룹화, 조회 모드 UX 개선 - 텍스트 렌더링 + 좌측 세로선 디자인 👁️
+**Latest (v1.1.29)**: 파일 확장자 확대 + 상태-진행률 양방향 연동 📎🔄
 
-**Recent (v1.1.26)**: 3단계 구조 완성 - ServiceTeam 완전 제거, 팀별 현황 조회 메뉴 신규 추가 📊
+**Recent (v1.1.28)**: 링크 자동 문서명 + 아이템 알림 DM + 레거시 Slack 정리 🔗🔔🧹
 
-**Complete**: WBS 타임라인 전체 리팩토링 완료 (Phase 1~3), 목표 550줄 → 실제 509줄 달성
+**v1.1.27**: 버그/건의 게시판, 팀별 그룹화, 조회 모드 UX 개선 👁️
 
 **자세한 내용**: [기능 소개](docs/features/FEATURES.md) | [변경 이력](docs/changelog/CHANGELOG.md)
 
@@ -171,4 +171,4 @@ PSTA is a **Project-Service-Team-Action** hierarchical project management system
 
 ---
 
-**PSTA v1.1.27 - Project Management Made Easy**
+**PSTA v1.1.29 - Project Management Made Easy**

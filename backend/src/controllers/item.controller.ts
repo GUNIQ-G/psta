@@ -1,7 +1,6 @@
 import { Response } from 'express';
 import { AuthRequest } from '../middleware/auth';
 import prisma from '../config/database';
-import slackService from '../services/slack.service';
 import { ItemType, ItemStatus } from '@prisma/client';
 import { randomUUID } from 'crypto';
 import { updateItemAndParents } from '../services/item-calculation.service';
@@ -338,13 +337,32 @@ export const createItem = async (req: AuthRequest, res: Response) => {
       }
     }
 
+    // 상태-진행률 자동 연동
+    let finalStatus = status || ItemStatus.NOT_STARTED;
+    let finalProgress = progress ?? 0;
+
+    // 상태 → 진행률 연동 (상태가 명시적으로 지정된 경우)
+    if (status === ItemStatus.NOT_STARTED && (progress === undefined || progress === null)) {
+      finalProgress = 0;
+    } else if (status === ItemStatus.COMPLETED && (progress === undefined || progress === null)) {
+      finalProgress = 100;
+    }
+    // 진행률 → 상태 연동 (진행률이 명시적으로 지정된 경우)
+    else if (progress === 0 && !status) {
+      finalStatus = ItemStatus.NOT_STARTED;
+    } else if (progress === 100 && !status) {
+      finalStatus = ItemStatus.COMPLETED;
+    } else if (progress !== undefined && progress > 0 && progress < 100 && !status) {
+      finalStatus = ItemStatus.IN_PROGRESS;
+    }
+
     const item = await prisma.item.create({
       data: {
         id: randomUUID(),
         type,
         name,
-        status: status || ItemStatus.NOT_STARTED,
-        progress: progress || 0,
+        status: finalStatus,
+        progress: finalProgress,
         startDate: startDate ? new Date(startDate) : null,
         endDate: endDate ? new Date(endDate) : null,
         clientId,
@@ -367,10 +385,20 @@ export const createItem = async (req: AuthRequest, res: Response) => {
       },
     });
 
-    if (assigneeId) {
-      const assignee = await prisma.user.findUnique({ where: { id: assigneeId } });
-      if (assignee) {
-        await slackService.notifyItemCreated(type, name, assignee.displayName);
+    // 🔔 업무 할당 알림: 담당자가 지정된 경우 (본인 제외)
+    if (assigneeId && assigneeId !== req.user!.id) {
+      try {
+        await NotificationService.notifyItemAssigned({
+          itemId: item.id,
+          itemName: item.name,
+          assigneeId,
+          assignedById: req.user!.id,
+        });
+      } catch (notifyError: any) {
+        appLogger.warn('Failed to send item assigned notification', {
+          itemId: item.id,
+          error: notifyError.message,
+        });
       }
     }
 
@@ -496,6 +524,35 @@ export const updateItem = async (req: AuthRequest, res: Response) => {
 
     updateData.updatedAt = new Date();
 
+    // 상태-진행률 자동 연동 (ACTION 타입에만 적용)
+    if (existingItem.type === ItemType.ACTION) {
+      const statusChanged = updateData.status !== undefined && updateData.status !== existingItem.status;
+      const progressChanged = updateData.progress !== undefined && updateData.progress !== existingItem.progress;
+
+      // 상태만 변경된 경우 → 진행률 자동 조정
+      if (statusChanged && !progressChanged) {
+        if (updateData.status === ItemStatus.NOT_STARTED) {
+          updateData.progress = 0;
+        } else if (updateData.status === ItemStatus.COMPLETED) {
+          updateData.progress = 100;
+        }
+        // 진행중/보류는 기존 진행률 유지
+      }
+      // 진행률만 변경된 경우 → 상태 자동 조정
+      else if (progressChanged && !statusChanged) {
+        if (updateData.progress === 0) {
+          updateData.status = ItemStatus.NOT_STARTED;
+        } else if (updateData.progress === 100) {
+          updateData.status = ItemStatus.COMPLETED;
+        } else if (updateData.progress > 0 && updateData.progress < 100) {
+          // 보류 상태가 아닐 때만 진행중으로 변경
+          if (existingItem.status !== ItemStatus.ON_HOLD) {
+            updateData.status = ItemStatus.IN_PROGRESS;
+          }
+        }
+      }
+    }
+
     // ACTION: parentId 또는 serviceTeamId 변경 시 처리
     if (existingItem.type === ItemType.ACTION) {
       // parentId가 직접 변경된 경우 (3단계 구조)
@@ -547,16 +604,35 @@ export const updateItem = async (req: AuthRequest, res: Response) => {
       },
     });
 
+    // 🔔 상태 변경/완료 알림
     if (updateData.status && updateData.status !== existingItem.status) {
-      await slackService.notifyItemStatusChanged(
-        item.type,
-        item.name,
-        existingItem.status,
-        updateData.status
-      );
+      try {
+        // 상태 변경 알림 (담당자에게, 본인이 변경한 경우 제외)
+        if (existingItem.assigneeId && existingItem.assigneeId !== req.user!.id) {
+          await NotificationService.notifyStatusChanged({
+            itemId: item.id,
+            itemName: item.name,
+            oldStatus: existingItem.status,
+            newStatus: updateData.status,
+            assigneeId: existingItem.assigneeId,
+            changedById: req.user!.id,
+          });
+        }
 
-      if (updateData.status === ItemStatus.COMPLETED && item.User_Item_assigneeIdToUser) {
-        await slackService.notifyItemCompleted(item.type, item.name, item.User_Item_assigneeIdToUser.displayName);
+        // 완료 알림 (생성자에게, 본인이 완료한 경우 제외)
+        if (updateData.status === ItemStatus.COMPLETED && existingItem.createdById !== req.user!.id) {
+          await NotificationService.notifyItemCompleted({
+            itemId: item.id,
+            itemName: item.name,
+            completedById: req.user!.id,
+            notifyUserIds: [existingItem.createdById],
+          });
+        }
+      } catch (notifyError: any) {
+        appLogger.warn('Failed to send status change notification', {
+          itemId: item.id,
+          error: notifyError.message,
+        });
       }
     }
 

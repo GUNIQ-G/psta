@@ -70,4 +70,4 @@ MIT License
 
 ---
 
-**PSTA v1.1.27 - Project Management Made Easy**
+**PSTA v1.1.28 - Project Management Made Easy**

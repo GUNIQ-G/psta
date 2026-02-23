@@ -1,5 +1,5 @@
-import React from 'react';
-import { Card, List, Button, Upload, Space, Tag, Popconfirm, Modal, Form, Input } from 'antd';
+import React, { useState } from 'react';
+import { Card, List, Button, Upload, Space, Tag, Popconfirm } from 'antd';
 import {
   UploadOutlined,
   LinkOutlined,
@@ -9,6 +9,7 @@ import {
 } from '@ant-design/icons';
 import { Item, ItemType, FileAttachment, Link, User } from '../../types';
 import { filesApi } from '../../api/files';
+import { LinkAddModal } from '../modals/LinkAddModal';
 
 interface FileAndLinkSectionProps {
   item?: Item | null;
@@ -17,15 +18,11 @@ interface FileAndLinkSectionProps {
   files: FileAttachment[];
   links: Link[];
   uploading: boolean;
-  linkModalOpen: boolean;
-  linkForm: any;
   user: User | null;
   onFileUpload: (file: File) => Promise<boolean>;
   onFileDelete: (fileId: string) => void;
-  onLinkAdd: () => void;
-  onLinkSubmit: () => void;
+  onLinkCreate: (url: string, displayName: string) => void;
   onLinkDelete: (linkId: string) => void;
-  setLinkModalOpen: (open: boolean) => void;
   formatFileSize: (bytes: number) => string;
 }
 
@@ -36,26 +33,28 @@ export const FileAndLinkSection: React.FC<FileAndLinkSectionProps> = ({
   files,
   links,
   uploading,
-  linkModalOpen,
-  linkForm,
   user,
   onFileUpload,
   onFileDelete,
-  onLinkAdd,
-  onLinkSubmit,
+  onLinkCreate,
   onLinkDelete,
-  setLinkModalOpen,
   formatFileSize,
 }) => {
+  const [linkModalOpen, setLinkModalOpen] = useState(false);
+
   // TEAM 또는 ACTION 타입만 표시
   if (!item || !currentType || (currentType !== ItemType.TEAM && currentType !== ItemType.ACTION)) {
-    // linkForm 경고 방지를 위한 숨겨진 Form
-    return (
-      <div style={{ display: 'none' }}>
-        <Form form={linkForm} />
-      </div>
-    );
+    return null;
   }
+
+  const handleLinkAdd = () => {
+    setLinkModalOpen(true);
+  };
+
+  const handleLinkSubmit = (url: string, displayName: string) => {
+    onLinkCreate(url, displayName);
+    setLinkModalOpen(false);
+  };
 
   return (
     <>
@@ -78,7 +77,7 @@ export const FileAndLinkSection: React.FC<FileAndLinkSectionProps> = ({
                 type="primary"
                 size="small"
                 icon={<LinkOutlined />}
-                onClick={onLinkAdd}
+                onClick={handleLinkAdd}
                 style={{ backgroundColor: '#52c41a', borderColor: '#52c41a' }}
               >
                 링크 추가
@@ -208,35 +207,12 @@ export const FileAndLinkSection: React.FC<FileAndLinkSectionProps> = ({
         )}
       </Card>
 
-      {/* 링크 추가 모달 */}
-      <Modal
+      {/* 링크 추가 모달 (공통 컴포넌트) */}
+      <LinkAddModal
         open={linkModalOpen}
-        title="링크 추가"
-        onOk={onLinkSubmit}
         onCancel={() => setLinkModalOpen(false)}
-        okText="추가"
-        cancelText="취소"
-      >
-        <Form form={linkForm} layout="vertical">
-          <Form.Item
-            name="displayName"
-            label="링크 이름"
-            rules={[{ required: true, message: '링크 이름을 입력해주세요' }]}
-          >
-            <Input />
-          </Form.Item>
-          <Form.Item
-            name="url"
-            label="URL"
-            rules={[
-              { required: true, message: 'URL을 입력해주세요' },
-              { type: 'url', message: '올바른 URL 형식이 아닙니다' },
-            ]}
-          >
-            <Input />
-          </Form.Item>
-        </Form>
-      </Modal>
+        onSubmit={handleLinkSubmit}
+      />
     </>
   );
 };

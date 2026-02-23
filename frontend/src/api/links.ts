@@ -28,4 +28,12 @@ export const linksApi = {
   deleteLink: async (linkId: string): Promise<void> => {
     await axios.delete(`/links/${linkId}`);
   },
+
+  // Fetch title from URL (for Nextcloud and other pages)
+  fetchTitle: async (url: string): Promise<{ title: string; url: string }> => {
+    const response = await axios.get('/links/fetch-title', {
+      params: { url },
+    });
+    return response.data;
+  },
 };

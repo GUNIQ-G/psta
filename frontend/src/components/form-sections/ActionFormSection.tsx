@@ -1,5 +1,6 @@
 import React from 'react';
 import { Form, Select, Row, Col, InputNumber, Tag } from 'antd';
+import type { FormInstance } from 'antd/es/form';
 import { Item, ItemStatus } from '../../types';
 
 interface ActionFormSectionProps {
@@ -13,6 +14,7 @@ interface ActionFormSectionProps {
   enableHierarchyEdit?: boolean;
   onProjectChange: (projectId: string) => void;
   onServiceChange: (serviceId: string) => void;
+  form?: FormInstance;
 }
 
 const statusLabels: Record<string, string> = {
@@ -40,7 +42,34 @@ export const ActionFormSection: React.FC<ActionFormSectionProps> = ({
   enableHierarchyEdit = false,
   onProjectChange,
   onServiceChange,
+  form,
 }) => {
+  // 상태 변경 시 진행률 자동 연동
+  const handleStatusChange = (value: string) => {
+    if (!form) return;
+    if (value === ItemStatus.NOT_STARTED) {
+      form.setFieldsValue({ progress: 0 });
+    } else if (value === ItemStatus.COMPLETED) {
+      form.setFieldsValue({ progress: 100 });
+    }
+    // 진행중/보류는 기존 진행률 유지
+  };
+
+  // 진행률 변경 시 상태 자동 연동
+  const handleProgressChange = (value: number | null) => {
+    if (!form) return;
+    if (value === 0) {
+      form.setFieldsValue({ status: ItemStatus.NOT_STARTED });
+    } else if (value === 100) {
+      form.setFieldsValue({ status: ItemStatus.COMPLETED });
+    } else if (value !== null && value > 0 && value < 100) {
+      const currentStatus = form.getFieldValue('status');
+      // 보류 상태가 아닐 때만 진행중으로 변경
+      if (currentStatus !== ItemStatus.ON_HOLD) {
+        form.setFieldsValue({ status: ItemStatus.IN_PROGRESS });
+      }
+    }
+  };
   // 프로젝트명 찾기
   const getProjectName = () => {
     if (selectedProjectId) {
@@ -131,12 +160,12 @@ export const ActionFormSection: React.FC<ActionFormSectionProps> = ({
         </>
       )}
 
-      {/* 상태 + 진행률 */}
+      {/* 상태 + 진행률 (자동 연동) */}
       <Row gutter={16}>
         <Col span={12}>
           <Form.Item name="status" label="상태">
             {isEditing ? (
-              <Select size="large">
+              <Select size="large" onChange={handleStatusChange}>
                 <Select.Option value={ItemStatus.NOT_STARTED}>시작 전</Select.Option>
                 <Select.Option value={ItemStatus.IN_PROGRESS}>진행중</Select.Option>
                 <Select.Option value={ItemStatus.COMPLETED}>완료</Select.Option>
@@ -155,7 +184,7 @@ export const ActionFormSection: React.FC<ActionFormSectionProps> = ({
         <Col span={12}>
           <Form.Item name="progress" label="진행률 (%)">
             {isEditing ? (
-              <InputNumber min={0} max={100} style={{ width: '100%' }} size="large" />
+              <InputNumber min={0} max={100} style={{ width: '100%' }} size="large" onChange={handleProgressChange} />
             ) : (
               <div className="view-field">{item?.progress ?? 0}%</div>
             )}
