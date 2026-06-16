@@ -4,6 +4,7 @@ import prisma from '../config/database';
 import { OrgType } from '@prisma/client';
 import { randomUUID } from 'crypto';
 import ldapService from '../config/ldap';
+import appLogger, { errorLogger, ldapLogger } from '../config/logger';
 
 // Helper function to determine org type from DN depth
 function getOrgTypeFromDnDepth(dn: string, baseDn: string): OrgType {
@@ -58,8 +59,8 @@ export const getOrganizationTree = async (req: AuthRequest, res: Response) => {
     const tree = buildTree(null);
     res.json(tree);
   } catch (error: any) {
-    console.error('Error fetching organization tree:', error);
-    res.status(500).json({ error: error.message || 'Failed to fetch organization tree' });
+    errorLogger.error('Error fetching organization tree', { error });
+    res.status(500).json({ error: 'Internal server error' });
   }
 };
 
@@ -104,8 +105,8 @@ export const getOrganizationById = async (req: AuthRequest, res: Response) => {
 
     res.json(org);
   } catch (error: any) {
-    console.error('Error fetching organization:', error);
-    res.status(500).json({ error: error.message || 'Failed to fetch organization' });
+    errorLogger.error('Error fetching organization', { error });
+    res.status(500).json({ error: 'Internal server error' });
   }
 };
 
@@ -159,9 +160,9 @@ export const createOrganization = async (req: AuthRequest, res: Response) => {
     let createdLdapDn = '';
     try {
       createdLdapDn = await ldapService.createOrganizationalUnit(name, parentDn, description);
-      console.log(`✓ Created LDAP OU: ${createdLdapDn}`);
+      ldapLogger.info('Created LDAP OU', { dn: createdLdapDn });
     } catch (ldapError: any) {
-      console.error('LDAP OU creation failed:', ldapError);
+      ldapLogger.error('LDAP OU creation failed', { error: ldapError });
       return res.status(500).json({
         error: `Failed to create LDAP OU: ${ldapError.message}`
       });
@@ -192,8 +193,8 @@ export const createOrganization = async (req: AuthRequest, res: Response) => {
 
     res.status(201).json(org);
   } catch (error: any) {
-    console.error('Error creating organization:', error);
-    res.status(500).json({ error: error.message || 'Failed to create organization' });
+    errorLogger.error('Error creating organization', { error });
+    res.status(500).json({ error: 'Internal server error' });
   }
 };
 
@@ -271,7 +272,7 @@ export const updateOrganization = async (req: AuthRequest, res: Response) => {
 
           if (newParentDn) {
             newLdapDn = await ldapService.moveOrganizationalUnit(existing.ldapDn, name, newParentDn);
-            console.log(`✓ Moved/Renamed LDAP OU: ${existing.ldapDn} → ${newLdapDn}`);
+            ldapLogger.info('Moved/Renamed LDAP OU', { from: existing.ldapDn, to: newLdapDn });
           }
         } else if (parentId !== undefined && parentId !== existing.parentId) {
           // Only parent changed
@@ -279,17 +280,17 @@ export const updateOrganization = async (req: AuthRequest, res: Response) => {
           if (newParent?.ldapDn) {
             const currentName = existing.name;
             newLdapDn = await ldapService.moveOrganizationalUnit(existing.ldapDn, currentName, newParent.ldapDn);
-            console.log(`✓ Moved LDAP OU: ${existing.ldapDn} → ${newLdapDn}`);
+            ldapLogger.info('Moved LDAP OU', { from: existing.ldapDn, to: newLdapDn });
           }
         }
 
         // Update description if changed
         if (description !== undefined && description !== existing.description && newLdapDn) {
           await ldapService.updateOrganizationalUnit(newLdapDn, { description });
-          console.log(`✓ Updated LDAP OU description: ${newLdapDn}`);
+          ldapLogger.info('Updated LDAP OU description', { dn: newLdapDn });
         }
       } catch (ldapError: any) {
-        console.error('LDAP OU update failed:', ldapError);
+        ldapLogger.error('LDAP OU update failed', { error: ldapError });
         return res.status(500).json({
           error: `Failed to update LDAP OU: ${ldapError.message}`
         });
@@ -333,8 +334,8 @@ export const updateOrganization = async (req: AuthRequest, res: Response) => {
 
     res.json(org);
   } catch (error: any) {
-    console.error('Error updating organization:', error);
-    res.status(500).json({ error: error.message || 'Failed to update organization' });
+    errorLogger.error('Error updating organization', { error });
+    res.status(500).json({ error: 'Internal server error' });
   }
 };
 
@@ -373,9 +374,9 @@ export const deleteOrganization = async (req: AuthRequest, res: Response) => {
     if (existing.ldapDn) {
       try {
         await ldapService.deleteOrganizationalUnit(existing.ldapDn);
-        console.log(`✓ Deleted LDAP OU: ${existing.ldapDn}`);
+        ldapLogger.info('Deleted LDAP OU', { dn: existing.ldapDn });
       } catch (ldapError: any) {
-        console.error('LDAP OU deletion failed:', ldapError);
+        ldapLogger.error('LDAP OU deletion failed', { error: ldapError });
         return res.status(500).json({
           error: `Failed to delete LDAP OU: ${ldapError.message}`
         });
@@ -388,8 +389,8 @@ export const deleteOrganization = async (req: AuthRequest, res: Response) => {
 
     res.json({ message: 'Organization deleted successfully' });
   } catch (error: any) {
-    console.error('Error deleting organization:', error);
-    res.status(500).json({ error: error.message || 'Failed to delete organization' });
+    errorLogger.error('Error deleting organization', { error });
+    res.status(500).json({ error: 'Internal server error' });
   }
 };
 
@@ -426,9 +427,9 @@ export const addMemberToOrganization = async (req: AuthRequest, res: Response) =
         await ldapService.updateUser(user.ldapDn, {
           departmentNumber: org.name,
         });
-        console.log(`✓ Updated LDAP user ${user.ldapDn} departmentNumber to ${org.name}`);
+        ldapLogger.info('Updated LDAP user departmentNumber', { dn: user.ldapDn, department: org.name });
       } catch (ldapError: any) {
-        console.error('LDAP user update failed:', ldapError);
+        ldapLogger.error('LDAP user update failed', { error: ldapError });
         // Continue anyway - we'll update database
       }
     }
@@ -443,8 +444,8 @@ export const addMemberToOrganization = async (req: AuthRequest, res: Response) =
 
     res.json({ message: 'Member added to organization successfully' });
   } catch (error: any) {
-    console.error('Error adding member to organization:', error);
-    res.status(500).json({ error: error.message || 'Failed to add member to organization' });
+    errorLogger.error('Error adding member to organization', { error });
+    res.status(500).json({ error: 'Internal server error' });
   }
 };
 
@@ -473,9 +474,9 @@ export const removeMemberFromOrganization = async (req: AuthRequest, res: Respon
         await ldapService.updateUser(user.ldapDn, {
           departmentNumber: '',
         });
-        console.log(`✓ Cleared LDAP user ${user.ldapDn} departmentNumber`);
+        ldapLogger.info('Cleared LDAP user departmentNumber', { dn: user.ldapDn });
       } catch (ldapError: any) {
-        console.error('LDAP user update failed:', ldapError);
+        ldapLogger.error('LDAP user update failed', { error: ldapError });
         // Continue anyway - we'll update database
       }
     }
@@ -490,8 +491,8 @@ export const removeMemberFromOrganization = async (req: AuthRequest, res: Respon
 
     res.json({ message: 'Member removed from organization successfully' });
   } catch (error: any) {
-    console.error('Error removing member from organization:', error);
-    res.status(500).json({ error: error.message || 'Failed to remove member from organization' });
+    errorLogger.error('Error removing member from organization', { error });
+    res.status(500).json({ error: 'Internal server error' });
   }
 };
 
@@ -513,7 +514,7 @@ export const syncFromLdap = async (req: AuthRequest, res: Response) => {
 
     // 1. Get and process OUs from LDAP
     const ldapOus = await ldapService.getAllOrganizationalUnits();
-    console.log(`Found ${ldapOus.length} OUs in LDAP`);
+    ldapLogger.info('Found OUs in LDAP', { count: ldapOus.length });
 
     for (const ou of ldapOus) {
       if (!ou.name || !ou.dn) {
@@ -535,7 +536,7 @@ export const syncFromLdap = async (req: AuthRequest, res: Response) => {
             },
           });
           updated++;
-          console.log(`✓ Updated OU: ${ou.name}`);
+          ldapLogger.info('Updated OU from LDAP sync', { name: ou.name });
         } else {
           skipped++;
         }
@@ -566,13 +567,13 @@ export const syncFromLdap = async (req: AuthRequest, res: Response) => {
           },
         });
         created++;
-        console.log(`✓ Created OU: ${ou.name} (${orgType})`);
+        ldapLogger.info('Created OU from LDAP sync', { name: ou.name, type: orgType });
       }
     }
 
     // 2. Get and process Groups from LDAP
     const ldapGroups = await ldapService.getGroups();
-    console.log(`Found ${ldapGroups.length} Groups in LDAP`);
+    ldapLogger.info('Found Groups in LDAP', { count: ldapGroups.length });
 
     for (const group of ldapGroups) {
       if (!group.name || !group.dn) {
@@ -594,7 +595,7 @@ export const syncFromLdap = async (req: AuthRequest, res: Response) => {
             },
           });
           updated++;
-          console.log(`✓ Updated Group: ${group.name}`);
+          ldapLogger.info('Updated Group from LDAP sync', { name: group.name });
         } else {
           skipped++;
         }
@@ -613,7 +614,7 @@ export const syncFromLdap = async (req: AuthRequest, res: Response) => {
           },
         });
         created++;
-        console.log(`✓ Created Group: ${group.name} (TEAM)`);
+        ldapLogger.info('Created Group from LDAP sync', { name: group.name, type: 'TEAM' });
       }
     }
 
@@ -629,7 +630,7 @@ export const syncFromLdap = async (req: AuthRequest, res: Response) => {
       },
     });
   } catch (error: any) {
-    console.error('Error syncing from LDAP:', error);
-    res.status(500).json({ error: error.message || 'Failed to sync from LDAP' });
+    errorLogger.error('Error syncing from LDAP', { error });
+    res.status(500).json({ error: 'Internal server error' });
   }
 };

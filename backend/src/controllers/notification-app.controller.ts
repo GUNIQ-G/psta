@@ -1,15 +1,9 @@
-import { Request, Response } from 'express';
+import { Response } from 'express';
+import { AuthRequest } from '../middleware/auth';
 import prisma from '../config/database';
 import { randomUUID } from 'crypto';
 import { WebClient } from '@slack/web-api';
-
-interface AuthRequest extends Request {
-  user?: {
-    userId: string;
-    username: string;
-    role: string;
-  };
-}
+import appLogger, { errorLogger, notificationLogger } from '../config/logger';
 
 // Platform-specific config interfaces
 interface SlackConfig {
@@ -102,8 +96,8 @@ export const getAllNotificationApps = async (req: AuthRequest, res: Response) =>
 
     res.json(sanitizedApps);
   } catch (error: any) {
-    console.error('Error fetching notification apps:', error);
-    res.status(500).json({ error: error.message || 'Failed to fetch notification apps' });
+    errorLogger.error('Error fetching notification apps:', { error });
+    res.status(500).json({ error: 'Internal server error' });
   }
 };
 
@@ -122,8 +116,8 @@ export const getNotificationAppById = async (req: AuthRequest, res: Response) =>
 
     res.json(app);
   } catch (error: any) {
-    console.error('Error fetching notification app:', error);
-    res.status(500).json({ error: error.message || 'Failed to fetch notification app' });
+    errorLogger.error('Error fetching notification app:', { error });
+    res.status(500).json({ error: 'Internal server error' });
   }
 };
 
@@ -173,8 +167,8 @@ export const createNotificationApp = async (req: AuthRequest, res: Response) => 
 
     res.status(201).json(app);
   } catch (error: any) {
-    console.error('Error creating notification app:', error);
-    res.status(500).json({ error: error.message || 'Failed to create notification app' });
+    errorLogger.error('Error creating notification app:', { error });
+    res.status(500).json({ error: 'Internal server error' });
   }
 };
 
@@ -226,8 +220,8 @@ export const updateNotificationApp = async (req: AuthRequest, res: Response) => 
 
     res.json(app);
   } catch (error: any) {
-    console.error('Error updating notification app:', error);
-    res.status(500).json({ error: error.message || 'Failed to update notification app' });
+    errorLogger.error('Error updating notification app:', { error });
+    res.status(500).json({ error: 'Internal server error' });
   }
 };
 
@@ -250,8 +244,8 @@ export const deleteNotificationApp = async (req: AuthRequest, res: Response) => 
 
     res.json({ message: 'Notification app deleted successfully' });
   } catch (error: any) {
-    console.error('Error deleting notification app:', error);
-    res.status(500).json({ error: error.message || 'Failed to delete notification app' });
+    errorLogger.error('Error deleting notification app:', { error });
+    res.status(500).json({ error: 'Internal server error' });
   }
 };
 
@@ -345,10 +339,10 @@ export const testConnection = async (req: AuthRequest, res: Response) => {
         return res.status(400).json({ error: `Testing not implemented for ${type}` });
     }
   } catch (error: any) {
-    console.error('Connection test error:', error);
+    errorLogger.error('Connection test error:', { error });
     res.status(400).json({
       success: false,
-      error: error.message || 'Failed to test connection',
+      error: 'Failed to test connection',
     });
   }
 };
@@ -419,7 +413,7 @@ export const sendMessageByEmail = async (req: AuthRequest, res: Response) => {
         return res.status(400).json({ error: `Sending messages not implemented for ${app.type}` });
     }
   } catch (error: any) {
-    console.error('Error sending message:', error);
-    res.status(500).json({ error: error.message || 'Failed to send message' });
+    errorLogger.error('Error sending message:', { error });
+    res.status(500).json({ error: 'Internal server error' });
   }
 };

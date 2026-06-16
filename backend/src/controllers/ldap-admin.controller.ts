@@ -1,6 +1,7 @@
 import { Response } from 'express';
 import { AuthRequest } from '../middleware/auth';
 import ldapService from '../config/ldap';
+import appLogger, { errorLogger, ldapLogger } from '../config/logger';
 
 // Get all LDAP users
 export const getAllLdapUsers = async (req: AuthRequest, res: Response) => {
@@ -8,8 +9,8 @@ export const getAllLdapUsers = async (req: AuthRequest, res: Response) => {
     const users = await ldapService.getAllUsers();
     res.json(users);
   } catch (error: any) {
-    console.error('Error fetching LDAP users:', error);
-    res.status(500).json({ error: error.message || 'Failed to fetch LDAP users' });
+    ldapLogger.error('Error fetching LDAP users', { error });
+    res.status(500).json({ error: 'Internal server error' });
   }
 };
 
@@ -19,8 +20,8 @@ export const getAllLdapGroups = async (req: AuthRequest, res: Response) => {
     const groups = await ldapService.getGroups();
     res.json(groups);
   } catch (error: any) {
-    console.error('Error fetching LDAP groups:', error);
-    res.status(500).json({ error: error.message || 'Failed to fetch LDAP groups' });
+    ldapLogger.error('Error fetching LDAP groups', { error });
+    res.status(500).json({ error: 'Internal server error' });
   }
 };
 
@@ -39,8 +40,8 @@ export const createLdapUser = async (req: AuthRequest, res: Response) => {
     await ldapService.createUser(userData);
     res.status(201).json({ message: 'User created successfully' });
   } catch (error: any) {
-    console.error('Error creating LDAP user:', error);
-    res.status(500).json({ error: error.message || 'Failed to create user' });
+    ldapLogger.error('Error creating LDAP user', { error });
+    res.status(500).json({ error: 'Internal server error' });
   }
 };
 
@@ -53,8 +54,8 @@ export const updateLdapUser = async (req: AuthRequest, res: Response) => {
     await ldapService.updateUser(dn, changes);
     res.json({ message: 'User updated successfully' });
   } catch (error: any) {
-    console.error('Error updating LDAP user:', error);
-    res.status(500).json({ error: error.message || 'Failed to update user' });
+    ldapLogger.error('Error updating LDAP user', { error });
+    res.status(500).json({ error: 'Internal server error' });
   }
 };
 
@@ -66,8 +67,8 @@ export const deleteLdapUser = async (req: AuthRequest, res: Response) => {
     await ldapService.deleteUser(dn);
     res.json({ message: 'User deleted successfully' });
   } catch (error: any) {
-    console.error('Error deleting LDAP user:', error);
-    res.status(500).json({ error: error.message || 'Failed to delete user' });
+    ldapLogger.error('Error deleting LDAP user', { error });
+    res.status(500).json({ error: 'Internal server error' });
   }
 };
 
@@ -86,8 +87,8 @@ export const createLdapGroup = async (req: AuthRequest, res: Response) => {
     await ldapService.createGroup(groupData);
     res.status(201).json({ message: 'Group created successfully' });
   } catch (error: any) {
-    console.error('Error creating LDAP group:', error);
-    res.status(500).json({ error: error.message || 'Failed to create group' });
+    ldapLogger.error('Error creating LDAP group', { error });
+    res.status(500).json({ error: 'Internal server error' });
   }
 };
 
@@ -100,8 +101,8 @@ export const updateLdapGroup = async (req: AuthRequest, res: Response) => {
     await ldapService.updateGroup(dn, changes);
     res.json({ message: 'Group updated successfully' });
   } catch (error: any) {
-    console.error('Error updating LDAP group:', error);
-    res.status(500).json({ error: error.message || 'Failed to update group' });
+    ldapLogger.error('Error updating LDAP group', { error });
+    res.status(500).json({ error: 'Internal server error' });
   }
 };
 
@@ -113,8 +114,8 @@ export const deleteLdapGroup = async (req: AuthRequest, res: Response) => {
     await ldapService.deleteGroup(dn);
     res.json({ message: 'Group deleted successfully' });
   } catch (error: any) {
-    console.error('Error deleting LDAP group:', error);
-    res.status(500).json({ error: error.message || 'Failed to delete group' });
+    ldapLogger.error('Error deleting LDAP group', { error });
+    res.status(500).json({ error: 'Internal server error' });
   }
 };
 
@@ -132,8 +133,8 @@ export const addUserToGroup = async (req: AuthRequest, res: Response) => {
     await ldapService.addUserToGroup(groupDn, userDn);
     res.json({ message: 'User added to group successfully' });
   } catch (error: any) {
-    console.error('Error adding user to group:', error);
-    res.status(500).json({ error: error.message || 'Failed to add user to group' });
+    ldapLogger.error('Error adding user to group', { error });
+    res.status(500).json({ error: 'Internal server error' });
   }
 };
 
@@ -151,7 +152,7 @@ export const removeUserFromGroup = async (req: AuthRequest, res: Response) => {
     await ldapService.removeUserFromGroup(groupDn, userDn);
     res.json({ message: 'User removed from group successfully' });
   } catch (error: any) {
-    console.error('Error removing user from group:', error);
-    res.status(500).json({ error: error.message || 'Failed to remove user from group' });
+    ldapLogger.error('Error removing user from group', { error });
+    res.status(500).json({ error: 'Internal server error' });
   }
 };

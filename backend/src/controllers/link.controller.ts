@@ -5,6 +5,8 @@ import { randomUUID } from 'crypto';
 import { UserRole } from '@prisma/client';
 import https from 'https';
 import http from 'http';
+import appLogger, { errorLogger } from '../config/logger';
+import { CREATOR_SELECT } from '../utils/prisma-selects';
 
 /**
  * Create link for item (action, team, service, or project)
@@ -15,11 +17,11 @@ export const createLink = async (req: AuthRequest, res: Response) => {
     const userId = req.user?.id;
 
     if (!userId) {
-      return res.status(401).json({ message: 'Unauthorized' });
+      return res.status(401).json({ error: 'Unauthorized' });
     }
 
     if (!itemId || !url || !displayName) {
-      return res.status(400).json({ message: 'Item ID, URL, and display name are required' });
+      return res.status(400).json({ error: 'Item ID, URL, and display name are required' });
     }
 
     // Get item with full hierarchy
@@ -39,7 +41,7 @@ export const createLink = async (req: AuthRequest, res: Response) => {
     });
 
     if (!item) {
-      return res.status(404).json({ message: 'Item not found' });
+      return res.status(404).json({ error: 'Item not found' });
     }
 
     // Extract hierarchy IDs
@@ -92,19 +94,15 @@ export const createLink = async (req: AuthRequest, res: Response) => {
       },
       include: {
         CreatedBy: {
-          select: {
-            id: true,
-            username: true,
-            displayName: true,
-          },
+          select: CREATOR_SELECT,
         },
       },
     });
 
     res.json(link);
   } catch (error) {
-    console.error('Error creating link:', error);
-    res.status(500).json({ message: 'Failed to create link' });
+    errorLogger.error('Error creating link:', { error });
+    res.status(500).json({ error: 'Internal server error' });
   }
 };
 
@@ -119,11 +117,7 @@ export const getItemLinks = async (req: AuthRequest, res: Response) => {
       where: { itemId },
       include: {
         CreatedBy: {
-          select: {
-            id: true,
-            username: true,
-            displayName: true,
-          },
+          select: CREATOR_SELECT,
         },
       },
       orderBy: {
@@ -133,8 +127,8 @@ export const getItemLinks = async (req: AuthRequest, res: Response) => {
 
     res.json(links);
   } catch (error) {
-    console.error('Error fetching links:', error);
-    res.status(500).json({ message: 'Failed to fetch links' });
+    errorLogger.error('Error fetching links:', { error });
+    res.status(500).json({ error: 'Internal server error' });
   }
 };
 
@@ -186,8 +180,8 @@ export const getAllLinks = async (req: AuthRequest, res: Response) => {
 
     res.json(links);
   } catch (error) {
-    console.error('Error fetching all links:', error);
-    res.status(500).json({ message: 'Failed to fetch links' });
+    errorLogger.error('Error fetching all links:', { error });
+    res.status(500).json({ error: 'Internal server error' });
   }
 };
 
@@ -202,7 +196,7 @@ export const deleteLink = async (req: AuthRequest, res: Response) => {
     const userRole = req.user?.role;
 
     if (!userId) {
-      return res.status(401).json({ message: 'Unauthorized' });
+      return res.status(401).json({ error: 'Unauthorized' });
     }
 
     // Get link
@@ -211,12 +205,12 @@ export const deleteLink = async (req: AuthRequest, res: Response) => {
     });
 
     if (!link) {
-      return res.status(404).json({ message: 'Link not found' });
+      return res.status(404).json({ error: 'Link not found' });
     }
 
     // Check permissions: only ADMIN or creator can delete
     if (userRole !== UserRole.ADMIN && link.createdById !== userId) {
-      return res.status(403).json({ message: 'You do not have permission to delete this link' });
+      return res.status(403).json({ error: 'You do not have permission to delete this link' });
     }
 
     // Delete link record
@@ -226,8 +220,8 @@ export const deleteLink = async (req: AuthRequest, res: Response) => {
 
     res.json({ message: 'Link deleted successfully' });
   } catch (error) {
-    console.error('Error deleting link:', error);
-    res.status(500).json({ message: 'Failed to delete link' });
+    errorLogger.error('Error deleting link:', { error });
+    res.status(500).json({ error: 'Internal server error' });
   }
 };
 
@@ -254,7 +248,7 @@ async function getNextcloudSettings(): Promise<{ url: string; username: string; 
     }
     return null;
   } catch (error) {
-    console.error('Error loading Nextcloud settings:', error);
+    errorLogger.error('Error loading Nextcloud settings:', { error });
     return null;
   }
 }
@@ -268,7 +262,7 @@ export const fetchTitle = async (req: AuthRequest, res: Response) => {
     const { url } = req.query;
 
     if (!url || typeof url !== 'string') {
-      return res.status(400).json({ message: 'URL is required' });
+      return res.status(400).json({ error: 'URL is required' });
     }
 
     // Validate URL
@@ -276,7 +270,7 @@ export const fetchTitle = async (req: AuthRequest, res: Response) => {
     try {
       parsedUrl = new URL(url);
     } catch {
-      return res.status(400).json({ message: 'Invalid URL format' });
+      return res.status(400).json({ error: 'Invalid URL format' });
     }
 
     // Check if URL is a Nextcloud internal link and get auth settings
@@ -307,8 +301,8 @@ export const fetchTitle = async (req: AuthRequest, res: Response) => {
       res.json({ title: decodeURIComponent(fallbackTitle), url });
     }
   } catch (error) {
-    console.error('Error fetching title:', error);
-    res.status(500).json({ message: 'Failed to fetch title from URL' });
+    errorLogger.error('Error fetching title:', { error });
+    res.status(500).json({ error: 'Internal server error' });
   }
 };
 

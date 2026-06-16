@@ -1,10 +1,17 @@
 import { Response } from 'express';
-import { PrismaClient, WorkRequestStatus, WorkRequestType, ItemType } from '@prisma/client';
+import { WorkRequestStatus, WorkRequestType, ItemType } from '@prisma/client';
 import { randomUUID } from 'crypto';
 import { AuthRequest } from '../middleware/auth';
 import { NotificationService } from '../services/notification.service';
-
-const prisma = new PrismaClient();
+import prisma from '../config/database';
+import appLogger, { errorLogger } from '../config/logger';
+import { USER_SELECT, CREATOR_SELECT } from '../utils/prisma-selects';
+import {
+  ASSIGNEE_TEAM_CHECK_INCLUDE,
+  STATE_TRANSITION_INCLUDE,
+  isAssigneeOrTeamMember,
+  validateHierarchyForAction,
+} from '../services/work-request.service';
 
 // Get all work requests
 export const getWorkRequests = async (req: AuthRequest, res: Response) => {
@@ -38,28 +45,13 @@ export const getWorkRequests = async (req: AuthRequest, res: Response) => {
       where,
       include: {
         Requester: {
-          select: {
-            id: true,
-            username: true,
-            displayName: true,
-            email: true,
-          },
+          select: USER_SELECT,
         },
         Assignee: {
-          select: {
-            id: true,
-            username: true,
-            displayName: true,
-            email: true,
-          },
+          select: USER_SELECT,
         },
         ApprovedBy: {
-          select: {
-            id: true,
-            username: true,
-            displayName: true,
-            email: true,
-          },
+          select: USER_SELECT,
         },
         Action: true,
         Project: {
@@ -97,8 +89,8 @@ export const getWorkRequests = async (req: AuthRequest, res: Response) => {
 
     res.json(workRequests);
   } catch (error) {
-    console.error('Get work requests error:', error);
-    res.status(500).json({ error: 'Failed to get work requests' });
+    errorLogger.error('Get work requests error:', { error });
+    res.status(500).json({ error: 'Internal server error' });
   }
 };
 
@@ -111,28 +103,13 @@ export const getWorkRequestById = async (req: AuthRequest, res: Response) => {
       where: { id },
       include: {
         Requester: {
-          select: {
-            id: true,
-            username: true,
-            displayName: true,
-            email: true,
-          },
+          select: USER_SELECT,
         },
         Assignee: {
-          select: {
-            id: true,
-            username: true,
-            displayName: true,
-            email: true,
-          },
+          select: USER_SELECT,
         },
         ApprovedBy: {
-          select: {
-            id: true,
-            username: true,
-            displayName: true,
-            email: true,
-          },
+          select: USER_SELECT,
         },
         Action: true,
         Project: {
@@ -169,8 +146,8 @@ export const getWorkRequestById = async (req: AuthRequest, res: Response) => {
 
     res.json(workRequest);
   } catch (error) {
-    console.error('Get work request error:', error);
-    res.status(500).json({ error: 'Failed to get work request' });
+    errorLogger.error('Get work request error:', { error });
+    res.status(500).json({ error: 'Internal server error' });
   }
 };
 
@@ -210,20 +187,10 @@ export const createWorkRequest = async (req: AuthRequest, res: Response) => {
       },
       include: {
         Requester: {
-          select: {
-            id: true,
-            username: true,
-            displayName: true,
-            email: true,
-          },
+          select: USER_SELECT,
         },
         Assignee: {
-          select: {
-            id: true,
-            username: true,
-            displayName: true,
-            email: true,
-          },
+          select: USER_SELECT,
         },
         AssigneeTeam: {
           select: {
@@ -242,12 +209,12 @@ export const createWorkRequest = async (req: AuthRequest, res: Response) => {
       requesterId: userId,
       assigneeId: workRequest.assigneeId || undefined,
       assigneeTeamId: workRequest.assigneeTeamId || undefined,
-    }).catch(err => console.error('Failed to send notification:', err));
+    }).catch(err => errorLogger.error('Failed to send notification:', { error: err }));
 
     res.status(201).json(workRequest);
   } catch (error) {
-    console.error('Create work request error:', error);
-    res.status(500).json({ error: 'Failed to create work request' });
+    errorLogger.error('Create work request error:', { error });
+    res.status(500).json({ error: 'Internal server error' });
   }
 };
 
@@ -275,20 +242,10 @@ export const updateWorkRequest = async (req: AuthRequest, res: Response) => {
       },
       include: {
         Requester: {
-          select: {
-            id: true,
-            username: true,
-            displayName: true,
-            email: true,
-          },
+          select: USER_SELECT,
         },
         Assignee: {
-          select: {
-            id: true,
-            username: true,
-            displayName: true,
-            email: true,
-          },
+          select: USER_SELECT,
         },
         AssigneeTeam: {
           select: {
@@ -302,8 +259,8 @@ export const updateWorkRequest = async (req: AuthRequest, res: Response) => {
 
     res.json(workRequest);
   } catch (error) {
-    console.error('Update work request error:', error);
-    res.status(500).json({ error: 'Failed to update work request' });
+    errorLogger.error('Update work request error:', { error });
+    res.status(500).json({ error: 'Internal server error' });
   }
 };
 
@@ -336,8 +293,8 @@ export const deleteWorkRequest = async (req: AuthRequest, res: Response) => {
 
     res.json({ message: 'Work request deleted successfully' });
   } catch (error) {
-    console.error('Delete work request error:', error);
-    res.status(500).json({ error: 'Failed to delete work request' });
+    errorLogger.error('Delete work request error:', { error });
+    res.status(500).json({ error: 'Internal server error' });
   }
 };
 
@@ -372,37 +329,13 @@ export const recallWorkRequest = async (req: AuthRequest, res: Response) => {
         isApproved: false,
         updatedAt: new Date(),
       },
-      include: {
-        Requester: {
-          select: {
-            id: true,
-            username: true,
-            displayName: true,
-            email: true,
-          },
-        },
-        Assignee: {
-          select: {
-            id: true,
-            username: true,
-            displayName: true,
-            email: true,
-          },
-        },
-        AssigneeTeam: {
-          select: {
-            id: true,
-            name: true,
-            description: true,
-          },
-        },
-      },
+      include: STATE_TRANSITION_INCLUDE,
     });
 
     res.json(updatedWorkRequest);
   } catch (error) {
-    console.error('Recall work request error:', error);
-    res.status(500).json({ error: 'Failed to recall work request' });
+    errorLogger.error('Recall work request error:', { error });
+    res.status(500).json({ error: 'Internal server error' });
   }
 };
 
@@ -450,31 +383,7 @@ export const resubmitWorkRequest = async (req: AuthRequest, res: Response) => {
         negotiationById: null,
         updatedAt: new Date(),
       },
-      include: {
-        Requester: {
-          select: {
-            id: true,
-            username: true,
-            displayName: true,
-            email: true,
-          },
-        },
-        Assignee: {
-          select: {
-            id: true,
-            username: true,
-            displayName: true,
-            email: true,
-          },
-        },
-        AssigneeTeam: {
-          select: {
-            id: true,
-            name: true,
-            description: true,
-          },
-        },
-      },
+      include: STATE_TRANSITION_INCLUDE,
     });
 
     // 알림 전송
@@ -484,12 +393,12 @@ export const resubmitWorkRequest = async (req: AuthRequest, res: Response) => {
       requesterId: userId,
       assigneeId: workRequest.assigneeId || undefined,
       assigneeTeamId: workRequest.assigneeTeamId || undefined,
-    }).catch(err => console.error('Failed to send notification:', err));
+    }).catch(err => errorLogger.error('Failed to send notification:', { error: err }));
 
     res.json(updatedWorkRequest);
   } catch (error) {
-    console.error('Resubmit work request error:', error);
-    res.status(500).json({ error: 'Failed to resubmit work request' });
+    errorLogger.error('Resubmit work request error:', { error });
+    res.status(500).json({ error: 'Internal server error' });
   }
 };
 
@@ -505,40 +414,14 @@ export const approveWorkRequest = async (req: AuthRequest, res: Response) => {
 
     const workRequest = await prisma.workRequest.findUnique({
       where: { id },
-      include: {
-        AssigneeTeam: {
-          include: {
-            User: {
-              select: {
-                id: true,
-              },
-            },
-          },
-        },
-      },
+      include: ASSIGNEE_TEAM_CHECK_INCLUDE,
     });
 
     if (!workRequest) {
       return res.status(404).json({ error: 'Work request not found' });
     }
 
-    // Check if user can approve
-    let canApprove = false;
-
-    // Case 1: Individual assignee
-    if (workRequest.assigneeId === userId) {
-      canApprove = true;
-    }
-
-    // Case 2: Team member (if assigneeTeamId is set)
-    if (workRequest.assigneeTeamId && workRequest.AssigneeTeam) {
-      const isTeamMember = workRequest.AssigneeTeam.User.some((u) => u.id === userId);
-      if (isTeamMember) {
-        canApprove = true;
-      }
-    }
-
-    if (!canApprove) {
+    if (!isAssigneeOrTeamMember(workRequest, userId)) {
       return res.status(403).json({ error: 'Only assignee or team member can approve work request' });
     }
 
@@ -556,39 +439,7 @@ export const approveWorkRequest = async (req: AuthRequest, res: Response) => {
         approvedById: userId,
         updatedAt: new Date(),
       },
-      include: {
-        Requester: {
-          select: {
-            id: true,
-            username: true,
-            displayName: true,
-            email: true,
-          },
-        },
-        Assignee: {
-          select: {
-            id: true,
-            username: true,
-            displayName: true,
-            email: true,
-          },
-        },
-        AssigneeTeam: {
-          select: {
-            id: true,
-            name: true,
-            description: true,
-          },
-        },
-        ApprovedBy: {
-          select: {
-            id: true,
-            username: true,
-            displayName: true,
-            email: true,
-          },
-        },
-      },
+      include: STATE_TRANSITION_INCLUDE,
     });
 
     // 알림 전송
@@ -597,12 +448,12 @@ export const approveWorkRequest = async (req: AuthRequest, res: Response) => {
       title: updatedWorkRequest.title,
       requesterId: updatedWorkRequest.requesterId,
       approvedById: userId,
-    }).catch(err => console.error('Failed to send notification:', err));
+    }).catch(err => errorLogger.error('Failed to send notification:', { error: err }));
 
     res.json(updatedWorkRequest);
   } catch (error) {
-    console.error('Approve work request error:', error);
-    res.status(500).json({ error: 'Failed to approve work request' });
+    errorLogger.error('Approve work request error:', { error });
+    res.status(500).json({ error: 'Internal server error' });
   }
 };
 
@@ -648,31 +499,7 @@ export const unapproveWorkRequest = async (req: AuthRequest, res: Response) => {
         approvedById: null,
         updatedAt: new Date(),
       },
-      include: {
-        Requester: {
-          select: {
-            id: true,
-            username: true,
-            displayName: true,
-            email: true,
-          },
-        },
-        Assignee: {
-          select: {
-            id: true,
-            username: true,
-            displayName: true,
-            email: true,
-          },
-        },
-        AssigneeTeam: {
-          select: {
-            id: true,
-            name: true,
-            description: true,
-          },
-        },
-      },
+      include: STATE_TRANSITION_INCLUDE,
     });
 
     // Create notification for requester
@@ -689,8 +516,8 @@ export const unapproveWorkRequest = async (req: AuthRequest, res: Response) => {
 
     res.json(updatedWorkRequest);
   } catch (error) {
-    console.error('Unapprove work request error:', error);
-    res.status(500).json({ error: 'Failed to unapprove work request' });
+    errorLogger.error('Unapprove work request error:', { error });
+    res.status(500).json({ error: 'Internal server error' });
   }
 };
 
@@ -776,20 +603,10 @@ export const createActionFromWorkRequest = async (req: AuthRequest, res: Respons
       },
       include: {
         Requester: {
-          select: {
-            id: true,
-            username: true,
-            displayName: true,
-            email: true,
-          },
+          select: USER_SELECT,
         },
         Assignee: {
-          select: {
-            id: true,
-            username: true,
-            displayName: true,
-            email: true,
-          },
+          select: USER_SELECT,
         },
         AssigneeTeam: {
           select: {
@@ -799,12 +616,7 @@ export const createActionFromWorkRequest = async (req: AuthRequest, res: Respons
           },
         },
         ApprovedBy: {
-          select: {
-            id: true,
-            username: true,
-            displayName: true,
-            email: true,
-          },
+          select: USER_SELECT,
         },
         Action: true,
       },
@@ -812,8 +624,8 @@ export const createActionFromWorkRequest = async (req: AuthRequest, res: Respons
 
     res.json(updatedWorkRequest);
   } catch (error) {
-    console.error('Create action from work request error:', error);
-    res.status(500).json({ error: 'Failed to create action from work request' });
+    errorLogger.error('Create action from work request error:', { error });
+    res.status(500).json({ error: 'Internal server error' });
   }
 };
 
@@ -846,20 +658,10 @@ export const getTeamWorkRequests = async (req: AuthRequest, res: Response) => {
       },
       include: {
         Requester: {
-          select: {
-            id: true,
-            username: true,
-            displayName: true,
-            email: true,
-          },
+          select: USER_SELECT,
         },
         Assignee: {
-          select: {
-            id: true,
-            username: true,
-            displayName: true,
-            email: true,
-          },
+          select: USER_SELECT,
         },
         AssigneeTeam: {
           select: {
@@ -869,22 +671,12 @@ export const getTeamWorkRequests = async (req: AuthRequest, res: Response) => {
           },
         },
         ApprovedBy: {
-          select: {
-            id: true,
-            username: true,
-            displayName: true,
-            email: true,
-          },
+          select: USER_SELECT,
         },
         Action: {
           include: {
             User_Item_assigneeIdToUser: {
-              select: {
-                id: true,
-                username: true,
-                displayName: true,
-                email: true,
-              },
+              select: USER_SELECT,
             },
           },
         },
@@ -916,8 +708,8 @@ export const getTeamWorkRequests = async (req: AuthRequest, res: Response) => {
 
     res.json(workRequests);
   } catch (error) {
-    console.error('Get team work requests error:', error);
-    res.status(500).json({ error: 'Failed to get team work requests' });
+    errorLogger.error('Get team work requests error:', { error });
+    res.status(500).json({ error: 'Internal server error' });
   }
 };
 
@@ -1002,20 +794,10 @@ export const assignToIndividual = async (req: AuthRequest, res: Response) => {
       },
       include: {
         Requester: {
-          select: {
-            id: true,
-            username: true,
-            displayName: true,
-            email: true,
-          },
+          select: USER_SELECT,
         },
         Assignee: {
-          select: {
-            id: true,
-            username: true,
-            displayName: true,
-            email: true,
-          },
+          select: USER_SELECT,
         },
         AssigneeTeam: {
           select: {
@@ -1025,12 +807,7 @@ export const assignToIndividual = async (req: AuthRequest, res: Response) => {
           },
         },
         ApprovedBy: {
-          select: {
-            id: true,
-            username: true,
-            displayName: true,
-            email: true,
-          },
+          select: USER_SELECT,
         },
         Action: true,
         Project: {
@@ -1060,12 +837,12 @@ export const assignToIndividual = async (req: AuthRequest, res: Response) => {
       title: updatedWorkRequest.title,
       assigneeId,
       assignedById: userId,
-    }).catch(err => console.error('Failed to send notification:', err));
+    }).catch(err => errorLogger.error('Failed to send notification:', { error: err }));
 
     res.json(updatedWorkRequest);
   } catch (error) {
-    console.error('Assign to individual error:', error);
-    res.status(500).json({ error: 'Failed to assign work request' });
+    errorLogger.error('Assign to individual error:', { error });
+    res.status(500).json({ error: 'Internal server error' });
   }
 };
 
@@ -1082,32 +859,14 @@ export const rejectWorkRequest = async (req: AuthRequest, res: Response) => {
 
     const workRequest = await prisma.workRequest.findUnique({
       where: { id },
-      include: {
-        AssigneeTeam: {
-          include: {
-            User: {
-              select: { id: true },
-            },
-          },
-        },
-      },
+      include: ASSIGNEE_TEAM_CHECK_INCLUDE,
     });
 
     if (!workRequest) {
       return res.status(404).json({ error: 'Work request not found' });
     }
 
-    // Check permission: assignee or team member
-    let canReject = false;
-    if (workRequest.assigneeId === userId) {
-      canReject = true;
-    }
-    if (workRequest.assigneeTeamId && workRequest.AssigneeTeam) {
-      const isTeamMember = workRequest.AssigneeTeam.User.some((u) => u.id === userId);
-      if (isTeamMember) canReject = true;
-    }
-
-    if (!canReject) {
+    if (!isAssigneeOrTeamMember(workRequest, userId)) {
       return res.status(403).json({ error: 'Only assignee or team member can reject work request' });
     }
 
@@ -1128,20 +887,7 @@ export const rejectWorkRequest = async (req: AuthRequest, res: Response) => {
         rejectionMessage,
         updatedAt: new Date(),
       },
-      include: {
-        Requester: {
-          select: { id: true, username: true, displayName: true, email: true },
-        },
-        Assignee: {
-          select: { id: true, username: true, displayName: true, email: true },
-        },
-        AssigneeTeam: {
-          select: { id: true, name: true, description: true },
-        },
-        ApprovedBy: {
-          select: { id: true, username: true, displayName: true, email: true },
-        },
-      },
+      include: STATE_TRANSITION_INCLUDE,
     });
 
     // 알림 전송
@@ -1151,12 +897,12 @@ export const rejectWorkRequest = async (req: AuthRequest, res: Response) => {
       requesterId: updatedWorkRequest.requesterId,
       rejectedById: userId,
       rejectionMessage,
-    }).catch(err => console.error('Failed to send notification:', err));
+    }).catch(err => errorLogger.error('Failed to send notification:', { error: err }));
 
     res.json(updatedWorkRequest);
   } catch (error) {
-    console.error('Reject work request error:', error);
-    res.status(500).json({ error: 'Failed to reject work request' });
+    errorLogger.error('Reject work request error:', { error });
+    res.status(500).json({ error: 'Internal server error' });
   }
 };
 
@@ -1177,32 +923,14 @@ export const requestNegotiation = async (req: AuthRequest, res: Response) => {
 
     const workRequest = await prisma.workRequest.findUnique({
       where: { id },
-      include: {
-        AssigneeTeam: {
-          include: {
-            User: {
-              select: { id: true },
-            },
-          },
-        },
-      },
+      include: ASSIGNEE_TEAM_CHECK_INCLUDE,
     });
 
     if (!workRequest) {
       return res.status(404).json({ error: 'Work request not found' });
     }
 
-    // Check permission: assignee or team member
-    let canNegotiate = false;
-    if (workRequest.assigneeId === userId) {
-      canNegotiate = true;
-    }
-    if (workRequest.assigneeTeamId && workRequest.AssigneeTeam) {
-      const isTeamMember = workRequest.AssigneeTeam.User.some((u) => u.id === userId);
-      if (isTeamMember) canNegotiate = true;
-    }
-
-    if (!canNegotiate) {
+    if (!isAssigneeOrTeamMember(workRequest, userId)) {
       return res.status(403).json({ error: 'Only assignee or team member can request negotiation' });
     }
 
@@ -1223,20 +951,7 @@ export const requestNegotiation = async (req: AuthRequest, res: Response) => {
         negotiationById: userId,
         updatedAt: new Date(),
       },
-      include: {
-        Requester: {
-          select: { id: true, username: true, displayName: true, email: true },
-        },
-        Assignee: {
-          select: { id: true, username: true, displayName: true, email: true },
-        },
-        AssigneeTeam: {
-          select: { id: true, name: true, description: true },
-        },
-        ApprovedBy: {
-          select: { id: true, username: true, displayName: true, email: true },
-        },
-      },
+      include: STATE_TRANSITION_INCLUDE,
     });
 
     // 알림 전송
@@ -1246,12 +961,12 @@ export const requestNegotiation = async (req: AuthRequest, res: Response) => {
       requesterId: updatedWorkRequest.requesterId,
       negotiatedById: userId,
       negotiationMessage,
-    }).catch(err => console.error('Failed to send notification:', err));
+    }).catch(err => errorLogger.error('Failed to send notification:', { error: err }));
 
     res.json(updatedWorkRequest);
   } catch (error) {
-    console.error('Request negotiation error:', error);
-    res.status(500).json({ error: 'Failed to request negotiation' });
+    errorLogger.error('Request negotiation error:', { error });
+    res.status(500).json({ error: 'Internal server error' });
   }
 };
 
@@ -1262,97 +977,14 @@ export const requestNegotiation = async (req: AuthRequest, res: Response) => {
 export const validateActionCreation = async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params;
-
-    const workRequest = await prisma.workRequest.findUnique({
-      where: { id },
-      include: {
-        Project: true,
-        Service: true,
-        Team: true,
-      },
-    });
-
-    if (!workRequest) {
+    const validation = await validateHierarchyForAction(id);
+    if (!validation) {
       return res.status(404).json({ error: 'Work request not found' });
     }
-
-    const validation: any = {
-      canCreateAction: true,
-      missingHierarchy: [],
-      suggestions: [],
-    };
-
-    // Check project
-    if (!workRequest.projectId) {
-      validation.canCreateAction = false;
-      validation.missingHierarchy.push('PROJECT');
-      validation.suggestions.push({
-        level: 'PROJECT',
-        action: 'SELECT_EXISTING',
-        message: '프로젝트를 선택해주세요',
-      });
-    }
-
-    // Check service
-    if (workRequest.projectId && !workRequest.serviceId) {
-      const services = await prisma.item.findMany({
-        where: {
-          parentId: workRequest.projectId,
-          type: 'SERVICE',
-        },
-      });
-
-      validation.canCreateAction = false;
-      validation.missingHierarchy.push('SERVICE');
-
-      if (services.length > 0) {
-        validation.suggestions.push({
-          level: 'SERVICE',
-          action: 'SELECT_EXISTING',
-          message: '기존 서비스 중에서 선택할 수 있습니다',
-          existingItems: services,
-        });
-      } else {
-        validation.suggestions.push({
-          level: 'SERVICE',
-          action: 'REQUEST_CREATION',
-          message: '서비스가 없습니다. 생성을 요청하세요',
-        });
-      }
-    }
-
-    // Check team
-    if (workRequest.serviceId && !workRequest.teamId) {
-      const teams = await prisma.item.findMany({
-        where: {
-          parentId: workRequest.serviceId,
-          type: 'TEAM',
-        },
-      });
-
-      validation.canCreateAction = false;
-      validation.missingHierarchy.push('TEAM');
-
-      if (teams.length > 0) {
-        validation.suggestions.push({
-          level: 'TEAM',
-          action: 'SELECT_EXISTING',
-          message: '기존 팀 중에서 선택할 수 있습니다',
-          existingItems: teams,
-        });
-      } else {
-        validation.suggestions.push({
-          level: 'TEAM',
-          action: 'REQUEST_CREATION',
-          message: '팀이 없습니다. 생성을 요청하세요',
-        });
-      }
-    }
-
     res.json(validation);
   } catch (error) {
-    console.error('Validate action creation error:', error);
-    res.status(500).json({ error: 'Failed to validate action creation' });
+    errorLogger.error('Validate action creation error:', { error });
+    res.status(500).json({ error: 'Internal server error' });
   }
 };
 
@@ -1401,20 +1033,10 @@ export const createHierarchyRequest = async (req: AuthRequest, res: Response) =>
       },
       include: {
         Requester: {
-          select: {
-            id: true,
-            username: true,
-            displayName: true,
-            email: true,
-          },
+          select: USER_SELECT,
         },
         Assignee: {
-          select: {
-            id: true,
-            username: true,
-            displayName: true,
-            email: true,
-          },
+          select: USER_SELECT,
         },
         ParentWorkRequest: true,
       },
@@ -1451,13 +1073,13 @@ export const createHierarchyRequest = async (req: AuthRequest, res: Response) =>
         parentWorkRequestId,
         projectName,
         serviceName,
-      }).catch(err => console.error('Failed to send hierarchy request notification:', err));
+      }).catch(err => errorLogger.error('Failed to send hierarchy request notification:', { error: err }));
     }
 
     res.status(201).json(workRequest);
   } catch (error) {
-    console.error('Create hierarchy request error:', error);
-    res.status(500).json({ error: 'Failed to create hierarchy request' });
+    errorLogger.error('Create hierarchy request error:', { error });
+    res.status(500).json({ error: 'Internal server error' });
   }
 };
 
@@ -1525,15 +1147,15 @@ export const linkCreatedHierarchy = async (req: AuthRequest, res: Response) => {
             originalRequesterId: notifyUserId,
             originalWorkRequestId: workRequest.parentWorkRequestId,
             createdById: creatorId,
-          }).catch(err => console.error('Failed to send hierarchy created notification:', err));
+          }).catch(err => errorLogger.error('Failed to send hierarchy created notification:', { error: err }));
         }
       }
     }
 
     res.json(updated);
   } catch (error) {
-    console.error('Link created hierarchy error:', error);
-    res.status(500).json({ error: 'Failed to link created hierarchy' });
+    errorLogger.error('Link created hierarchy error:', { error });
+    res.status(500).json({ error: 'Internal server error' });
   }
 };
 
@@ -1549,20 +1171,10 @@ export const getAllWorkRequests = async (req: AuthRequest, res: Response) => {
     const workRequests = await prisma.workRequest.findMany({
       include: {
         Requester: {
-          select: {
-            id: true,
-            username: true,
-            displayName: true,
-            email: true,
-          },
+          select: USER_SELECT,
         },
         Assignee: {
-          select: {
-            id: true,
-            username: true,
-            displayName: true,
-            email: true,
-          },
+          select: USER_SELECT,
         },
         AssigneeTeam: {
           select: {
@@ -1572,22 +1184,12 @@ export const getAllWorkRequests = async (req: AuthRequest, res: Response) => {
           },
         },
         ApprovedBy: {
-          select: {
-            id: true,
-            username: true,
-            displayName: true,
-            email: true,
-          },
+          select: USER_SELECT,
         },
         Action: {
           include: {
             User_Item_assigneeIdToUser: {
-              select: {
-                id: true,
-                username: true,
-                displayName: true,
-                email: true,
-              },
+              select: USER_SELECT,
             },
           },
         },
@@ -1617,8 +1219,8 @@ export const getAllWorkRequests = async (req: AuthRequest, res: Response) => {
 
     res.json(workRequests);
   } catch (error) {
-    console.error('Get all work requests error:', error);
-    res.status(500).json({ error: 'Failed to get all work requests' });
+    errorLogger.error('Get all work requests error:', { error });
+    res.status(500).json({ error: 'Internal server error' });
   }
 };
 
@@ -1634,32 +1236,14 @@ export const cancelWorkRequest = async (req: AuthRequest, res: Response) => {
 
     const workRequest = await prisma.workRequest.findUnique({
       where: { id },
-      include: {
-        AssigneeTeam: {
-          include: {
-            User: {
-              select: { id: true },
-            },
-          },
-        },
-      },
+      include: ASSIGNEE_TEAM_CHECK_INCLUDE,
     });
 
     if (!workRequest) {
       return res.status(404).json({ error: 'Work request not found' });
     }
 
-    // Check permission: assignee or team member
-    let canCancel = false;
-    if (workRequest.assigneeId === userId) {
-      canCancel = true;
-    }
-    if (workRequest.assigneeTeamId && workRequest.AssigneeTeam) {
-      const isTeamMember = workRequest.AssigneeTeam.User.some((u) => u.id === userId);
-      if (isTeamMember) canCancel = true;
-    }
-
-    if (!canCancel) {
+    if (!isAssigneeOrTeamMember(workRequest, userId)) {
       return res.status(403).json({ error: 'Only assignee or team member can cancel work request' });
     }
 
@@ -1685,20 +1269,7 @@ export const cancelWorkRequest = async (req: AuthRequest, res: Response) => {
         status: 'CANCELLED',
         updatedAt: new Date(),
       },
-      include: {
-        Requester: {
-          select: { id: true, username: true, displayName: true, email: true },
-        },
-        Assignee: {
-          select: { id: true, username: true, displayName: true, email: true },
-        },
-        AssigneeTeam: {
-          select: { id: true, name: true, description: true },
-        },
-        ApprovedBy: {
-          select: { id: true, username: true, displayName: true, email: true },
-        },
-      },
+      include: STATE_TRANSITION_INCLUDE,
     });
 
     // 알림 전송
@@ -1715,8 +1286,8 @@ export const cancelWorkRequest = async (req: AuthRequest, res: Response) => {
 
     res.json(updatedWorkRequest);
   } catch (error) {
-    console.error('Cancel work request error:', error);
-    res.status(500).json({ error: 'Failed to cancel work request' });
+    errorLogger.error('Cancel work request error:', { error });
+    res.status(500).json({ error: 'Internal server error' });
   }
 };
 
@@ -1749,8 +1320,8 @@ export const adminDeleteWorkRequest = async (req: AuthRequest, res: Response) =>
 
     res.json({ message: 'Work request deleted successfully by admin' });
   } catch (error) {
-    console.error('Admin delete work request error:', error);
-    res.status(500).json({ error: 'Failed to delete work request' });
+    errorLogger.error('Admin delete work request error:', { error });
+    res.status(500).json({ error: 'Internal server error' });
   }
 };
 
@@ -1812,29 +1383,14 @@ export const forwardWorkRequest = async (req: AuthRequest, res: Response): Promi
       },
       include: {
         Requester: {
-          select: {
-            id: true,
-            username: true,
-            displayName: true,
-            email: true,
-          },
+          select: USER_SELECT,
         },
         Assignee: {
-          select: {
-            id: true,
-            username: true,
-            displayName: true,
-            email: true,
-          },
+          select: USER_SELECT,
         },
         AssigneeTeam: true,
         ApprovedBy: {
-          select: {
-            id: true,
-            username: true,
-            displayName: true,
-            email: true,
-          },
+          select: USER_SELECT,
         },
         Action: true,
         Project: true,
@@ -1861,7 +1417,7 @@ export const forwardWorkRequest = async (req: AuthRequest, res: Response): Promi
 
     res.json(updated);
   } catch (error) {
-    console.error('Forward work request error:', error);
-    res.status(500).json({ error: 'Failed to forward work request' });
+    errorLogger.error('Forward work request error:', { error });
+    res.status(500).json({ error: 'Internal server error' });
   }
 };

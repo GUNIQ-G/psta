@@ -3,6 +3,7 @@ import { AuthRequest } from '../middleware/auth';
 import prisma from '../config/database';
 import crypto from 'crypto';
 import { NotificationService } from '../services/notification.service';
+import appLogger, { errorLogger } from '../config/logger';
 
 export const getCommentsByItem = async (req: AuthRequest, res: Response): Promise<any> => {
   try {
@@ -57,7 +58,7 @@ export const getCommentsByItem = async (req: AuthRequest, res: Response): Promis
             }, {} as any);
           }
         } catch (error) {
-          console.error('Error enriching reactions:', error);
+          errorLogger.error('Error enriching reactions:', { error });
         }
 
         return {
@@ -69,8 +70,8 @@ export const getCommentsByItem = async (req: AuthRequest, res: Response): Promis
 
     res.json(enrichedComments);
   } catch (error: any) {
-    console.error('Get comments error:', error);
-    res.status(500).json({ error: error.message });
+    errorLogger.error('Get comments error:', { error });
+    res.status(500).json({ error: 'Internal server error' });
   }
 };
 
@@ -167,7 +168,7 @@ export const createComment = async (req: AuthRequest, res: Response): Promise<an
         dateRange = `${formatDate(startDate)} ~ ${formatDate(endDate)}`;
       }
 
-      const messageContent = `${content}\n\n━━━━━━━━━━━━━━━━━━━━\n[ITEM_INFO]${typeLabel}|${statusLabel}|${item?.name || '항목'}|${assigneeName}|${dateRange}|${progress}[/ITEM_INFO]\n[LINK]http://192.168.1.250:3000/psta?itemId=${itemId}[/LINK]`;
+      const messageContent = `${content}\n\n━━━━━━━━━━━━━━━━━━━━\n[ITEM_INFO]${typeLabel}|${statusLabel}|${item?.name || '항목'}|${assigneeName}|${dateRange}|${progress}[/ITEM_INFO]\n[LINK]${process.env.FRONTEND_URL || 'http://192.168.1.250:3000'}/psta?itemId=${itemId}[/LINK]`;
 
       await prisma.message.create({
         data: {
@@ -182,8 +183,8 @@ export const createComment = async (req: AuthRequest, res: Response): Promise<an
 
     res.json(comment);
   } catch (error: any) {
-    console.error('Create comment error:', error);
-    res.status(500).json({ error: error.message });
+    errorLogger.error('Create comment error:', { error });
+    res.status(500).json({ error: 'Internal server error' });
   }
 };
 
@@ -207,8 +208,8 @@ export const deleteComment = async (req: AuthRequest, res: Response): Promise<an
 
     res.json({ message: 'Comment deleted successfully' });
   } catch (error: any) {
-    console.error('Delete comment error:', error);
-    res.status(500).json({ error: error.message });
+    errorLogger.error('Delete comment error:', { error });
+    res.status(500).json({ error: 'Internal server error' });
   }
 };
 
@@ -274,7 +275,7 @@ export const toggleReaction = async (req: AuthRequest, res: Response): Promise<a
 
     res.json(updatedComment);
   } catch (error: any) {
-    console.error('Toggle reaction error:', error);
-    res.status(500).json({ error: error.message });
+    errorLogger.error('Toggle reaction error:', { error });
+    res.status(500).json({ error: 'Internal server error' });
   }
 };

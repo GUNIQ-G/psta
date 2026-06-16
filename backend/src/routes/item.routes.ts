@@ -1,6 +1,7 @@
 import { Router, RequestHandler } from 'express';
 import * as itemController from '../controllers/item.controller';
 import { authMiddleware } from '../middleware/auth';
+import { uploadItemImage } from '../config/multer';
 
 const router = Router();
 
@@ -8,6 +9,8 @@ router.use(authMiddleware as RequestHandler);
 
 router.get('/', itemController.getItems as RequestHandler);
 router.get('/tree', itemController.getItemTree as RequestHandler);
+router.post('/upload-image', uploadItemImage.single('image'), itemController.uploadItemImage as RequestHandler);
+router.get('/images/:filename', itemController.getItemImage as RequestHandler);
 
 // Test endpoint to check _count for specific item
 router.get('/test-count', async (req: any, res: any) => {

@@ -2,6 +2,7 @@ import { Response } from 'express';
 import { AuthRequest } from '../middleware/auth';
 import prisma from '../config/database';
 import { randomUUID } from 'crypto';
+import { errorLogger } from '../config/logger';
 
 export const getClients = async (req: AuthRequest, res: Response) => {
   try {
@@ -20,8 +21,9 @@ export const getClients = async (req: AuthRequest, res: Response) => {
     });
 
     res.json(clients);
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
+  } catch (error) {
+    errorLogger.error('Get clients error', { error });
+    res.status(500).json({ error: 'Internal server error' });
   }
 };
 
@@ -50,8 +52,12 @@ export const createClient = async (req: AuthRequest, res: Response) => {
     });
 
     res.status(201).json(client);
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
+  } catch (error) {
+    if ((error as any).code === 'P2002') {
+      return res.status(409).json({ error: 'Already exists' });
+    }
+    errorLogger.error('Create client error', { error });
+    res.status(500).json({ error: 'Internal server error' });
   }
 };
 
@@ -78,8 +84,12 @@ export const updateClient = async (req: AuthRequest, res: Response) => {
     });
 
     res.json(client);
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
+  } catch (error) {
+    if ((error as any).code === 'P2025') {
+      return res.status(404).json({ error: 'Not found' });
+    }
+    errorLogger.error('Update client error', { error });
+    res.status(500).json({ error: 'Internal server error' });
   }
 };
 
@@ -93,8 +103,12 @@ export const deleteClient = async (req: AuthRequest, res: Response) => {
     });
 
     res.status(204).send();
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
+  } catch (error) {
+    if ((error as any).code === 'P2025') {
+      return res.status(404).json({ error: 'Not found' });
+    }
+    errorLogger.error('Delete client error', { error });
+    res.status(500).json({ error: 'Internal server error' });
   }
 };
 
@@ -113,7 +127,8 @@ export const uploadClientLogo = async (req: AuthRequest, res: Response) => {
       originalName: req.file.originalname,
       size: req.file.size,
     });
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
+  } catch (error) {
+    errorLogger.error('Upload client logo error', { error });
+    res.status(500).json({ error: 'Internal server error' });
   }
 };

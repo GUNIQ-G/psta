@@ -4,6 +4,7 @@ import userService from '../services/user.service';
 import ldapService from '../config/ldap';
 import prisma from '../config/database';
 import { AuthRequest } from '../middleware/auth';
+import appLogger, { errorLogger, ldapLogger } from '../config/logger';
 
 export const getAllUsers = async (req: Request, res: Response) => {
   try {
@@ -123,22 +124,22 @@ export const getPendingApprovals = async (req: Request, res: Response) => {
 export const approveUser = async (req: Request, res: Response) => {
   try {
     const user = await userService.approveUser(req.params.id);
-    console.log(`[APPROVAL] User ${user.username} (${user.displayName}) has been approved`);
+    appLogger.info(`[APPROVAL] User ${user.username} (${user.displayName}) has been approved`);
     res.json(user);
   } catch (error: any) {
-    console.error('[APPROVAL] Approve user error:', error);
-    res.status(500).json({ error: error.message });
+    errorLogger.error('[APPROVAL] Approve user error:', { error });
+    res.status(500).json({ error: 'Internal server error' });
   }
 };
 
 export const rejectUser = async (req: Request, res: Response) => {
   try {
     const user = await userService.rejectUser(req.params.id);
-    console.log(`[APPROVAL] User ${user.username} (${user.displayName}) approval request has been rejected`);
+    appLogger.info(`[APPROVAL] User ${user.username} (${user.displayName}) approval request has been rejected`);
     res.json(user);
   } catch (error: any) {
-    console.error('[APPROVAL] Reject user error:', error);
-    res.status(500).json({ error: error.message });
+    errorLogger.error('[APPROVAL] Reject user error:', { error });
+    res.status(500).json({ error: 'Internal server error' });
   }
 };
 
@@ -156,15 +157,15 @@ export const syncUserFromLDAP = async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'User is not an LDAP user' });
     }
 
-    console.log(`[LDAP SYNC] Syncing user ${user.username} from LDAP...`);
+    ldapLogger.info(`[LDAP SYNC] Syncing user ${user.username} from LDAP...`);
 
     // Get user's LDAP groups
     let userGroups: string[] = [];
     try {
       userGroups = await ldapService.getUserGroups(user.ldapDn);
-      console.log(`[LDAP SYNC] User ${user.username} groups:`, userGroups);
+      ldapLogger.info(`[LDAP SYNC] User ${user.username} groups:`, { userGroups });
     } catch (groupErr: any) {
-      console.error('[LDAP SYNC] Failed to get user groups:', groupErr.message);
+      errorLogger.error('[LDAP SYNC] Failed to get user groups:', { error: groupErr });
       return res.status(500).json({ error: `Failed to get LDAP groups: ${groupErr.message}` });
     }
 
@@ -179,9 +180,9 @@ export const syncUserFromLDAP = async (req: Request, res: Response) => {
       });
       if (team) {
         teamId = team.id;
-        console.log(`[LDAP SYNC] User assigned to team: ${team.name}`);
+        ldapLogger.info(`[LDAP SYNC] User assigned to team: ${team.name}`);
       } else {
-        console.log(`[LDAP SYNC] No matching team found for groups:`, userGroups);
+        ldapLogger.info(`[LDAP SYNC] No matching team found for groups:`, { userGroups });
       }
     }
 
@@ -197,21 +198,21 @@ export const syncUserFromLDAP = async (req: Request, res: Response) => {
       },
     });
 
-    console.log(`[LDAP SYNC] User ${user.username} synced successfully. Team: ${updatedUser.Team?.name || 'none'}`);
+    ldapLogger.info(`[LDAP SYNC] User ${user.username} synced successfully. Team: ${updatedUser.Team?.name || 'none'}`);
 
     res.json({
       message: 'User synced from LDAP successfully',
       user: updatedUser,
     });
   } catch (error: any) {
-    console.error('[LDAP SYNC] Sync user error:', error);
-    res.status(500).json({ error: error.message });
+    errorLogger.error('[LDAP SYNC] Sync user error:', { error });
+    res.status(500).json({ error: 'Internal server error' });
   }
 };
 
 export const syncAllUsersFromLDAP = async (req: Request, res: Response) => {
   try {
-    console.log('[LDAP SYNC ALL] Starting to sync all LDAP users...');
+    ldapLogger.info('[LDAP SYNC ALL] Starting to sync all LDAP users...');
 
     const ldapUsers = await prisma.user.findMany({
       where: {
@@ -254,19 +255,19 @@ export const syncAllUsersFromLDAP = async (req: Request, res: Response) => {
         });
 
         results.synced++;
-        console.log(`[LDAP SYNC ALL] Synced user ${user.username}`);
+        ldapLogger.info(`[LDAP SYNC ALL] Synced user ${user.username}`);
       } catch (error: any) {
         results.errors.push(`${user.username}: ${error.message}`);
-        console.error(`[LDAP SYNC ALL] Failed to sync user ${user.username}:`, error.message);
+        errorLogger.error(`[LDAP SYNC ALL] Failed to sync user ${user.username}:`, { error });
       }
     }
 
-    console.log(`[LDAP SYNC ALL] Completed. Synced: ${results.synced}/${results.total}`);
+    ldapLogger.info(`[LDAP SYNC ALL] Completed. Synced: ${results.synced}/${results.total}`);
 
     res.json(results);
   } catch (error: any) {
-    console.error('[LDAP SYNC ALL] Sync all users error:', error);
-    res.status(500).json({ error: error.message });
+    errorLogger.error('[LDAP SYNC ALL] Sync all users error:', { error });
+    res.status(500).json({ error: 'Internal server error' });
   }
 };
 
@@ -379,7 +380,7 @@ export const getUserManagers = async (req: AuthRequest, res: Response) => {
 
     res.json(managers);
   } catch (error: any) {
-    console.error('Get user managers error:', error);
-    res.status(500).json({ error: 'Failed to get user managers' });
+    errorLogger.error('Get user managers error:', { error });
+    res.status(500).json({ error: 'Internal server error' });
   }
 };

@@ -139,3 +139,23 @@ export const uploadFeedbackImage = multer({
     fileSize: 10 * 1024 * 1024, // 10MB limit
   },
 });
+
+// Storage configuration for item description images
+const itemImageStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, path.join(UPLOAD_BASE_DIR, 'item-images'));
+  },
+  filename: (req, file, cb) => {
+    const uniqueName = `${randomUUID()}${path.extname(file.originalname)}`;
+    cb(null, uniqueName);
+  },
+});
+
+// Upload configuration for item description images
+export const uploadItemImage = multer({
+  storage: itemImageStorage,
+  fileFilter: fileFilter,
+  limits: {
+    fileSize: 10 * 1024 * 1024, // 10MB limit
+  },
+});

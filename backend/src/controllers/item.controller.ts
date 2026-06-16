@@ -3,14 +3,18 @@ import { AuthRequest } from '../middleware/auth';
 import prisma from '../config/database';
 import { ItemType, ItemStatus } from '@prisma/client';
 import { randomUUID } from 'crypto';
+import fs from 'fs';
+import path from 'path';
 import { updateItemAndParents } from '../services/item-calculation.service';
-import { appLogger } from '../config/logger';
+import appLogger, { errorLogger } from '../config/logger';
 import {
   softDeleteItem,
   softDeleteProjectWithTeamPreservation,
   softDeleteServiceWithTeamPreservation,
 } from '../services/soft-delete.service';
 import { NotificationService } from '../services/notification.service';
+import { USER_SELECT, CREATOR_SELECT } from '../utils/prisma-selects';
+import { extractDescriptionMentionIds, sendDescriptionMentionNotifications } from '../services/mention.service';
 
 export const getItems = async (req: AuthRequest, res: Response) => {
   try {
@@ -31,22 +35,13 @@ export const getItems = async (req: AuthRequest, res: Response) => {
       Client: true,
       Item: true,
       User_Item_assigneeIdToUser: {
-        select: {
-          id: true,
-          username: true,
-          displayName: true,
-          email: true,
-        },
+        select: USER_SELECT,
       },
       other_Item: {
         where: { isDeleted: false },
         include: {
           User_Item_assigneeIdToUser: {
-            select: {
-              id: true,
-              username: true,
-              displayName: true,
-            },
+            select: CREATOR_SELECT,
           },
         },
       },
@@ -58,11 +53,7 @@ export const getItems = async (req: AuthRequest, res: Response) => {
         where: { isDeleted: false, type: ItemType.ACTION },
         include: {
           User_Item_assigneeIdToUser: {
-            select: {
-              id: true,
-              username: true,
-              displayName: true,
-            },
+            select: CREATOR_SELECT,
           },
           User_Item_createdByIdToUser: {
             select: {
@@ -133,7 +124,8 @@ export const getItems = async (req: AuthRequest, res: Response) => {
 
     res.json(items);
   } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    errorLogger.error('Failed to get items', { error });
+    res.status(500).json({ error: 'Internal server error' });
   }
 };
 
@@ -146,23 +138,14 @@ export const getItemById = async (req: AuthRequest, res: Response) => {
       include: {
         Client: true,
         User_Item_assigneeIdToUser: {
-          select: {
-            id: true,
-            username: true,
-            displayName: true,
-            email: true,
-          },
+          select: USER_SELECT,
         },
         Item: true,
         other_Item: {
           where: { isDeleted: false },
           include: {
             User_Item_assigneeIdToUser: {
-              select: {
-                id: true,
-                username: true,
-                displayName: true,
-              },
+              select: CREATOR_SELECT,
             },
             User_Item_createdByIdToUser: {
               select: {
@@ -220,20 +203,10 @@ export const getItemById = async (req: AuthRequest, res: Response) => {
         WorkRequest: {
           include: {
             Requester: {
-              select: {
-                id: true,
-                username: true,
-                displayName: true,
-                email: true,
-              },
+              select: USER_SELECT,
             },
             Assignee: {
-              select: {
-                id: true,
-                username: true,
-                displayName: true,
-                email: true,
-              },
+              select: USER_SELECT,
             },
           },
         },
@@ -246,7 +219,8 @@ export const getItemById = async (req: AuthRequest, res: Response) => {
 
     res.json(item);
   } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    errorLogger.error('Failed to get item by id', { error });
+    res.status(500).json({ error: 'Internal server error' });
   }
 };
 
@@ -376,11 +350,7 @@ export const createItem = async (req: AuthRequest, res: Response) => {
       include: {
         Client: true,
         User_Item_assigneeIdToUser: {
-          select: {
-            id: true,
-            username: true,
-            displayName: true,
-          },
+          select: CREATOR_SELECT,
         },
       },
     });
@@ -399,6 +369,18 @@ export const createItem = async (req: AuthRequest, res: Response) => {
           itemId: item.id,
           error: notifyError.message,
         });
+      }
+    }
+
+    // 🔔 description 멘션 알림
+    if (description) {
+      try {
+        const mentionIds = extractDescriptionMentionIds(description);
+        if (mentionIds.length > 0) {
+          await sendDescriptionMentionNotifications(item.id, item.name, req.user!.id, mentionIds, []);
+        }
+      } catch (notifyError: any) {
+        appLogger.warn('Failed to send description mention notification', { itemId: item.id, error: notifyError.message });
       }
     }
 
@@ -494,12 +476,12 @@ export const createItem = async (req: AuthRequest, res: Response) => {
 
     res.status(201).json(item);
   } catch (error: any) {
-    appLogger.error('❌ Error creating item', {
-      error: error.message,
+    errorLogger.error('❌ Error creating item', {
+      error,
       stack: error.stack,
       requestBody: req.body,
     });
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: 'Internal server error' });
   }
 };
 
@@ -595,11 +577,7 @@ export const updateItem = async (req: AuthRequest, res: Response) => {
       include: {
         Client: true,
         User_Item_assigneeIdToUser: {
-          select: {
-            id: true,
-            username: true,
-            displayName: true,
-          },
+          select: CREATOR_SELECT,
         },
       },
     });
@@ -636,6 +614,21 @@ export const updateItem = async (req: AuthRequest, res: Response) => {
       }
     }
 
+    // 🔔 description 멘션 diff 알림
+    if (updateData.description !== undefined) {
+      try {
+        const oldMentionIds = extractDescriptionMentionIds(existingItem.description);
+        const newMentionIds = extractDescriptionMentionIds(updateData.description);
+        const addedIds = newMentionIds.filter(id => !oldMentionIds.includes(id));
+        const keptIds = newMentionIds.filter(id => oldMentionIds.includes(id));
+        if (addedIds.length > 0 || keptIds.length > 0) {
+          await sendDescriptionMentionNotifications(item.id, item.name, req.user!.id, addedIds, keptIds);
+        }
+      } catch (notifyError: any) {
+        appLogger.warn('Failed to send description mention notification on update', { itemId: item.id, error: notifyError.message });
+      }
+    }
+
     // If item has a parent, update parent chain
     // Also update if status, progress, or isOnHold changed
     if (existingItem.parentId && (
@@ -648,7 +641,8 @@ export const updateItem = async (req: AuthRequest, res: Response) => {
 
     res.json(item);
   } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    errorLogger.error('Failed to update item', { error });
+    res.status(500).json({ error: 'Internal server error' });
   }
 };
 
@@ -729,11 +723,11 @@ export const deleteItem = async (req: AuthRequest, res: Response) => {
       });
     }
   } catch (error: any) {
-    appLogger.error('Failed to delete item', {
+    errorLogger.error('Failed to delete item', {
       itemId: req.params.id,
-      error: error.message,
+      error,
     });
-    res.status(500).json({ error: error.message });
+    res.status(500).json({ error: 'Internal server error' });
   }
 };
 
@@ -784,11 +778,7 @@ export const getItemTree = async (req: AuthRequest, res: Response) => {
                 include: {
                   Client: true,
                   User_Item_assigneeIdToUser: {
-                    select: {
-                      id: true,
-                      username: true,
-                      displayName: true,
-                    },
+                    select: CREATOR_SELECT,
                   },
                   // 3단계 구조: 액션 생성자의 팀 정보 포함
                   User_Item_createdByIdToUser: {
@@ -849,11 +839,7 @@ export const getItemTree = async (req: AuthRequest, res: Response) => {
               include: {
                 Client: true,
                 User_Item_assigneeIdToUser: {
-                  select: {
-                    id: true,
-                    username: true,
-                    displayName: true,
-                  },
+                  select: CREATOR_SELECT,
                 },
                 // 3단계 구조: 액션 생성자의 팀 정보 포함
                 User_Item_createdByIdToUser: {
@@ -1027,11 +1013,7 @@ export const getItemTree = async (req: AuthRequest, res: Response) => {
         include: {
           Client: true,
           User_Item_assigneeIdToUser: {
-            select: {
-              id: true,
-              username: true,
-              displayName: true,
-            },
+            select: CREATOR_SELECT,
           },
           _count: {
             select: { Comment: true },
@@ -1052,11 +1034,7 @@ export const getItemTree = async (req: AuthRequest, res: Response) => {
             include: {
               Client: true,
               User_Item_assigneeIdToUser: {
-                select: {
-                  id: true,
-                  username: true,
-                  displayName: true,
-                },
+                select: CREATOR_SELECT,
               },
               _count: {
                 select: { Comment: true },
@@ -1102,11 +1080,7 @@ export const getItemTree = async (req: AuthRequest, res: Response) => {
       include: {
         Client: true,
         User_Item_assigneeIdToUser: {
-          select: {
-            id: true,
-            username: true,
-            displayName: true,
-          },
+          select: CREATOR_SELECT,
         },
         _count: {
           select: { Comment: true },
@@ -1119,7 +1093,8 @@ export const getItemTree = async (req: AuthRequest, res: Response) => {
 
     res.json(tree);
   } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    errorLogger.error('Failed to get item tree', { error });
+    res.status(500).json({ error: 'Internal server error' });
   }
 };
 
@@ -1177,12 +1152,7 @@ export const moveItem = async (req: AuthRequest, res: Response) => {
             },
           },
           User_Item_assigneeIdToUser: {
-            select: {
-              id: true,
-              username: true,
-              displayName: true,
-              email: true,
-            },
+            select: USER_SELECT,
           },
         },
       });
@@ -1228,12 +1198,7 @@ export const moveItem = async (req: AuthRequest, res: Response) => {
         Client: true,
         Item: true,
         User_Item_assigneeIdToUser: {
-          select: {
-            id: true,
-            username: true,
-            displayName: true,
-            email: true,
-          },
+          select: USER_SELECT,
         },
       },
     });
@@ -1246,7 +1211,32 @@ export const moveItem = async (req: AuthRequest, res: Response) => {
 
     res.json(updatedItem);
   } catch (error: any) {
-    console.error('Failed to move item:', error);
-    res.status(500).json({ error: error.message });
+    errorLogger.error('Failed to move item', { error });
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+export const uploadItemImage = async (req: AuthRequest, res: Response): Promise<any> => {
+  try {
+    if (!req.user?.id) return res.status(401).json({ message: 'Unauthorized' });
+    if (!req.file) return res.status(400).json({ message: 'No image uploaded' });
+
+    const imageUrl = `/api/items/images/${req.file.filename}`;
+    res.json({ url: imageUrl, filename: req.file.filename });
+  } catch (error) {
+    if (req.file) {
+      try { fs.unlinkSync(req.file.path); } catch {}
+    }
+    res.status(500).json({ message: 'Failed to upload image' });
+  }
+};
+
+export const getItemImage = async (req: AuthRequest, res: Response): Promise<any> => {
+  try {
+    const { filename } = req.params;
+    const filepath = path.join('/data/psta/uploads/item-images', filename);
+    if (!fs.existsSync(filepath)) return res.status(404).json({ message: 'Image not found' });
+    res.sendFile(filepath);
+  } catch (error) {
+    res.status(500).json({ message: 'Failed to get image' });
   }
 };

@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import teamService from '../services/team.service';
 import { LdapService } from '../config/ldap';
 import { appLogger, errorLogger } from '../config/logger';
+import prisma from '../config/database';
 
 // Extend Request for authenticated user
 interface AuthRequest extends Request {
@@ -144,7 +145,6 @@ export const resetTeams = async (req: AuthRequest, res: Response) => {
     });
 
     // Check if user has LDAP DN (is an LDAP user)
-    const prisma = require('../config/database').default;
     const currentUser = await prisma.user.findUnique({
       where: { id: req.user.id },
       select: { ldapDn: true }
