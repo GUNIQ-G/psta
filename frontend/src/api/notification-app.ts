@@ -33,19 +33,19 @@ export interface SendMessageResponse {
 
 export const notificationAppApi = {
   // CRUD operations
-  getAll: () => axios.get<NotificationApp[]>('/notification-apps'),
-  getById: (id: string) => axios.get<NotificationApp>(`/notification-apps/${id}`),
-  create: (data: Partial<NotificationApp>) => axios.post<NotificationApp>('/notification-apps', data),
-  update: (id: string, data: Partial<NotificationApp>) => axios.put<NotificationApp>(`/notification-apps/${id}`, data),
-  delete: (id: string) => axios.delete(`/notification-apps/${id}`),
+  getAll: () => axios.get<NotificationApp[]>('/notifications/apps'),
+  getById: (id: string) => axios.get<NotificationApp>(`/notifications/apps/${id}`),
+  create: (data: Partial<NotificationApp>) => axios.post<NotificationApp>('/notifications/apps', data),
+  update: (id: string, data: Partial<NotificationApp>) => axios.put<NotificationApp>(`/notifications/apps/${id}`, data),
+  delete: (id: string) => axios.delete(`/notifications/apps/${id}`),
 
   // Test connection
   testConnection: (type: NotificationAppType, config: string | object) =>
-    axios.post<TestConnectionResponse>('/notification-apps/test', { type, config }),
+    axios.post<TestConnectionResponse>('/notifications/apps/test', { type, config }),
 
   // Send message
   sendMessageByEmail: (email: string, message: string, type?: NotificationAppType) =>
-    axios.post<SendMessageResponse>('/notification-apps/messages/send-by-email', { email, message, type }),
+    axios.post<SendMessageResponse>('/notifications/apps/messages/send-by-email', { email, message, type }),
 };
 
 // Platform display names

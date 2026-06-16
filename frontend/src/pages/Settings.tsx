@@ -34,7 +34,7 @@ export const Settings: React.FC = () => {
   const loadSettings = async () => {
     try {
       // Load LDAP settings
-      const ldapRes = await api.get<LdapSettings>('/api/settings/ldap');
+      const ldapRes = await api.get<LdapSettings>('/ldap/settings');
       ldapForm.setFieldsValue({
         url: ldapRes.data.url,
         bindDn: ldapRes.data.bindDn,
@@ -59,7 +59,7 @@ export const Settings: React.FC = () => {
       const values = await ldapForm.validateFields();
       setTesting(true);
 
-      const res = await api.post('/api/settings/ldap/test', values);
+      const res = await api.post('/ldap/settings/test', values);
 
       if (res.data.success) {
         message.success('LDAP connection successful!');
@@ -76,7 +76,7 @@ export const Settings: React.FC = () => {
   const handleLdapSubmit = async (values: any) => {
     try {
       setLoading(true);
-      await api.put('/api/settings/ldap', values);
+      await api.put('/ldap/settings', values);
       message.success('LDAP settings saved successfully');
       setLdapConfigured(true);
     } catch (error: any) {

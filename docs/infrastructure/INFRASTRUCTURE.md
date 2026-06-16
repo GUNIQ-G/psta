@@ -109,21 +109,52 @@ npx prisma studio        # DB GUI (5555 포트)
 - **포트**: 3001
 - **바인딩**: 0.0.0.0 (외부 접근 허용)
 
-### 4.2 Frontend (Vite)
-- **빌드 도구**: Vite v5.0.11
+### 4.2 Frontend (nginx Docker)
+- **빌드 도구**: Vite v5.0.11 (빌드 전용)
 - **프레임워크**: React v18.2.0
-- **포트**: 3000 (개발), 3000 (프로덕션)
-- **바인딩**: 0.0.0.0 (외부 접근 허용)
+- **서빙 방식**: nginx:alpine Docker 컨테이너
+- **포트**: 3000
+- **컨테이너명**: `psta-frontend`
+- **설정 경로**: `/app/psta/nginx/`
+  - `nginx.conf` — nginx 설정 (envsubst 템플릿)
+  - `docker-compose.yml` — 컨테이너 정의
+  - `Dockerfile` — nginx:alpine + gettext(envsubst)
+  - `entrypoint.sh` — `${BACKEND_HOST}` 변수 치환 후 nginx 시작
+  - `dist/` — 빌드된 정적 파일 (volume mount)
+  - `logrotate.conf` — nginx 로그 로테이션 설정 (**소유자 반드시 root**, 아래 참고)
+- **로그**: `/log/nginx/access.log`, `/log/nginx/error.log`
 
-### 4.3 개발 서버
+#### logrotate 초기 설정 (최초 1회)
+```bash
+# 1. logrotate 설치 (없을 경우)
+sudo apt install -y logrotate
+
+# 2. symlink 등록
+sudo ln -sf /app/psta/nginx/logrotate.conf /etc/logrotate.d/psta-nginx
+
+# 3. 파일 권한/소유자 설정 (logrotate는 root 소유 + 644 필수)
+sudo chown root:root /app/psta/nginx/logrotate.conf
+sudo chmod 644 /app/psta/nginx/logrotate.conf
+
+# 4. 동작 확인
+sudo logrotate --debug /etc/logrotate.d/psta-nginx
 ```
-개발 환경:
-- Backend: nodemon + ts-node (핫 리로드)
-- Frontend: Vite dev server (HMR 비활성화)
 
+> ⚠️ `logrotate.conf`를 수정할 때마다 소유자가 일반 사용자로 돌아가므로  
+> 수정 후 항상 `sudo chown root:root /app/psta/nginx/logrotate.conf` 실행 필요
+
+#### nginx 핵심 설정 포인트
+- `location ^~ /uploads` — 이미지/파일 업로드를 백엔드로 프록시 (`^~`로 정적파일 regex보다 우선)
+- `location ~* \.(js|css|png|...)` — Vite 해시 파일 1년 캐싱
+- `location /` — SPA 라우팅 (`try_files $uri /index.html`)
+- `location /api/` — 백엔드 API 프록시
+- `BACKEND_HOST` 환경변수로 백엔드 주소 주입 (`hostname -I`로 자동 감지)
+
+### 4.3 서버 환경
+```
 프로덕션 환경:
-- Backend: Node.js + compiled JavaScript
-- Frontend: serve (static file server)
+- Backend: Node.js + compiled JavaScript (systemd: psta-backend)
+- Frontend: nginx Docker 컨테이너 (docker compose: psta-frontend)
 ```
 
 ### 4.4 Nginx 리버스 프록시 (프로덕션)
@@ -430,8 +461,16 @@ sudo firewall-cmd --reload
 │
 ├── frontend/                    # 프론트엔드 코드
 │   ├── src/                     # React 소스
-│   ├── dist/                    # 빌드 결과물
+│   ├── dist/                    # 빌드 결과물 (빌드 후 nginx/dist/로 복사)
 │   └── node_modules/            # 프론트엔드 의존성
+│
+├── nginx/                       # nginx Docker 서빙 설정
+│   ├── Dockerfile               # nginx:alpine + gettext
+│   ├── docker-compose.yml       # 컨테이너 정의 (psta-frontend)
+│   ├── nginx.conf               # nginx 설정 템플릿
+│   ├── entrypoint.sh            # 환경변수 치환 후 nginx 시작
+│   ├── logrotate.conf           # 로그 로테이션 설정
+│   └── dist/                    # 정적 파일 (volume mount → 컨테이너 내 /usr/share/nginx/html)
 │
 ├── bin/                         # 서버 관리 스크립트
 │   └── server.sh                # 서버 start/stop/restart
@@ -448,17 +487,19 @@ sudo firewall-cmd --reload
 │   └── item-files/              # 아이템 첨부 파일 (20MB 제한)
 └── database/                    # PostgreSQL 데이터 (선택)
 
-/log/psta/                       # 로그 디렉토리
+/log/psta/                       # 애플리케이션 로그
 ├── app/
-│   ├── backend/                 # 백엔드 로그 (JSON, 일별 로테이션)
-│   └── frontend/                # 프론트엔드 로그
+│   └── backend/                 # 백엔드 로그 (JSON, 일별 로테이션)
 ├── database/                    # 데이터베이스 로그
 ├── external/                    # 외부 서비스 로그 (LDAP, Slack)
 └── system/                      # 시스템 로그
 
+/log/nginx/                      # nginx 로그 (Docker volume mount)
+├── access.log                   # 접근 로그
+└── error.log                    # 에러 로그
+
 /tmp/                            # 임시 파일
-├── psta-backend.pid             # 백엔드 프로세스 ID
-└── psta-frontend.pid            # 프론트엔드 프로세스 ID
+└── psta-backend.pid             # 백엔드 프로세스 ID
 ```
 
 ### 10.2 데이터 저장 위치
@@ -479,7 +520,8 @@ sudo firewall-cmd --reload
 sudo mkdir -p /data/psta/uploads/{client-logos,item-files}
 
 # 로그 디렉토리 생성
-sudo mkdir -p /log/psta/{app/{backend,frontend},database,external,system}
+sudo mkdir -p /log/psta/{app/backend,database,external,system}
+sudo mkdir -p /log/nginx
 
 # 권한 설정 (Node.js 실행 사용자)
 sudo chown -R $USER:$USER /data/psta

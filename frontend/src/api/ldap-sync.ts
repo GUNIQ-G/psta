@@ -60,7 +60,7 @@ export const ldapSyncApi = {
    * Trigger manual LDAP sync
    */
   triggerSync: async (dryRun: boolean = false): Promise<{ success: boolean; result: SyncResult }> => {
-    const response = await axiosInstance.post('/ldap-sync/sync', { dryRun });
+    const response = await axiosInstance.post('/ldap/sync/sync', { dryRun });
     return response.data;
   },
 
@@ -68,7 +68,7 @@ export const ldapSyncApi = {
    * Get last sync result
    */
   getLastSyncResult: async (): Promise<{ success: boolean; result: SyncResult | null }> => {
-    const response = await axiosInstance.get('/ldap-sync/last-result');
+    const response = await axiosInstance.get('/ldap/sync/last-result');
     return response.data;
   },
 
@@ -76,7 +76,7 @@ export const ldapSyncApi = {
    * Get sync statistics
    */
   getSyncStats: async (): Promise<{ success: boolean; stats: SyncStats }> => {
-    const response = await axiosInstance.get('/ldap-sync/stats');
+    const response = await axiosInstance.get('/ldap/sync/stats');
     return response.data;
   },
 
@@ -84,7 +84,7 @@ export const ldapSyncApi = {
    * Preview LDAP users before sync
    */
   previewLdapUsers: async (): Promise<{ success: boolean; ldapUsers: LdapUserPreview[]; totalCount: number }> => {
-    const response = await axiosInstance.get('/ldap-sync/preview');
+    const response = await axiosInstance.get('/ldap/sync/preview');
     return response.data;
   },
 
@@ -92,7 +92,7 @@ export const ldapSyncApi = {
    * Selective sync - sync only selected users
    */
   selectiveSync: async (selectedUserDns: string[], dryRun: boolean = false): Promise<{ success: boolean; result: SyncResult }> => {
-    const response = await axiosInstance.post('/ldap-sync/selective', {
+    const response = await axiosInstance.post('/ldap/sync/selective', {
       selectedUserDns,
       dryRun,
     });
@@ -108,7 +108,7 @@ export const ldapSyncApi = {
     totalOrgs: number;
     totalUsers: number;
   }> => {
-    const response = await axiosInstance.get('/ldap-sync/preview-hierarchical');
+    const response = await axiosInstance.get('/ldap/sync/preview-hierarchical');
     return response.data;
   },
 
@@ -116,7 +116,7 @@ export const ldapSyncApi = {
    * v1.1.19: Apply selected LDAP items (organizations and users)
    */
   applySelectedLdapItems: async (selectedKeys: string[], dryRun: boolean = false): Promise<{ success: boolean; result: SyncResult }> => {
-    const response = await axiosInstance.post('/ldap-sync/apply', {
+    const response = await axiosInstance.post('/ldap/sync/apply', {
       selectedKeys,
       dryRun,
     });

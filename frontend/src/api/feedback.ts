@@ -73,13 +73,13 @@ export const feedbackApi = {
     page?: number;
     limit?: number;
   }): Promise<FeedbackListResponse> => {
-    const response = await api.get('/feedbacks', { params });
+    const response = await api.get('/boards/feedbacks', { params });
     return response.data;
   },
 
   // Get feedback by ID
   getById: async (id: string): Promise<Feedback> => {
-    const response = await api.get(`/feedbacks/${id}`);
+    const response = await api.get(`/boards/feedbacks/${id}`);
     return response.data;
   },
 
@@ -89,7 +89,7 @@ export const feedbackApi = {
     content: string;
     type: FeedbackType;
   }): Promise<Feedback> => {
-    const response = await api.post('/feedbacks', data);
+    const response = await api.post('/boards/feedbacks', data);
     return response.data;
   },
 
@@ -103,18 +103,18 @@ export const feedbackApi = {
       adminComment?: string;
     }
   ): Promise<Feedback> => {
-    const response = await api.put(`/feedbacks/${id}`, data);
+    const response = await api.put(`/boards/feedbacks/${id}`, data);
     return response.data;
   },
 
   // Delete feedback
   delete: async (id: string): Promise<void> => {
-    await api.delete(`/feedbacks/${id}`);
+    await api.delete(`/boards/feedbacks/${id}`);
   },
 
   // Get feedback statistics
   getStats: async (): Promise<FeedbackStats> => {
-    const response = await api.get('/feedbacks/stats');
+    const response = await api.get('/boards/feedbacks/stats');
     return response.data;
   },
 };

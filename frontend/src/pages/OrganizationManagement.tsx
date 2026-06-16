@@ -85,7 +85,7 @@ const OrganizationManagement: React.FC = () => {
   const loadTeamHierarchy = async () => {
     try {
       setLoading(true);
-      const response = await axios.get('/teams/hierarchy');
+      const response = await axios.get('/org/teams/hierarchy');
       setTeamTree(response.data);
 
       // Calculate statistics
@@ -278,7 +278,7 @@ const OrganizationManagement: React.FC = () => {
 
     setResetLoading(true);
     try {
-      const response = await axios.post('/teams/reset', { password: resetPassword });
+      const response = await axios.post('/org/teams/reset', { password: resetPassword });
       if (response.data.success) {
         setResetResult({
           success: true,
@@ -397,7 +397,7 @@ const OrganizationManagement: React.FC = () => {
       {/* Statistics */}
       <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
         <Col xs={12} sm={6}>
-          <Card bordered={false} style={{ borderRadius: 8, boxShadow: '0 1px 4px rgba(0,0,0,0.1)' }}>
+          <Card variant="borderless" style={{ borderRadius: 8, boxShadow: '0 1px 4px rgba(0,0,0,0.1)' }}>
             <Statistic
               title="전체 팀"
               value={stats.totalTeams}
@@ -406,7 +406,7 @@ const OrganizationManagement: React.FC = () => {
           </Card>
         </Col>
         <Col xs={12} sm={6}>
-          <Card bordered={false} style={{ borderRadius: 8, boxShadow: '0 1px 4px rgba(0,0,0,0.1)' }}>
+          <Card variant="borderless" style={{ borderRadius: 8, boxShadow: '0 1px 4px rgba(0,0,0,0.1)' }}>
             <Statistic
               title="전체 사용자"
               value={stats.totalUsers}
@@ -415,7 +415,7 @@ const OrganizationManagement: React.FC = () => {
           </Card>
         </Col>
         <Col xs={12} sm={6}>
-          <Card bordered={false} style={{ borderRadius: 8, boxShadow: '0 1px 4px rgba(0,0,0,0.1)' }}>
+          <Card variant="borderless" style={{ borderRadius: 8, boxShadow: '0 1px 4px rgba(0,0,0,0.1)' }}>
             <Statistic
               title="LDAP 팀"
               value={stats.ldapTeams}
@@ -424,7 +424,7 @@ const OrganizationManagement: React.FC = () => {
           </Card>
         </Col>
         <Col xs={12} sm={6}>
-          <Card bordered={false} style={{ borderRadius: 8, boxShadow: '0 1px 4px rgba(0,0,0,0.1)' }}>
+          <Card variant="borderless" style={{ borderRadius: 8, boxShadow: '0 1px 4px rgba(0,0,0,0.1)' }}>
             <Statistic
               title="LDAP 사용자"
               value={stats.ldapUsers}
@@ -450,7 +450,7 @@ const OrganizationManagement: React.FC = () => {
                 {expandedKeys.length > 0 ? '모두 접기' : '모두 펼치기'}
               </Button>
             }
-            bordered={false}
+            variant="borderless"
             style={{ borderRadius: 8, boxShadow: '0 1px 4px rgba(0,0,0,0.1)', height: '100%' }}
           >
             <Search
@@ -494,7 +494,7 @@ const OrganizationManagement: React.FC = () => {
         <Col xs={24} lg={14}>
           {selectedTeam ? (
             <Card
-              bordered={false}
+              variant="borderless"
               style={{ borderRadius: 8, boxShadow: '0 1px 4px rgba(0,0,0,0.1)' }}
               title={
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -552,7 +552,7 @@ const OrganizationManagement: React.FC = () => {
                       <Card
                         key={user.id}
                         size="small"
-                        bordered={isPOorPM}
+                        variant={isPOorPM ? 'outlined' : 'borderless'}
                         style={{
                           background: isPOorPM ? '#f0f5ff' : '#fafafa',
                           borderRadius: 8,
@@ -657,7 +657,7 @@ const OrganizationManagement: React.FC = () => {
             </Card>
           ) : (
             <Card
-              bordered={false}
+              variant="borderless"
               style={{ borderRadius: 8, boxShadow: '0 1px 4px rgba(0,0,0,0.1)', height: '100%', minHeight: 400 }}
             >
               <Empty

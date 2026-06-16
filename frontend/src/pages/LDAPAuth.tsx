@@ -74,7 +74,7 @@ export const LDAPAuth: React.FC = () => {
   const fetchConfigs = async () => {
     setLoading(true);
     try {
-      const response = await axiosInstance.get('/ldap-configs');
+      const response = await axiosInstance.get('/ldap/configs');
       setConfigs(response.data);
     } catch (error: any) {
       message.error('LDAP 설정 목록을 불러오는데 실패했습니다');
@@ -86,7 +86,7 @@ export const LDAPAuth: React.FC = () => {
   const handleTest = async (id: string, name: string) => {
     setTestingIds((prev) => new Set(prev).add(id));
     try {
-      const response = await axiosInstance.post(`/ldap-configs/${id}/test`);
+      const response = await axiosInstance.post(`/ldap/configs/${id}/test`);
       if (response.data.success) {
         message.success({
           content: (
@@ -137,7 +137,7 @@ export const LDAPAuth: React.FC = () => {
 
   const handleDelete = async (id: string, name: string) => {
     try {
-      await axiosInstance.delete(`/ldap-configs/${id}`);
+      await axiosInstance.delete(`/ldap/configs/${id}`);
       message.success(`"${name}" LDAP 설정이 삭제되었습니다`);
       fetchConfigs();
     } catch (error: any) {

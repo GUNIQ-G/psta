@@ -15,6 +15,7 @@ import { useNotificationStore } from '../store/notificationStore';
 import { ItemFormModal } from '../components/ItemFormModal';
 import { useActionItemModal } from '../hooks/useActionItemModal';
 import { userApi } from '../api/user';
+import '../components/TiptapEditor.css';
 
 const { Title, Text } = Typography;
 
@@ -996,7 +997,10 @@ export const Dashboard: React.FC = () => {
               <>
                 <Divider orientation="left">설명</Divider>
                 <Card size="small" style={{ backgroundColor: '#fafafa' }}>
-                  <Text style={{ whiteSpace: 'pre-wrap' }}>{selectedTask.description}</Text>
+                  <div
+                    className="description-html-view"
+                    dangerouslySetInnerHTML={{ __html: selectedTask.description }}
+                  />
                 </Card>
               </>
             )}

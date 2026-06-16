@@ -409,15 +409,15 @@ export const ItemDetailModal: React.FC<ItemDetailModalProps> = ({
 
             <div style={{ marginBottom: 16 }}>
               <div style={{ color: '#8c8c8c', fontSize: '12px', marginBottom: 4 }}>설명</div>
-              <div style={{
-                padding: '12px',
-                backgroundColor: '#fafafa',
-                borderRadius: '4px',
-                whiteSpace: 'pre-wrap',
-                color: item.description ? '#000' : '#bfbfbf',
-                fontStyle: item.description ? 'normal' : 'italic'
-              }}>
-                {item.description || '등록된 설명이 없습니다.'}
+              <div style={{ padding: '12px', backgroundColor: '#fafafa', borderRadius: '4px' }}>
+                {item.description ? (
+                  <div
+                    className="description-html-view"
+                    dangerouslySetInnerHTML={{ __html: item.description }}
+                  />
+                ) : (
+                  <span style={{ color: '#bfbfbf', fontStyle: 'italic' }}>등록된 설명이 없습니다.</span>
+                )}
               </div>
             </div>
 

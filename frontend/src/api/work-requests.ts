@@ -9,13 +9,13 @@ export const workRequestsApi = {
     assigneeId?: string;
     requesterId?: string;
   }): Promise<WorkRequest[]> => {
-    const response = await apiClient.get('/work-requests', { params });
+    const response = await apiClient.get('/work/requests', { params });
     return response.data;
   },
 
   // Get a single work request
   getWorkRequestById: async (id: string): Promise<WorkRequest> => {
-    const response = await apiClient.get(`/work-requests/${id}`);
+    const response = await apiClient.get(`/work/requests/${id}`);
     return response.data;
   },
 
@@ -30,7 +30,7 @@ export const workRequestsApi = {
     dueDate?: string;
     assigneeId?: string;
   }): Promise<WorkRequest> => {
-    const response = await apiClient.post('/work-requests', data);
+    const response = await apiClient.post('/work/requests', data);
     return response.data;
   },
 
@@ -50,66 +50,66 @@ export const workRequestsApi = {
       actionId?: string;
     }
   ): Promise<WorkRequest> => {
-    const response = await apiClient.put(`/work-requests/${id}`, data);
+    const response = await apiClient.put(`/work/requests/${id}`, data);
     return response.data;
   },
 
   // Recall a work request
   recallWorkRequest: async (id: string): Promise<WorkRequest> => {
-    const response = await apiClient.post(`/work-requests/${id}/recall`);
+    const response = await apiClient.post(`/work/requests/${id}/recall`);
     return response.data;
   },
 
   // Resubmit a work request (from REJECTED or IN_NEGOTIATION)
   resubmitWorkRequest: async (id: string): Promise<WorkRequest> => {
-    const response = await apiClient.post(`/work-requests/${id}/resubmit`);
+    const response = await apiClient.post(`/work/requests/${id}/resubmit`);
     return response.data;
   },
 
   // Approve a work request
   approveWorkRequest: async (id: string): Promise<WorkRequest> => {
-    const response = await apiClient.post(`/work-requests/${id}/approve`);
+    const response = await apiClient.post(`/work/requests/${id}/approve`);
     return response.data;
   },
 
   // Unapprove a work request
   unapproveWorkRequest: async (id: string): Promise<WorkRequest> => {
-    const response = await apiClient.post(`/work-requests/${id}/unapprove`);
+    const response = await apiClient.post(`/work/requests/${id}/unapprove`);
     return response.data;
   },
 
   // Create action from work request
   createActionFromWorkRequest: async (id: string): Promise<WorkRequest> => {
-    const response = await apiClient.post(`/work-requests/${id}/create-action`);
+    const response = await apiClient.post(`/work/requests/${id}/create-action`);
     return response.data;
   },
 
   // Delete a work request
   deleteWorkRequest: async (id: string): Promise<void> => {
-    await apiClient.delete(`/work-requests/${id}`);
+    await apiClient.delete(`/work/requests/${id}`);
   },
 
   // Get team work requests
   getTeamWorkRequests: async (): Promise<WorkRequest[]> => {
-    const response = await apiClient.get('/work-requests/team');
+    const response = await apiClient.get('/work/requests/team');
     return response.data;
   },
 
   // Assign work request to individual member
   assignToIndividual: async (id: string, assigneeId: string): Promise<WorkRequest> => {
-    const response = await apiClient.post(`/work-requests/${id}/assign`, { assigneeId });
+    const response = await apiClient.post(`/work/requests/${id}/assign`, { assigneeId });
     return response.data;
   },
 
   // Reject a work request
   rejectWorkRequest: async (id: string, rejectionMessage?: string): Promise<WorkRequest> => {
-    const response = await apiClient.post(`/work-requests/${id}/reject`, { rejectionMessage });
+    const response = await apiClient.post(`/work/requests/${id}/reject`, { rejectionMessage });
     return response.data;
   },
 
   // Request negotiation
   requestNegotiation: async (id: string, negotiationMessage: string): Promise<WorkRequest> => {
-    const response = await apiClient.post(`/work-requests/${id}/negotiate`, { negotiationMessage });
+    const response = await apiClient.post(`/work/requests/${id}/negotiate`, { negotiationMessage });
     return response.data;
   },
 
@@ -124,7 +124,7 @@ export const workRequestsApi = {
       targetManagerId?: string;
     }>;
   }> => {
-    const response = await apiClient.get(`/work-requests/${id}/validate-action-creation`);
+    const response = await apiClient.get(`/work/requests/${id}/validate-action-creation`);
     return response.data;
   },
 
@@ -140,36 +140,36 @@ export const workRequestsApi = {
     description?: string;
     priority?: string;
   }): Promise<WorkRequest> => {
-    const response = await apiClient.post('/work-requests/hierarchy-request', data);
+    const response = await apiClient.post('/work/requests/hierarchy-request', data);
     return response.data;
   },
 
   // Link created hierarchy to work request
   linkCreatedHierarchy: async (id: string, createdItemId: string): Promise<WorkRequest> => {
-    const response = await apiClient.patch(`/work-requests/${id}/link-hierarchy`, { createdItemId });
+    const response = await apiClient.patch(`/work/requests/${id}/link-hierarchy`, { createdItemId });
     return response.data;
   },
 
   // Forward work request to another user
   forwardWorkRequest: async (id: string, newAssigneeId: string): Promise<WorkRequest> => {
-    const response = await apiClient.post(`/work-requests/${id}/forward`, { newAssigneeId });
+    const response = await apiClient.post(`/work/requests/${id}/forward`, { newAssigneeId });
     return response.data;
   },
 
   // Get all work requests (Admin only)
   getAllWorkRequests: async (): Promise<WorkRequest[]> => {
-    const response = await apiClient.get('/work-requests/all');
+    const response = await apiClient.get('/work/requests/all');
     return response.data;
   },
 
   // Cancel work request (assignee only)
   cancelWorkRequest: async (id: string): Promise<WorkRequest> => {
-    const response = await apiClient.post(`/work-requests/${id}/cancel`);
+    const response = await apiClient.post(`/work/requests/${id}/cancel`);
     return response.data;
   },
 
   // Admin force delete work request
   adminDeleteWorkRequest: async (id: string): Promise<void> => {
-    await apiClient.delete(`/work-requests/${id}/admin`);
+    await apiClient.delete(`/work/requests/${id}/admin`);
   },
 };

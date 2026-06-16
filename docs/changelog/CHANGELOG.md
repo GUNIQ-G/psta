@@ -4,6 +4,47 @@
 
 ---
 
+## v1.1.30 (2026-06-16)
+
+### 🐳 프론트엔드 서빙 방식 변경: nginx Docker
+
+#### 핵심 변경사항
+- ✅ **프론트엔드 서빙을 `serve`에서 nginx Docker 컨테이너로 교체**
+- ✅ **nginx 관련 파일 구조 통합**: `/app/psta/nginx/` 디렉토리 신설
+- ✅ **nginx 로그 분리**: `/log/nginx/access.log`, `/log/nginx/error.log`
+- ✅ **logrotate 설정**: `/app/psta/nginx/logrotate.conf`
+
+#### 파일 구조
+```
+/app/psta/nginx/
+├── Dockerfile          # nginx:alpine + gettext(envsubst)
+├── docker-compose.yml  # psta-frontend 컨테이너 정의
+├── nginx.conf          # 설정 템플릿 (${BACKEND_HOST} 변수)
+├── entrypoint.sh       # envsubst 치환 후 nginx 기동
+├── logrotate.conf      # 로그 로테이션
+└── dist/               # 빌드된 정적 파일 (volume mount)
+```
+
+#### nginx 설정 주요 포인트
+- `location ^~ /uploads` — 업로드 파일 프록시 (`^~`로 정적파일 regex보다 우선 적용)
+- `location /api/` — 백엔드 API 프록시
+- `BACKEND_HOST` 환경변수로 백엔드 주소 동적 주입
+
+#### server.sh 변경
+- `start frontend`: 빌드(`npm run build`) → `nginx/dist/` 복사 → `docker compose up -d --build`
+- `restart frontend`: 컨테이너 실행 중이면 dist만 재빌드 (nginx 재시작 없음)
+- `stop frontend`: `docker compose down`
+- `logs frontend`: `docker logs -f psta-frontend`
+
+#### logrotate 설정 주의사항
+- `logrotate.conf`는 소유자 root + 권한 644 필수 (`su root root` 지시어 포함)
+- 파일 수정 시마다 `sudo chown root:root /app/psta/nginx/logrotate.conf` 재실행 필요
+
+#### 버그 수정
+- **`/uploads` 이미지 404 수정**: `location /uploads`에 `^~` 수식어 추가로 정적파일 regex(`*.png` 등)가 업로드 경로를 가로채던 문제 해결
+
+---
+
 ## v1.1.29 (2025-12-31)
 
 ### 📎 파일 업로드 확장자 확대

@@ -198,21 +198,20 @@ FRONTEND_URL="http://192.168.1.250:3000"
 cd /app/psta/backend && npm run dev  # 터미널 1 (개발 모드)
 cd /app/psta/frontend && npm run dev # 터미널 2 (개발 모드)
 
-# 프로덕션 모드 (serve 사용)
-cd /app/psta/frontend && npm run build  # 빌드
-serve -s dist -l 3000 -n                # 정적 파일 서빙
+# 프로덕션 모드 (nginx Docker 사용)
+/app/psta/bin/server.sh start frontend  # 빌드 + nginx Docker 시작
 ```
 
 ### 2.4 개발 서버 포트
 - Backend: http://localhost:3001
-- Frontend: http://localhost:3000
+- Frontend: http://localhost:3000 (nginx Docker 컨테이너)
 - Prisma Studio: http://localhost:5555 (수동 시작)
 
 ### 2.5 server.sh 스크립트 사용법
 
 **프로덕션 배포 환경**:
-- Frontend: `serve -s dist -l 3000 -n` (정적 파일 서빙)
-- Backend: systemd 서비스 또는 직접 프로세스 관리
+- Frontend: nginx Docker 컨테이너 (`psta-frontend`) — `start frontend` 시 자동 빌드 후 컨테이너 시작
+- Backend: systemd 서비스 (`psta-backend`) 또는 직접 프로세스 관리
 
 **기본 명령어**:
 ```bash
@@ -236,14 +235,14 @@ serve -s dist -l 3000 -n                # 정적 파일 서빙
 ./bin/server.sh restart all      # 전체 재시작
 ```
 
-**동작 방식** (v1.1.3):
-- **systemd 우선**: systemd 서비스가 활성화되어 있으면 자동으로 `systemctl` 사용
-- **직접 프로세스 관리**: systemd 서비스 없으면 직접 프로세스 시작/중지
-- **Frontend**: `serve -s dist` 프로세스 감지 및 관리 (프로덕션 모드)
+**동작 방식**:
+- **systemd 우선**: Backend는 systemd 서비스(`psta-backend`)가 활성화되어 있으면 `systemctl` 사용
+- **Frontend**: `npm run build` → `nginx/dist/` 복사 → `docker compose up -d --build`
+- **Frontend 재시작 최적화**: 컨테이너가 이미 실행 중이면 dist만 재빌드 (nginx 재시작 없음)
 - **Backend**: systemd 서비스 또는 `node dist/index.js` 프로세스 관리
 
 **프로세스 감지**:
-- Frontend: `pgrep -f "serve -s dist"` (v1.1.3+)
+- Frontend: `docker ps --filter name=psta-frontend` (Docker 컨테이너)
 - Backend: `pgrep -f "node.*dist/index.js"` 또는 systemd 상태
 
 ### 2.6 유틸리티 스크립트

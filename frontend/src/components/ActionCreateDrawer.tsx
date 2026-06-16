@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Drawer, Button, Space, Select, Form, Input, InputNumber, DatePicker, App, Upload, Divider, List, Popconfirm, Card, Tag, Row, Col } from 'antd';
+import { TiptapEditor } from './TiptapEditor';
+import './TiptapEditor.css';
 import { FolderOutlined, AppstoreOutlined, ArrowLeftOutlined, ArrowRightOutlined, UploadOutlined, DeleteOutlined, LinkOutlined, FileOutlined } from '@ant-design/icons';
 import { LinkAddModal } from './modals/LinkAddModal';
 import { itemsApi } from '../api/items';
@@ -531,7 +533,12 @@ export const ActionCreateDrawer: React.FC<ActionCreateDrawerProps> = ({
 
             {/* 4행: 설명 (전체 너비) */}
             <Form.Item name="description" label="설명">
-              <Input.TextArea rows={4} placeholder="설명을 입력하세요" />
+              <TiptapEditor
+                users={users}
+                minHeight={120}
+                placeholder="설명을 입력하세요. @ 로 멘션할 수 있습니다."
+                uploadUrl="/items/upload-image"
+              />
             </Form.Item>
 
             {/* 5행: 담당자 (전체 너비) */}
@@ -668,7 +675,14 @@ export const ActionCreateDrawer: React.FC<ActionCreateDrawerProps> = ({
                                 {(data.size / 1024 / 1024).toFixed(2)} MB
                               </>
                             ) : (
-                              <span style={{ color: '#1890ff' }}>{data.url}</span>
+                              <span style={{
+                              color: '#1890ff',
+                              display: 'block',
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              whiteSpace: 'nowrap',
+                              maxWidth: '100%',
+                            }}>{data.url}</span>
                             )}
                           </div>
                         }

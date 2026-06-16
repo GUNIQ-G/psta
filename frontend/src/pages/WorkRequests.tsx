@@ -28,6 +28,7 @@ import { itemsApi } from '../api/items';
 import { WorkRequestDrawer } from '../components/WorkRequestDrawer';
 import { HierarchyRequestModal } from '../components/HierarchyRequestModal';
 import dayjs from 'dayjs';
+import '../components/TiptapEditor.css';
 
 const { Title } = Typography;
 
@@ -1078,14 +1079,11 @@ export const WorkRequests: React.FC = () => {
                 }}>
                   상세 설명
                 </div>
-                <div style={{
-                  fontSize: 14,
-                  color: '#262626',
-                  lineHeight: 1.6,
-                  whiteSpace: 'pre-wrap',
-                }}>
-                  {selectedWorkRequest.description}
-                </div>
+                <div
+                  className="description-html-view"
+                  style={{ fontSize: 14, color: '#262626' }}
+                  dangerouslySetInnerHTML={{ __html: selectedWorkRequest.description }}
+                />
               </div>
 
               {/* 반려 사유 */}
@@ -1597,18 +1595,20 @@ export const WorkRequests: React.FC = () => {
                       </Space>
 
                       {selectedWorkRequest.Action.description && (
-                        <div style={{
-                          marginTop: 12,
-                          fontSize: 13,
-                          color: '#8c8c8c',
-                          lineHeight: 1.5,
-                          display: '-webkit-box',
-                          WebkitLineClamp: 2,
-                          WebkitBoxOrient: 'vertical',
-                          overflow: 'hidden',
-                        }}>
-                          {selectedWorkRequest.Action.description}
-                        </div>
+                        <div
+                          className="description-html-view"
+                          style={{
+                            marginTop: 12,
+                            fontSize: 13,
+                            color: '#8c8c8c',
+                            lineHeight: 1.5,
+                            display: '-webkit-box',
+                            WebkitLineClamp: 2,
+                            WebkitBoxOrient: 'vertical',
+                            overflow: 'hidden',
+                          }}
+                          dangerouslySetInnerHTML={{ __html: selectedWorkRequest.Action.description }}
+                        />
                       )}
                     </div>
 
