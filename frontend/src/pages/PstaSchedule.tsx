@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Typography, App, Button, Space, Checkbox, Divider, Input, Tabs, Dropdown } from 'antd';
-import { CheckOutlined, DownOutlined, EyeInvisibleOutlined, SearchOutlined, UserOutlined } from '@ant-design/icons';
+import { CheckOutlined, DownOutlined, EyeInvisibleOutlined, SearchOutlined, UserOutlined, EnterOutlined } from '@ant-design/icons';
 import { useSearchParams } from 'react-router-dom';
 import { ItemTree } from '../components/ItemTree';
 import { ItemFormModal } from '../components/ItemFormModal';
@@ -34,7 +34,8 @@ export const PstaSchedule: React.FC = () => {
   const [hideEmptyTeams, setHideEmptyTeams] = useState(true);
   const [selectedClientIds, setSelectedClientIds] = useState<string[]>([]);
   const [selectedProjectIds, setSelectedProjectIds] = useState<string[]>([]);
-  const [searchKeyword, setSearchKeyword] = useState<string>('');
+  const [searchKeyword, setSearchKeyword] = useState<string>('');   // 입력창 값
+  const [appliedKeyword, setAppliedKeyword] = useState<string>(''); // 실제 적용된 검색어
   const [expandedTypes, setExpandedTypes] = useState<Set<ItemType>>(
     new Set([ItemType.PROJECT, ItemType.SERVICE, ItemType.TEAM, ItemType.ACTION])
   );
@@ -339,13 +340,24 @@ export const PstaSchedule: React.FC = () => {
             {/* 검색창 */}
             <Input
               size="small"
-              placeholder="PSTA 명 검색"
+              placeholder="PSTA 명 검색 후 Enter 또는 버튼"
               prefix={<SearchOutlined />}
               allowClear
-              style={{ width: 220 }}
+              style={{ width: 260 }}
               value={searchKeyword}
-              onChange={(e) => setSearchKeyword(e.target.value)}
+              onChange={(e) => {
+                setSearchKeyword(e.target.value);
+                if (e.target.value === '') setAppliedKeyword('');
+              }}
+              onPressEnter={() => setAppliedKeyword(searchKeyword)}
             />
+            <Button
+              size="small"
+              icon={<EnterOutlined />}
+              onClick={() => setAppliedKeyword(searchKeyword)}
+            >
+              검색
+            </Button>
 
             {/* 고객 */}
             <Dropdown
@@ -487,7 +499,7 @@ export const PstaSchedule: React.FC = () => {
               hideEmptyTeams={hideEmptyTeams}
               selectedClientIds={selectedClientIds}
               selectedProjectIds={selectedProjectIds}
-              searchKeyword={searchKeyword}
+              searchKeyword={appliedKeyword}
             />
           ) : (
             <WbsTimeline
@@ -498,7 +510,7 @@ export const PstaSchedule: React.FC = () => {
               hideEmptyTeams={hideEmptyTeams}
               selectedClientIds={selectedClientIds}
               selectedProjectIds={selectedProjectIds}
-              searchKeyword={searchKeyword}
+              searchKeyword={appliedKeyword}
               onItemClick={handleItemClick}
             />
           )}

@@ -3,6 +3,8 @@ import { Form, Input, Select, DatePicker, Space, Tag } from 'antd';
 import dayjs from 'dayjs';
 import { ItemType, User } from '../../types';
 import { useAuthStore } from '../../store/authStore';
+import { TiptapEditor } from '../TiptapEditor';
+import '../TiptapEditor.css';
 
 interface CommonFormFieldsProps {
   isEditing: boolean;
@@ -120,10 +122,22 @@ export const CommonFormFields: React.FC<CommonFormFieldsProps> = ({
       {/* 설명 */}
       <Form.Item name="description" label="설명">
         {isEditing ? (
-          <Input.TextArea rows={4} />
+          <TiptapEditor
+            users={users}
+            minHeight={120}
+            placeholder="설명을 입력하세요. @ 로 멘션할 수 있습니다."
+            uploadUrl="/items/upload-image"
+          />
         ) : (
           <div className="view-field view-field-multiline">
-            {item?.description || '-'}
+            {item?.description ? (
+              <div
+                className="description-html-view"
+                dangerouslySetInnerHTML={{ __html: item.description }}
+              />
+            ) : (
+              <span style={{ color: '#bfbfbf', fontStyle: 'italic' }}>-</span>
+            )}
           </div>
         )}
       </Form.Item>

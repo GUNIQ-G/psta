@@ -223,7 +223,7 @@ export const LDAPSettings: React.FC = () => {
     if (!id) return;
     setLoading(true);
     try {
-      const response = await axiosInstance.get(`/ldap-configs/${id}`);
+      const response = await axiosInstance.get(`/ldap/configs/${id}`);
       const config = response.data;
       setCurrentConfig(config);
       form.setFieldsValue({
@@ -294,9 +294,9 @@ export const LDAPSettings: React.FC = () => {
 
       let response;
       if (isNewConfig) {
-        response = await axiosInstance.post('/ldap-configs/test-connection', values);
+        response = await axiosInstance.post('/ldap/configs/test-connection', values);
       } else {
-        response = await axiosInstance.post(`/ldap-configs/${id}/test`);
+        response = await axiosInstance.post(`/ldap/configs/${id}/test`);
       }
 
       const responseTime = Date.now() - startTime;
@@ -347,7 +347,7 @@ export const LDAPSettings: React.FC = () => {
     if (isNewConfig) return;
 
     try {
-      await axiosInstance.delete(`/ldap-configs/${id}`);
+      await axiosInstance.delete(`/ldap/configs/${id}`);
       message.success('LDAP 설정이 삭제되었습니다');
       navigate('/ldap-auth');
     } catch (error: any) {
@@ -372,10 +372,10 @@ export const LDAPSettings: React.FC = () => {
       setLoading(true);
 
       if (isNewConfig) {
-        await axiosInstance.post('/ldap-configs', values);
+        await axiosInstance.post('/ldap/configs', values);
         message.success('LDAP 설정이 생성되었습니다');
       } else {
-        await axiosInstance.put(`/ldap-configs/${id}`, values);
+        await axiosInstance.put(`/ldap/configs/${id}`, values);
         message.success('LDAP 설정이 업데이트되었습니다');
       }
       navigate('/ldap-auth');

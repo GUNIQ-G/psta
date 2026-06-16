@@ -13,24 +13,24 @@ export interface SystemSettings {
 export const systemSettingsApi = {
   // Get all system settings
   getSettings: async (): Promise<SystemSettings> => {
-    const response = await axios.get('/system-settings');
+    const response = await axios.get('/settings/system');
     return response.data;
   },
 
   // Get a specific setting by key
   getSetting: async (key: string): Promise<{ key: string; value: string }> => {
-    const response = await axios.get(`/system-settings/${key}`);
+    const response = await axios.get(`/settings/system/${key}`);
     return response.data;
   },
 
   // Update a specific setting
   updateSetting: async (key: string, value: string): Promise<void> => {
-    await axios.put(`/system-settings/${key}`, { value });
+    await axios.put(`/settings/system/${key}`, { value });
   },
 
   // Update multiple settings at once
   updateSettings: async (settings: SystemSettings): Promise<void> => {
-    await axios.put('/system-settings', settings);
+    await axios.put('/settings/system', settings);
   },
 
   // Upload system logo
@@ -38,7 +38,7 @@ export const systemSettingsApi = {
     const formData = new FormData();
     formData.append('logo', file);
 
-    const response = await axios.post('/system-settings/upload-logo', formData, {
+    const response = await axios.post('/settings/system/upload-logo', formData, {
       headers: {
         'Content-Type': 'multipart/form-data',
       },
@@ -48,7 +48,7 @@ export const systemSettingsApi = {
 
   // Delete system logo
   deleteLogo: async (): Promise<void> => {
-    await axios.delete('/system-settings/logo');
+    await axios.delete('/settings/system/logo');
   },
 
   // Upload favicon
@@ -56,7 +56,7 @@ export const systemSettingsApi = {
     const formData = new FormData();
     formData.append('favicon', file);
 
-    const response = await axios.post('/system-settings/upload-favicon', formData, {
+    const response = await axios.post('/settings/system/upload-favicon', formData, {
       headers: {
         'Content-Type': 'multipart/form-data',
       },
@@ -66,6 +66,6 @@ export const systemSettingsApi = {
 
   // Delete favicon
   deleteFavicon: async (): Promise<void> => {
-    await axios.delete('/system-settings/favicon');
+    await axios.delete('/settings/system/favicon');
   },
 };

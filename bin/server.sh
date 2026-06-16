@@ -7,9 +7,13 @@
 PROJECT_ROOT="/app/psta"
 BACKEND_DIR="$PROJECT_ROOT/backend"
 FRONTEND_DIR="$PROJECT_ROOT/frontend"
+NGINX_DIR="$PROJECT_ROOT/nginx"
+NGINX_DIST_DIR="$NGINX_DIR/dist"
 LOG_DIR="/log/psta"
+NGINX_LOG_DIR="/log/nginx"
 BACKEND_LOG="$LOG_DIR/app/backend/backend-console.log"
 FRONTEND_LOG="$LOG_DIR/app/frontend/frontend-console.log"
+FRONTEND_CONTAINER="psta-frontend"
 PRISMA_STUDIO_LOG="$LOG_DIR/system/prisma-studio.log"
 SERVER_LOG="$LOG_DIR/system/server.log"
 BACKEND_PID_FILE="/tmp/psta-backend.pid"
@@ -96,22 +100,23 @@ status_backend() {
 }
 
 status_frontend() {
-    print_component "Frontend UI (Port 3000)"
+    print_component "Frontend UI (Port 3000 - nginx/Docker)"
 
-    if pgrep -f "serve -s dist" > /dev/null; then
-        local pid=$(pgrep -f "serve -s dist" | head -1)
-        echo -e "  Status: ${GREEN}✓ Running${NC} (Production - serve)"
-        echo -e "  PID: $pid"
+    if docker ps --format '{{.Names}}' | grep -q "^${FRONTEND_CONTAINER}$"; then
+        local container_id=$(docker ps -q -f name=${FRONTEND_CONTAINER})
+        echo -e "  Status: ${GREEN}✓ Running (Docker/nginx)${NC}"
+        echo -e "  Container: $container_id"
+        echo -e "  Dist: $NGINX_DIST_DIR"
+        echo -e "  Logs: $NGINX_LOG_DIR"
 
         if curl -s http://localhost:3000 > /dev/null 2>&1; then
             echo -e "  Health: ${GREEN}✓ OK${NC}"
         else
             echo -e "  Health: ${RED}✗ Not responding${NC}"
         fi
-
-        echo -e "  Log: $FRONTEND_LOG"
     else
         echo -e "  Status: ${RED}✗ Stopped${NC}"
+        echo -e "  ${YELLOW}Start with: ./bin/server.sh start frontend${NC}"
     fi
 }
 
@@ -244,6 +249,14 @@ start_backend() {
             return 0
         fi
 
+        echo -e "${CYAN}Building backend...${NC}"
+        cd "$BACKEND_DIR"
+        if ! npm run build >> "$BACKEND_LOG" 2>&1; then
+            echo -e "${RED}✗ Build failed! Check logs: $BACKEND_LOG${NC}"
+            return 1
+        fi
+        echo -e "${GREEN}✓ Build complete${NC}"
+
         echo -e "${CYAN}Starting backend via systemd...${NC}"
         sudo systemctl start psta-backend
 
@@ -307,61 +320,64 @@ start_backend() {
     echo -e "  Check logs: tail -f $BACKEND_LOG"
 }
 
-start_frontend() {
-    echo -e "${YELLOW}Starting Frontend...${NC}"
-    log_to_file "Starting Frontend..."
-
-    # Check if systemd service exists and is enabled
-    if systemctl is-enabled psta-frontend > /dev/null 2>&1; then
-        # Use systemd
-        if systemctl is-active psta-frontend > /dev/null 2>&1; then
-            echo -e "${YELLOW}Frontend is already running (systemd)${NC}"
-            log_to_file "Frontend already running (systemd)"
-            return 0
-        fi
-
-        echo -e "${CYAN}Starting frontend via systemd...${NC}"
-        sudo systemctl start psta-frontend
-
-        # Wait for frontend to start
-        echo -n "Waiting for frontend to start"
-        for i in {1..20}; do
-            if systemctl is-active psta-frontend > /dev/null 2>&1 && curl -s http://localhost:3000 > /dev/null 2>&1; then
-                echo -e "\n${GREEN}✓ Frontend started successfully (systemd)${NC}"
-                log_to_file "Frontend started successfully (systemd)"
-                return 0
-            fi
-            echo -n "."
-            sleep 1
-        done
-
-        echo -e "\n${YELLOW}⚠ Frontend started but health check failed${NC}"
-        echo -e "  Check status: sudo systemctl status psta-frontend"
+build_frontend_dist() {
+    # 1. Vite 빌드
+    echo -e "${CYAN}Building frontend (Vite)...${NC}"
+    cd "$FRONTEND_DIR"
+    if ! npm run build >> "$FRONTEND_LOG" 2>&1; then
+        echo -e "${RED}✗ Frontend build failed! Check logs: $FRONTEND_LOG${NC}"
+        log_to_file "Frontend Vite build failed"
         return 1
     fi
+    echo -e "${GREEN}✓ Frontend built${NC}"
 
-    # No systemd service - direct process management
-    if pgrep -f "serve -s dist" > /dev/null; then
-        echo -e "${YELLOW}Frontend is already running (production mode)${NC}"
-        log_to_file "Frontend already running (production)"
+    # 2. nginx/dist 로 동기화
+    echo -e "${CYAN}Syncing dist to $NGINX_DIST_DIR...${NC}"
+    mkdir -p "$NGINX_DIST_DIR"
+    rm -rf "$NGINX_DIST_DIR"/*
+    cp -r "$FRONTEND_DIR/dist/." "$NGINX_DIST_DIR/" >> "$FRONTEND_LOG" 2>&1
+    echo -e "${GREEN}✓ Dist synced${NC}"
+}
+
+start_frontend() {
+    echo -e "${YELLOW}Starting Frontend...${NC}"
+    log_to_file "Starting Frontend (Docker/nginx)..."
+
+    # 이미 실행 중인지 확인
+    if docker ps --format '{{.Names}}' | grep -q "^${FRONTEND_CONTAINER}$"; then
+        echo -e "${YELLOW}Frontend is already running (Docker)${NC}"
+        log_to_file "Frontend already running (Docker)"
         return 0
     fi
 
-    cd "$FRONTEND_DIR"
+    # 빌드 및 dist 동기화
+    build_frontend_dist || return 1
 
-    # Use serve for production static files
-    echo -e "${CYAN}Starting production server with serve${NC}"
-    nohup serve -s dist -l 3000 -n > "$FRONTEND_LOG" 2>&1 &
+    # 로그 디렉터리 확인
+    mkdir -p "$NGINX_LOG_DIR"
 
-    echo $! > "$FRONTEND_PID_FILE"
+    # 로그 디렉터리 확인
+    mkdir -p "$NGINX_LOG_DIR"
 
-    # Wait for frontend to start
+    # 백엔드 호스트 IP 자동 감지 (컨테이너에서 호스트로 접근 가능한 실제 IP)
+    export BACKEND_HOST=$(hostname -I | awk '{print $1}')
+    echo -e "${CYAN}Backend host: $BACKEND_HOST${NC}"
+
+    # nginx 컨테이너 시작 (docker-compose)
+    echo -e "${CYAN}Starting nginx container...${NC}"
+    cd "$NGINX_DIR"
+    if ! docker compose up -d --build >> "$FRONTEND_LOG" 2>&1; then
+        echo -e "${RED}✗ Failed to start nginx container!${NC}"
+        log_to_file "nginx container start failed"
+        return 1
+    fi
+
+    # 시작 대기
     echo -n "Waiting for frontend to start"
     for i in {1..20}; do
         if curl -s http://localhost:3000 > /dev/null 2>&1; then
-            echo -e "\n${GREEN}✓ Frontend started successfully (production mode)${NC}"
-            echo -e "  Log: $FRONTEND_LOG"
-            log_to_file "Frontend started successfully (production)"
+            echo -e "\n${GREEN}✓ Frontend started successfully (Docker/nginx)${NC}"
+            log_to_file "Frontend started successfully (Docker/nginx)"
             return 0
         fi
         echo -n "."
@@ -369,7 +385,7 @@ start_frontend() {
     done
 
     echo -e "\n${YELLOW}⚠ Frontend started but health check failed${NC}"
-    echo -e "  Check logs: tail -f $FRONTEND_LOG"
+    echo -e "  Check logs: docker logs ${FRONTEND_CONTAINER}"
     log_to_file "Frontend started but health check failed"
 }
 
@@ -484,50 +500,17 @@ stop_backend() {
 
 stop_frontend() {
     echo -e "${YELLOW}Stopping Frontend...${NC}"
-    log_to_file "Stopping Frontend..."
+    log_to_file "Stopping Frontend (Docker)..."
 
-    # Check if systemd service exists and is enabled
-    if systemctl is-enabled psta-frontend > /dev/null 2>&1; then
-        # Use systemd
-        if ! systemctl is-active psta-frontend > /dev/null 2>&1; then
-            echo -e "${YELLOW}Frontend is not running (systemd)${NC}"
-            log_to_file "Frontend was not running (systemd)"
-            return 0
-        fi
-
-        echo -e "${CYAN}Stopping frontend via systemd...${NC}"
-        sudo systemctl stop psta-frontend
-
-        # Wait for frontend to stop
-        sleep 2
-        if ! systemctl is-active psta-frontend > /dev/null 2>&1; then
-            echo -e "${GREEN}✓ Frontend stopped (systemd)${NC}"
-            log_to_file "Frontend stopped successfully (systemd)"
-            return 0
-        else
-            echo -e "${RED}✗ Failed to stop frontend${NC}"
-            echo -e "  Check status: sudo systemctl status psta-frontend"
-            return 1
-        fi
-    fi
-
-    # No systemd service - stop serve process
-    if pkill -f "serve -s dist"; then
-        echo -e "${GREEN}✓ Production server stopped (serve)${NC}"
-        log_to_file "Frontend stopped successfully (production)"
+    if docker ps --format '{{.Names}}' | grep -q "^${FRONTEND_CONTAINER}$"; then
+        echo -e "${CYAN}Stopping nginx container...${NC}"
+        cd "$NGINX_DIR"
+        docker compose down >> "$FRONTEND_LOG" 2>&1
+        echo -e "${GREEN}✓ Frontend stopped (Docker)${NC}"
+        log_to_file "Frontend stopped successfully (Docker)"
     else
-        echo -e "${YELLOW}Frontend was not running${NC}"
+        echo -e "${YELLOW}Frontend is not running${NC}"
         log_to_file "Frontend was not running"
-    fi
-
-    # Clean up PID file
-    [ -f "$FRONTEND_PID_FILE" ] && rm "$FRONTEND_PID_FILE"
-
-    # Force kill if still running
-    sleep 1
-    if pgrep -f "serve -s dist" > /dev/null; then
-        echo -e "${RED}Force killing serve...${NC}"
-        pkill -9 -f "serve -s dist"
     fi
 }
 
@@ -655,9 +638,14 @@ case "$COMMAND" in
                 start_backend
                 ;;
             frontend|ui)
-                stop_frontend
-                sleep 2
-                start_frontend
+                # 컨테이너가 실행 중이면 dist만 갱신 (nginx 재시작 불필요)
+                if docker ps --format '{{.Names}}' | grep -q "^${FRONTEND_CONTAINER}$"; then
+                    echo -e "${CYAN}Container running — rebuilding dist only...${NC}"
+                    build_frontend_dist || exit 1
+                    echo -e "${GREEN}✓ Frontend updated (no restart needed)${NC}"
+                else
+                    start_frontend
+                fi
                 ;;
             prisma-studio|studio)
                 stop_prisma_studio
@@ -714,7 +702,7 @@ case "$COMMAND" in
                 ;;
             frontend|ui)
                 echo -e "${YELLOW}Frontend logs (Ctrl+C to exit):${NC}"
-                tail -f "$FRONTEND_LOG"
+                docker logs -f ${FRONTEND_CONTAINER} 2>&1
                 ;;
             prisma-studio|studio)
                 echo -e "${YELLOW}Prisma Studio logs (Ctrl+C to exit):${NC}"

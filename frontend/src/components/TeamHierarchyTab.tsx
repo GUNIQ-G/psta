@@ -42,7 +42,7 @@ export const TeamHierarchyTab: React.FC = () => {
   const loadTeamHierarchy = async () => {
     try {
       setLoading(true);
-      const response = await axios.get('/teams/hierarchy');
+      const response = await axios.get('/org/teams/hierarchy');
       setTeamTree(response.data);
 
       // Auto-expand first level

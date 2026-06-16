@@ -135,6 +135,13 @@ export const WbsTimeline: React.FC<WbsTimelineProps> = ({
     return false;
   };
 
+  // 자신 또는 하위 항목 중 검색어에 매칭되는 항목이 있는지 확인
+  const hasMatchingDescendant = (item: Item): boolean => {
+    if (item.name.toLowerCase().includes(searchKeyword.toLowerCase())) return true;
+    if (item.children) return item.children.some(child => hasMatchingDescendant(child));
+    return false;
+  };
+
   const filterItems = (itemList: Item[]): Item[] => {
     return itemList
       .filter(item => {
@@ -145,8 +152,8 @@ export const WbsTimeline: React.FC<WbsTimelineProps> = ({
           return false;
         }
 
-        // 검색어 필터
-        if (searchKeyword && !item.name.toLowerCase().includes(searchKeyword.toLowerCase())) {
+        // 검색어 필터: 자신 또는 하위 항목이 매칭되면 포함
+        if (searchKeyword && !hasMatchingDescendant(item)) {
           return false;
         }
 

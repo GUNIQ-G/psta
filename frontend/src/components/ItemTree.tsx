@@ -90,7 +90,7 @@ export const ItemTree: React.FC<ItemTreeProps> = ({
   const [items, setItems] = useState<Item[]>([]);
   const [loading, setLoading] = useState(false);
   const [expandedRowKeys, setExpandedRowKeys] = useState<React.Key[]>([]);
-  const fetchInProgressRef = useRef(false);
+  const latestRequestIdRef = useRef(0);
 
   // 재귀적으로 미정 항목 필터링
   const filterUnassignedItems = useCallback((items: Item[]): Item[] => {
@@ -251,16 +251,14 @@ export const ItemTree: React.FC<ItemTreeProps> = ({
   }, []);
 
   const fetchItems = useCallback(async () => {
-    // 중복 호출 방지
-    if (fetchInProgressRef.current) {
-      return;
-    }
-
-    fetchInProgressRef.current = true;
+    const requestId = ++latestRequestIdRef.current;
     setLoading(true);
 
     try {
       const data = await itemsApi.getItemTree(undefined, userTeamId);
+
+      // 더 늦게 시작된 요청이 완료됐으면 이 응답은 무시
+      if (requestId !== latestRequestIdRef.current) return;
 
       // 중복 ID 찾기
       const findDuplicateIds = (items: Item[], path: string = ''): void => {
@@ -361,10 +359,12 @@ export const ItemTree: React.FC<ItemTreeProps> = ({
       const allKeys = getAllKeys(filteredData);
       setExpandedRowKeys(allKeys);
     } catch (error) {
+      if (requestId !== latestRequestIdRef.current) return;
       console.error('Failed to fetch items:', error);
     } finally {
-      setLoading(false);
-      fetchInProgressRef.current = false;
+      if (requestId === latestRequestIdRef.current) {
+        setLoading(false);
+      }
     }
   }, [userTeamId, hideUnassignedIds, hideEmptyTeams, selectedClientIds, selectedProjectIds, searchKeyword, filterDeletedItems, filterUnassignedItems, filterByHierarchy, filterEmptyTeams, filterBySearch]);
 

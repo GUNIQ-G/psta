@@ -4,7 +4,7 @@ import { Link } from '../types';
 export const linksApi = {
   // Create link
   createLink: async (itemId: string, url: string, displayName: string): Promise<Link> => {
-    const response = await axios.post('/links', {
+    const response = await axios.post('/assets/links', {
       itemId,
       url,
       displayName,
@@ -14,24 +14,24 @@ export const linksApi = {
 
   // Get links for an item
   getItemLinks: async (itemId: string): Promise<Link[]> => {
-    const response = await axios.get(`/links/item/${itemId}`);
+    const response = await axios.get(`/assets/links/item/${itemId}`);
     return response.data;
   },
 
   // Get all links
   getAllLinks: async (): Promise<Link[]> => {
-    const response = await axios.get('/links');
+    const response = await axios.get('/assets/links');
     return response.data;
   },
 
   // Delete link
   deleteLink: async (linkId: string): Promise<void> => {
-    await axios.delete(`/links/${linkId}`);
+    await axios.delete(`/assets/links/${linkId}`);
   },
 
   // Fetch title from URL (for Nextcloud and other pages)
   fetchTitle: async (url: string): Promise<{ title: string; url: string }> => {
-    const response = await axios.get('/links/fetch-title', {
+    const response = await axios.get('/assets/links/fetch-title', {
       params: { url },
     });
     return response.data;

@@ -13,6 +13,7 @@ import { commentsApi } from '../api/comments';
 import { filesApi } from '../api/files';
 import { linksApi } from '../api/links';
 import { useAuthStore } from '../store/authStore';
+import './TiptapEditor.css';
 
 const { RangePicker } = DatePicker;
 
@@ -770,15 +771,15 @@ export const WbsGanttCustom: React.FC = () => {
 
                 <div style={{ marginBottom: 16 }}>
                   <div style={{ color: '#8c8c8c', fontSize: '12px', marginBottom: 4 }}>설명</div>
-                  <div style={{
-                    padding: '12px',
-                    backgroundColor: '#fafafa',
-                    borderRadius: '4px',
-                    whiteSpace: 'pre-wrap',
-                    color: selectedItem.description ? '#000' : '#bfbfbf',
-                    fontStyle: selectedItem.description ? 'normal' : 'italic'
-                  }}>
-                    {selectedItem.description || '등록된 설명이 없습니다.'}
+                  <div style={{ padding: '12px', backgroundColor: '#fafafa', borderRadius: '4px' }}>
+                    {selectedItem.description ? (
+                      <div
+                        className="description-html-view"
+                        dangerouslySetInnerHTML={{ __html: selectedItem.description }}
+                      />
+                    ) : (
+                      <span style={{ color: '#bfbfbf', fontStyle: 'italic' }}>등록된 설명이 없습니다.</span>
+                    )}
                   </div>
                 </div>
 

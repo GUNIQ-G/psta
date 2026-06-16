@@ -36,9 +36,9 @@ export interface Organization {
 }
 
 export const organizationApi = {
-  getTree: () => axios.get<Organization[]>('/organizations/tree'),
+  getTree: () => axios.get<Organization[]>('/org/units/tree'),
 
-  getById: (id: string) => axios.get<Organization>(`/organizations/${id}`),
+  getById: (id: string) => axios.get<Organization>(`/org/units/${id}`),
 
   create: (data: {
     name: string;
@@ -46,7 +46,7 @@ export const organizationApi = {
     description?: string;
     parentId?: string;
     ldapDn?: string;
-  }) => axios.post<Organization>('/organizations', data),
+  }) => axios.post<Organization>('/org/units', data),
 
   update: (id: string, data: {
     name?: string;
@@ -56,15 +56,15 @@ export const organizationApi = {
     ldapDn?: string;
     isActive?: boolean;
     order?: number;
-  }) => axios.put<Organization>(`/organizations/${id}`, data),
+  }) => axios.put<Organization>(`/org/units/${id}`, data),
 
-  delete: (id: string) => axios.delete(`/organizations/${id}`),
+  delete: (id: string) => axios.delete(`/org/units/${id}`),
 
   addMember: (organizationId: string, userId: string) =>
-    axios.post('/organizations/add-member', { organizationId, userId }),
+    axios.post('/org/units/add-member', { organizationId, userId }),
 
   removeMember: (userId: string) =>
-    axios.post('/organizations/remove-member', { userId }),
+    axios.post('/org/units/remove-member', { userId }),
 
-  syncFromLdap: () => axios.post<{ message: string; stats: { total: number; created: number; updated: number; skipped: number; } }>('/organizations/sync-from-ldap'),
+  syncFromLdap: () => axios.post<{ message: string; stats: { total: number; created: number; updated: number; skipped: number; } }>('/org/units/sync-from-ldap'),
 };

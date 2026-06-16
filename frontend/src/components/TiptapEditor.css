@@ -194,6 +194,113 @@
   }
 }
 
+/* Mention */
+.tiptap-editor-content .mention {
+  background-color: #e6f4ff;
+  border: 1px solid #91caff;
+  border-radius: 4px;
+  color: #1677ff;
+  font-weight: 500;
+  padding: 1px 4px;
+  cursor: default;
+  white-space: nowrap;
+}
+
+/* Mention suggestion dropdown */
+.mention-suggestion-list {
+  background: #fff;
+  border: 1px solid #d9d9d9;
+  border-radius: 6px;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.12);
+  overflow: hidden;
+  padding: 4px 0;
+  z-index: 9999;
+  max-height: 200px;
+  overflow-y: auto;
+  min-width: 160px;
+}
+
+.mention-suggestion-item {
+  padding: 6px 12px;
+  cursor: pointer;
+  font-size: 13px;
+  color: #333;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.mention-suggestion-item:hover,
+.mention-suggestion-item.is-selected {
+  background-color: #e6f4ff;
+  color: #1677ff;
+}
+
+/* Mention in read-only / display view */
+.tiptap-content-view .mention,
+.description-html-view .mention {
+  background-color: #e6f4ff;
+  border: 1px solid #91caff;
+  border-radius: 4px;
+  color: #1677ff;
+  font-weight: 500;
+  padding: 1px 4px;
+  white-space: nowrap;
+}
+
+/* Shared content view for description HTML rendering */
+.tiptap-content-view,
+.description-html-view {
+  font-size: 14px;
+  line-height: 1.6;
+  color: #333;
+}
+
+.tiptap-content-view p,
+.description-html-view p {
+  margin: 0 0 0.75em 0;
+}
+
+.tiptap-content-view p:last-child,
+.description-html-view p:last-child {
+  margin-bottom: 0;
+}
+
+.tiptap-content-view strong,
+.description-html-view strong { font-weight: 600; }
+
+.tiptap-content-view em,
+.description-html-view em { font-style: italic; }
+
+.tiptap-content-view s,
+.description-html-view s { text-decoration: line-through; }
+
+.tiptap-content-view ul,
+.tiptap-content-view ol,
+.description-html-view ul,
+.description-html-view ol {
+  margin: 0.5em 0;
+  padding-left: 1.5em;
+}
+
+.tiptap-content-view li,
+.description-html-view li { margin: 0.25em 0; }
+
+.tiptap-content-view ul,
+.description-html-view ul { list-style-type: disc; }
+
+.tiptap-content-view ol,
+.description-html-view ol { list-style-type: decimal; }
+
+.tiptap-content-view img,
+.description-html-view img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 4px;
+  margin: 8px 0;
+  display: block;
+}
+
 /* Feedback Content View (for displaying saved HTML content) */
 .feedback-content-view {
   font-size: 14px;

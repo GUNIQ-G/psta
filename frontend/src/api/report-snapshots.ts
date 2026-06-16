@@ -39,25 +39,25 @@ export interface CreateSnapshotParams {
 export const reportSnapshotsApi = {
   // Create a new snapshot
   createSnapshot: async (params: CreateSnapshotParams): Promise<ReportSnapshot> => {
-    const response = await axios.post('/report-snapshots', params);
+    const response = await axios.post('/work/snapshots', params);
     return response.data;
   },
 
   // Get all snapshots (with optional filtering by clientId)
   getSnapshots: async (clientId?: string): Promise<ReportSnapshot[]> => {
     const params = clientId ? { clientId } : {};
-    const response = await axios.get('/report-snapshots', { params });
+    const response = await axios.get('/work/snapshots', { params });
     return response.data;
   },
 
   // Get a single snapshot by ID
   getSnapshotById: async (id: string): Promise<ReportSnapshot> => {
-    const response = await axios.get(`/report-snapshots/${id}`);
+    const response = await axios.get(`/work/snapshots/${id}`);
     return response.data;
   },
 
   // Delete a snapshot
   deleteSnapshot: async (id: string): Promise<void> => {
-    await axios.delete(`/report-snapshots/${id}`);
+    await axios.delete(`/work/snapshots/${id}`);
   },
 };

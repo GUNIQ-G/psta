@@ -1,0 +1,14 @@
+services:
+  psta-nginx:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: psta-frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - BACKEND_HOST=${BACKEND_HOST:-10.0.31.71}
+    volumes:
+      - /app/psta/nginx/dist:/usr/share/nginx/html:ro
+      - /log/nginx:/var/log/nginx
+    restart: unless-stopped
