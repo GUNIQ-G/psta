@@ -23,6 +23,11 @@ NGINX_LOG_DIR="${NGINX_LOG_DIR:-/log/nginx}"
 PSTA_USER="${PSTA_USER:-$(whoami)}"
 GITHUB_REPO="GUNIQ-G/psta"
 
+# 포트 설정 (환경변수로 오버라이드 가능)
+BACKEND_PORT="${BACKEND_PORT:-3001}"
+FRONTEND_PORT="${FRONTEND_PORT:-3000}"
+BACKEND_HOST="${BACKEND_HOST:-}"   # 비어 있으면 hostname -I 로 자동 감지
+
 DB_HOST="${DB_HOST:-localhost}"
 DB_PORT="${DB_PORT:-5432}"
 DB_NAME="${DB_NAME:-psta}"
@@ -166,8 +171,9 @@ setup_env() {
 
     local host_ip
     host_ip=$(hostname -I | awk '{print $1}')
+    [[ -z "$BACKEND_HOST" ]] && BACKEND_HOST="$host_ip"
     if [[ -z "$FRONTEND_URL" ]]; then
-        FRONTEND_URL="http://$host_ip:3000"
+        FRONTEND_URL="http://$host_ip:$FRONTEND_PORT"
     fi
 
     if [[ -f "$INSTALL_DIR/backend/.env" ]]; then
@@ -179,7 +185,7 @@ setup_env() {
 DATABASE_URL="postgresql://$DB_USER:$DB_PASS@$DB_HOST:$DB_PORT/$DB_NAME?schema=public"
 JWT_SECRET="$JWT_SECRET"
 JWT_EXPIRES_IN="24h"
-PORT=3001
+PORT=$BACKEND_PORT
 NODE_ENV="production"
 FRONTEND_URL="$FRONTEND_URL"
 SLACK_BOT_TOKEN=""
@@ -255,15 +261,11 @@ EOF
 # ─── nginx Docker 시작 ────────────────────────────────────────────────────────
 setup_nginx() {
     header "nginx Docker 시작"
-
-    local host_ip
-    host_ip=$(hostname -I | awk '{print $1}')
-
     sudo -u "$PSTA_USER" bash -c "
         cd $INSTALL_DIR/nginx
-        BACKEND_HOST=$host_ip docker compose up -d --build
+        BACKEND_HOST=$BACKEND_HOST BACKEND_PORT=$BACKEND_PORT FRONTEND_PORT=$FRONTEND_PORT docker compose up -d --build
     "
-    success "nginx 컨테이너(psta-frontend) 시작"
+    success "nginx 컨테이너(psta-frontend) 시작 (포트: $FRONTEND_PORT → backend: $BACKEND_HOST:$BACKEND_PORT)"
 }
 
 # ─── logrotate 설정 ────────────────────────────────────────────────────────────
@@ -285,7 +287,9 @@ print_summary() {
     echo -e "\n${GREEN}${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
     echo -e "${GREEN}${BOLD}  PSTA 설치 완료!${NC}"
     echo -e "${GREEN}${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo -e "  접속 URL : ${BLUE}http://$host_ip:3000${NC}"
+    echo -e "  접속 URL     : ${BLUE}http://$host_ip:$FRONTEND_PORT${NC}"
+    echo -e "  백엔드 포트  : $BACKEND_PORT"
+    echo -e "  프론트 포트  : $FRONTEND_PORT"
     echo -e "  설치 경로: $INSTALL_DIR"
     echo -e "  데이터   : $DATA_DIR"
     echo -e "  로그     : $LOG_DIR"
