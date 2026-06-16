@@ -3,6 +3,7 @@ import { AuthRequest } from '../middleware/auth';
 import prisma from '../config/database';
 import { UserRole } from '@prisma/client';
 import { randomUUID } from 'crypto';
+import { errorLogger } from '../config/logger';
 
 // 모든 권한 조회
 export const getPermissions = async (req: AuthRequest, res: Response) => {
@@ -18,8 +19,9 @@ export const getPermissions = async (req: AuthRequest, res: Response) => {
     });
 
     res.json(permissions);
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
+  } catch (error) {
+    errorLogger.error('Get permissions error', { error });
+    res.status(500).json({ error: 'Internal server error' });
   }
 };
 
@@ -34,8 +36,9 @@ export const getPermissionsByRole = async (req: AuthRequest, res: Response) => {
     });
 
     res.json(permissions);
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
+  } catch (error) {
+    errorLogger.error('Get permissions by role error', { error });
+    res.status(500).json({ error: 'Internal server error' });
   }
 };
 
@@ -64,8 +67,9 @@ export const getMyPermissions = async (req: AuthRequest, res: Response) => {
       role: userRole,
       permissions: permissionsMap,
     });
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
+  } catch (error) {
+    errorLogger.error('Get my permissions error', { error });
+    res.status(500).json({ error: 'Internal server error' });
   }
 };
 
@@ -92,8 +96,12 @@ export const updatePermission = async (req: AuthRequest, res: Response) => {
     });
 
     res.json(permission);
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
+  } catch (error) {
+    if ((error as any).code === 'P2025') {
+      return res.status(404).json({ error: 'Not found' });
+    }
+    errorLogger.error('Update permission error', { error });
+    res.status(500).json({ error: 'Internal server error' });
   }
 };
 
@@ -148,8 +156,9 @@ export const updateRolePermissions = async (req: AuthRequest, res: Response) => 
     });
 
     res.json(updatedPermissions);
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
+  } catch (error) {
+    errorLogger.error('Update role permissions error', { error });
+    res.status(500).json({ error: 'Internal server error' });
   }
 };
 

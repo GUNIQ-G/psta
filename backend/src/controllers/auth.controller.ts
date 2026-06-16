@@ -2,7 +2,7 @@ import { Request, Response } from 'express';
 import ldapService from '../config/ldap';
 import prisma from '../config/database';
 import { generateToken, AuthRequest } from '../middleware/auth';
-import { authLogger, errorLogger } from '../config/logger';
+import { appLogger, authLogger, errorLogger } from '../config/logger';
 
 export const login = async (req: Request, res: Response) => {
   try {
@@ -163,7 +163,7 @@ export const login = async (req: Request, res: Response) => {
       username: req.body.username,
       ip: req.ip,
     });
-    res.status(401).json({ error: error.message || '인증에 실패했습니다.' });
+    res.status(401).json({ error: '인증에 실패했습니다.' });
   }
 };
 
@@ -203,16 +203,17 @@ export const me = async (req: AuthRequest, res: Response) => {
       },
     });
 
-    console.log('[AUTH /me] Returning user:', JSON.stringify({
+    appLogger.debug('GET /me returning user', {
       username: user?.username,
       displayName: user?.displayName,
       role: user?.role,
       isVerified: user?.isVerified,
-    }));
+    });
 
     res.json(user);
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
+  } catch (error) {
+    errorLogger.error('Get current user error', { error });
+    res.status(500).json({ error: 'Internal server error' });
   }
 };
 
@@ -234,7 +235,11 @@ export const requestApproval = async (req: AuthRequest, res: Response) => {
       },
     });
 
-    console.log(`[APPROVAL] User ${user.username} (${user.displayName}) requested approval`);
+    authLogger.info('User requested approval', {
+      userId: user.id,
+      username: user.username,
+      displayName: user.displayName,
+    });
 
     res.json({
       message: 'Approval request submitted successfully',
@@ -252,8 +257,8 @@ export const requestApproval = async (req: AuthRequest, res: Response) => {
         approvalMessage: user.approvalMessage,
       },
     });
-  } catch (error: any) {
-    console.error('[APPROVAL] Request approval error:', error);
-    res.status(500).json({ error: error.message });
+  } catch (error) {
+    errorLogger.error('Request approval error', { error });
+    res.status(500).json({ error: 'Internal server error' });
   }
 };

@@ -4,6 +4,7 @@ import prisma from '../config/database';
 import { randomUUID } from 'crypto';
 import { FeedbackStatus, FeedbackType, UserRole } from '@prisma/client';
 import fs from 'fs';
+import appLogger, { errorLogger } from '../config/logger';
 
 /**
  * Get all feedbacks (with filtering)
@@ -69,8 +70,8 @@ export const getAllFeedbacks = async (req: AuthRequest, res: Response) => {
       },
     });
   } catch (error) {
-    console.error('Error fetching feedbacks:', error);
-    res.status(500).json({ message: 'Failed to fetch feedbacks' });
+    errorLogger.error('Error fetching feedbacks:', { error });
+    res.status(500).json({ error: 'Internal server error' });
   }
 };
 
@@ -107,13 +108,13 @@ export const getFeedbackById = async (req: AuthRequest, res: Response) => {
     });
 
     if (!feedback) {
-      return res.status(404).json({ message: 'Feedback not found' });
+      return res.status(404).json({ error: 'Not found' });
     }
 
     res.json(feedback);
   } catch (error) {
-    console.error('Error fetching feedback:', error);
-    res.status(500).json({ message: 'Failed to fetch feedback' });
+    errorLogger.error('Error fetching feedback:', { error });
+    res.status(500).json({ error: 'Internal server error' });
   }
 };
 
@@ -126,11 +127,11 @@ export const createFeedback = async (req: AuthRequest, res: Response) => {
     const userId = req.user?.id;
 
     if (!userId) {
-      return res.status(401).json({ message: 'Unauthorized' });
+      return res.status(401).json({ error: 'Unauthorized' });
     }
 
     if (!title || !content || !type) {
-      return res.status(400).json({ message: 'Title, content, and type are required' });
+      return res.status(400).json({ error: 'Title, content, and type are required' });
     }
 
     const feedback = await prisma.feedback.create({
@@ -161,8 +162,8 @@ export const createFeedback = async (req: AuthRequest, res: Response) => {
 
     res.status(201).json(feedback);
   } catch (error) {
-    console.error('Error creating feedback:', error);
-    res.status(500).json({ message: 'Failed to create feedback' });
+    errorLogger.error('Error creating feedback:', { error });
+    res.status(500).json({ error: 'Internal server error' });
   }
 };
 
@@ -177,7 +178,7 @@ export const updateFeedback = async (req: AuthRequest, res: Response) => {
     const userRole = req.user?.role;
 
     if (!userId) {
-      return res.status(401).json({ message: 'Unauthorized' });
+      return res.status(401).json({ error: 'Unauthorized' });
     }
 
     const feedback = await prisma.feedback.findUnique({
@@ -185,7 +186,7 @@ export const updateFeedback = async (req: AuthRequest, res: Response) => {
     });
 
     if (!feedback) {
-      return res.status(404).json({ message: 'Feedback not found' });
+      return res.status(404).json({ error: 'Not found' });
     }
 
     const isAdmin = userRole === UserRole.ADMIN;
@@ -221,7 +222,7 @@ export const updateFeedback = async (req: AuthRequest, res: Response) => {
 
     // Check if user has permission to update
     if (!isAdmin && !isAuthor) {
-      return res.status(403).json({ message: 'You do not have permission to update this feedback' });
+      return res.status(403).json({ error: 'You do not have permission to update this feedback' });
     }
 
     const updatedFeedback = await prisma.feedback.update({
@@ -252,8 +253,8 @@ export const updateFeedback = async (req: AuthRequest, res: Response) => {
 
     res.json(updatedFeedback);
   } catch (error) {
-    console.error('Error updating feedback:', error);
-    res.status(500).json({ message: 'Failed to update feedback' });
+    errorLogger.error('Error updating feedback:', { error });
+    res.status(500).json({ error: 'Internal server error' });
   }
 };
 
@@ -267,7 +268,7 @@ export const deleteFeedback = async (req: AuthRequest, res: Response) => {
     const userRole = req.user?.role;
 
     if (!userId) {
-      return res.status(401).json({ message: 'Unauthorized' });
+      return res.status(401).json({ error: 'Unauthorized' });
     }
 
     const feedback = await prisma.feedback.findUnique({
@@ -275,7 +276,7 @@ export const deleteFeedback = async (req: AuthRequest, res: Response) => {
     });
 
     if (!feedback) {
-      return res.status(404).json({ message: 'Feedback not found' });
+      return res.status(404).json({ error: 'Not found' });
     }
 
     const isAdmin = userRole === UserRole.ADMIN;
@@ -284,7 +285,7 @@ export const deleteFeedback = async (req: AuthRequest, res: Response) => {
     // Check permission
     if (!isAdmin && !(isAuthor && feedback.status === FeedbackStatus.PENDING)) {
       return res.status(403).json({
-        message: isAuthor
+        error: isAuthor
           ? 'You can only delete your feedback while it is pending'
           : 'You do not have permission to delete this feedback'
       });
@@ -296,8 +297,8 @@ export const deleteFeedback = async (req: AuthRequest, res: Response) => {
 
     res.json({ message: 'Feedback deleted successfully' });
   } catch (error) {
-    console.error('Error deleting feedback:', error);
-    res.status(500).json({ message: 'Failed to delete feedback' });
+    errorLogger.error('Error deleting feedback:', { error });
+    res.status(500).json({ error: 'Internal server error' });
   }
 };
 
@@ -339,8 +340,8 @@ export const getFeedbackStats = async (req: AuthRequest, res: Response) => {
       byType: typeStats,
     });
   } catch (error) {
-    console.error('Error fetching feedback stats:', error);
-    res.status(500).json({ message: 'Failed to fetch feedback stats' });
+    errorLogger.error('Error fetching feedback stats:', { error });
+    res.status(500).json({ error: 'Internal server error' });
   }
 };
 
@@ -352,22 +353,22 @@ export const uploadImage = async (req: AuthRequest, res: Response) => {
     const userId = req.user?.id;
 
     if (!userId) {
-      return res.status(401).json({ message: 'Unauthorized' });
+      return res.status(401).json({ error: 'Unauthorized' });
     }
 
     if (!req.file) {
-      return res.status(400).json({ message: 'No image uploaded' });
+      return res.status(400).json({ error: 'No image uploaded' });
     }
 
     // Return the URL for the uploaded image
-    const imageUrl = `/api/feedbacks/images/${req.file.filename}`;
+    const imageUrl = `/api/boards/feedbacks/images/${req.file.filename}`;
 
     res.json({
       url: imageUrl,
       filename: req.file.filename,
     });
   } catch (error) {
-    console.error('Error uploading feedback image:', error);
+    errorLogger.error('Error uploading feedback image:', { error });
     // Clean up uploaded file on error
     if (req.file) {
       try {
@@ -376,7 +377,7 @@ export const uploadImage = async (req: AuthRequest, res: Response) => {
         // Ignore cleanup error
       }
     }
-    res.status(500).json({ message: 'Failed to upload image' });
+    res.status(500).json({ error: 'Internal server error' });
   }
 };
 
@@ -390,12 +391,12 @@ export const getImage = async (req: AuthRequest, res: Response) => {
 
     // Check if file exists
     if (!fs.existsSync(filepath)) {
-      return res.status(404).json({ message: 'Image not found' });
+      return res.status(404).json({ error: 'Not found' });
     }
 
     res.sendFile(filepath);
   } catch (error) {
-    console.error('Error getting feedback image:', error);
-    res.status(500).json({ message: 'Failed to get image' });
+    errorLogger.error('Error getting feedback image:', { error });
+    res.status(500).json({ error: 'Internal server error' });
   }
 };

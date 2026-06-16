@@ -1,9 +1,9 @@
 import { Request, Response } from 'express';
-import { PrismaClient } from '@prisma/client';
 import { randomUUID } from 'crypto';
 import { AuthRequest } from '../middleware/auth';
-
-const prisma = new PrismaClient();
+import prisma from '../config/database';
+import appLogger, { errorLogger } from '../config/logger';
+import { USER_SELECT } from '../utils/prisma-selects';
 
 /**
  * Create a new report snapshot
@@ -37,12 +37,7 @@ export const createSnapshot = async (req: AuthRequest, res: Response) => {
       },
       include: {
         CreatedBy: {
-          select: {
-            id: true,
-            username: true,
-            displayName: true,
-            email: true,
-          },
+          select: USER_SELECT,
         },
       },
     });
@@ -56,8 +51,8 @@ export const createSnapshot = async (req: AuthRequest, res: Response) => {
 
     res.status(201).json(response);
   } catch (error: any) {
-    console.error('Create snapshot error:', error);
-    res.status(500).json({ error: error.message || 'Failed to create snapshot' });
+    errorLogger.error('Create snapshot error:', { error });
+    res.status(500).json({ error: 'Internal server error' });
   }
 };
 
@@ -75,12 +70,7 @@ export const getSnapshots = async (req: AuthRequest, res: Response) => {
       where,
       include: {
         CreatedBy: {
-          select: {
-            id: true,
-            username: true,
-            displayName: true,
-            email: true,
-          },
+          select: USER_SELECT,
         },
       },
       orderBy: {
@@ -97,8 +87,8 @@ export const getSnapshots = async (req: AuthRequest, res: Response) => {
 
     res.json(response);
   } catch (error: any) {
-    console.error('Get snapshots error:', error);
-    res.status(500).json({ error: error.message || 'Failed to get snapshots' });
+    errorLogger.error('Get snapshots error:', { error });
+    res.status(500).json({ error: 'Internal server error' });
   }
 };
 
@@ -114,12 +104,7 @@ export const getSnapshotById = async (req: AuthRequest, res: Response) => {
       where: { id },
       include: {
         CreatedBy: {
-          select: {
-            id: true,
-            username: true,
-            displayName: true,
-            email: true,
-          },
+          select: USER_SELECT,
         },
       },
     });
@@ -137,8 +122,8 @@ export const getSnapshotById = async (req: AuthRequest, res: Response) => {
 
     res.json(response);
   } catch (error: any) {
-    console.error('Get snapshot by ID error:', error);
-    res.status(500).json({ error: error.message || 'Failed to get snapshot' });
+    errorLogger.error('Get snapshot by ID error:', { error });
+    res.status(500).json({ error: 'Internal server error' });
   }
 };
 
@@ -176,7 +161,7 @@ export const deleteSnapshot = async (req: AuthRequest, res: Response) => {
 
     res.json({ message: 'Snapshot deleted successfully' });
   } catch (error: any) {
-    console.error('Delete snapshot error:', error);
-    res.status(500).json({ error: error.message || 'Failed to delete snapshot' });
+    errorLogger.error('Delete snapshot error:', { error });
+    res.status(500).json({ error: 'Internal server error' });
   }
 };

@@ -1,6 +1,7 @@
 import { Response } from 'express';
 import { AuthRequest } from '../middleware/auth';
 import prisma from '../config/database';
+import { errorLogger } from '../config/logger';
 
 export const getMyNotifications = async (req: AuthRequest, res: Response): Promise<any> => {
   try {
@@ -41,9 +42,9 @@ export const getMyNotifications = async (req: AuthRequest, res: Response): Promi
     });
 
     res.json(notifications);
-  } catch (error: any) {
-    console.error('Get notifications error:', error);
-    res.status(500).json({ error: error.message });
+  } catch (error) {
+    errorLogger.error('Get notifications error', { error });
+    res.status(500).json({ error: 'Internal server error' });
   }
 };
 
@@ -59,9 +60,9 @@ export const getUnreadCount = async (req: AuthRequest, res: Response): Promise<a
     });
 
     res.json({ count });
-  } catch (error: any) {
-    console.error('Get unread count error:', error);
-    res.status(500).json({ error: error.message });
+  } catch (error) {
+    errorLogger.error('Get unread count error', { error });
+    res.status(500).json({ error: 'Internal server error' });
   }
 };
 
@@ -86,9 +87,9 @@ export const markAsRead = async (req: AuthRequest, res: Response): Promise<any> 
     });
 
     res.json({ message: 'Marked as read' });
-  } catch (error: any) {
-    console.error('Mark as read error:', error);
-    res.status(500).json({ error: error.message });
+  } catch (error) {
+    errorLogger.error('Mark as read error', { error });
+    res.status(500).json({ error: 'Internal server error' });
   }
 };
 
@@ -105,8 +106,8 @@ export const markAllAsRead = async (req: AuthRequest, res: Response): Promise<an
     });
 
     res.json({ message: 'All marked as read' });
-  } catch (error: any) {
-    console.error('Mark all as read error:', error);
-    res.status(500).json({ error: error.message });
+  } catch (error) {
+    errorLogger.error('Mark all as read error', { error });
+    res.status(500).json({ error: 'Internal server error' });
   }
 };

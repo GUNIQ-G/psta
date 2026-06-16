@@ -3,6 +3,8 @@ import { AuthRequest } from '../middleware/auth';
 import prisma from '../config/database';
 import { randomUUID } from 'crypto';
 import { NotificationService } from '../services/notification.service';
+import { errorLogger } from '../config/logger';
+import { USER_SELECT } from '../utils/prisma-selects';
 
 // 받은 메시지 목록 조회
 export const getReceivedMessages = async (req: AuthRequest, res: Response) => {
@@ -19,20 +21,16 @@ export const getReceivedMessages = async (req: AuthRequest, res: Response) => {
       where,
       include: {
         FromUser: {
-          select: {
-            id: true,
-            username: true,
-            displayName: true,
-            email: true,
-          },
+          select: USER_SELECT,
         },
       },
       orderBy: { createdAt: 'desc' },
     });
 
     res.json(messages);
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
+  } catch (error) {
+    errorLogger.error('Get received messages error', { error });
+    res.status(500).json({ error: 'Internal server error' });
   }
 };
 
@@ -45,20 +43,16 @@ export const getSentMessages = async (req: AuthRequest, res: Response) => {
       where: { fromUserId: userId },
       include: {
         ToUser: {
-          select: {
-            id: true,
-            username: true,
-            displayName: true,
-            email: true,
-          },
+          select: USER_SELECT,
         },
       },
       orderBy: { createdAt: 'desc' },
     });
 
     res.json(messages);
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
+  } catch (error) {
+    errorLogger.error('Get sent messages error', { error });
+    res.status(500).json({ error: 'Internal server error' });
   }
 };
 
@@ -72,20 +66,10 @@ export const getMessageById = async (req: AuthRequest, res: Response) => {
       where: { id },
       include: {
         FromUser: {
-          select: {
-            id: true,
-            username: true,
-            displayName: true,
-            email: true,
-          },
+          select: USER_SELECT,
         },
         ToUser: {
-          select: {
-            id: true,
-            username: true,
-            displayName: true,
-            email: true,
-          },
+          select: USER_SELECT,
         },
       },
     });
@@ -112,8 +96,9 @@ export const getMessageById = async (req: AuthRequest, res: Response) => {
     }
 
     res.json(message);
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
+  } catch (error) {
+    errorLogger.error('Get message by id error', { error });
+    res.status(500).json({ error: 'Internal server error' });
   }
 };
 
@@ -146,20 +131,10 @@ export const sendMessage = async (req: AuthRequest, res: Response) => {
       },
       include: {
         FromUser: {
-          select: {
-            id: true,
-            username: true,
-            displayName: true,
-            email: true,
-          },
+          select: USER_SELECT,
         },
         ToUser: {
-          select: {
-            id: true,
-            username: true,
-            displayName: true,
-            email: true,
-          },
+          select: USER_SELECT,
         },
       },
     });
@@ -173,13 +148,14 @@ export const sendMessage = async (req: AuthRequest, res: Response) => {
       link: '/messages',
       extraContent: content, // 메시지 내용 포함
     }).catch(err => {
-      console.error('Failed to send message notification:', err);
+      errorLogger.error('Failed to send message notification', { error: err });
       // 알림 실패해도 메시지 전송은 성공으로 처리
     });
 
     res.status(201).json(message);
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
+  } catch (error) {
+    errorLogger.error('Send message error', { error });
+    res.status(500).json({ error: 'Internal server error' });
   }
 };
 
@@ -196,8 +172,9 @@ export const getUnreadCount = async (req: AuthRequest, res: Response) => {
     });
 
     res.json({ count });
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
+  } catch (error) {
+    errorLogger.error('Get unread message count error', { error });
+    res.status(500).json({ error: 'Internal server error' });
   }
 };
 
@@ -229,8 +206,9 @@ export const markAsRead = async (req: AuthRequest, res: Response) => {
     });
 
     res.json(updatedMessage);
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
+  } catch (error) {
+    errorLogger.error('Mark message as read error', { error });
+    res.status(500).json({ error: 'Internal server error' });
   }
 };
 
@@ -258,7 +236,8 @@ export const deleteMessage = async (req: AuthRequest, res: Response) => {
     });
 
     res.status(204).send();
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
+  } catch (error) {
+    errorLogger.error('Delete message error', { error });
+    res.status(500).json({ error: 'Internal server error' });
   }
 };

@@ -4,6 +4,8 @@ import prisma from '../config/database';
 import { randomUUID } from 'crypto';
 import fs from 'fs';
 import { UserRole } from '@prisma/client';
+import appLogger, { errorLogger } from '../config/logger';
+import { CREATOR_SELECT } from '../utils/prisma-selects';
 
 /**
  * Upload file to item (action, team, service, or project)
@@ -14,15 +16,15 @@ export const uploadFile = async (req: AuthRequest, res: Response) => {
     const userId = req.user?.id;
 
     if (!userId) {
-      return res.status(401).json({ message: 'Unauthorized' });
+      return res.status(401).json({ error: 'Unauthorized' });
     }
 
     if (!itemId) {
-      return res.status(400).json({ message: 'Item ID is required' });
+      return res.status(400).json({ error: 'Item ID is required' });
     }
 
     if (!req.file) {
-      return res.status(400).json({ message: 'No file uploaded' });
+      return res.status(400).json({ error: 'No file uploaded' });
     }
 
     // Get item with full hierarchy
@@ -44,7 +46,7 @@ export const uploadFile = async (req: AuthRequest, res: Response) => {
     if (!item) {
       // Delete uploaded file if item doesn't exist
       fs.unlinkSync(req.file.path);
-      return res.status(404).json({ message: 'Item not found' });
+      return res.status(404).json({ error: 'Item not found' });
     }
 
     // Extract hierarchy IDs
@@ -104,23 +106,19 @@ export const uploadFile = async (req: AuthRequest, res: Response) => {
       },
       include: {
         UploadedBy: {
-          select: {
-            id: true,
-            username: true,
-            displayName: true,
-          },
+          select: CREATOR_SELECT,
         },
       },
     });
 
     res.json(file);
   } catch (error) {
-    console.error('Error uploading file:', error);
+    errorLogger.error('Error uploading file:', { error });
     // Clean up uploaded file on error
     if (req.file) {
       fs.unlinkSync(req.file.path);
     }
-    res.status(500).json({ message: 'Failed to upload file' });
+    res.status(500).json({ error: 'Internal server error' });
   }
 };
 
@@ -135,11 +133,7 @@ export const getItemFiles = async (req: AuthRequest, res: Response) => {
       where: { itemId },
       include: {
         UploadedBy: {
-          select: {
-            id: true,
-            username: true,
-            displayName: true,
-          },
+          select: CREATOR_SELECT,
         },
       },
       orderBy: {
@@ -149,8 +143,8 @@ export const getItemFiles = async (req: AuthRequest, res: Response) => {
 
     res.json(files);
   } catch (error) {
-    console.error('Error fetching files:', error);
-    res.status(500).json({ message: 'Failed to fetch files' });
+    errorLogger.error('Error fetching files:', { error });
+    res.status(500).json({ error: 'Internal server error' });
   }
 };
 
@@ -202,8 +196,8 @@ export const getAllFiles = async (req: AuthRequest, res: Response) => {
 
     res.json(files);
   } catch (error) {
-    console.error('Error fetching all files:', error);
-    res.status(500).json({ message: 'Failed to fetch files' });
+    errorLogger.error('Error fetching all files:', { error });
+    res.status(500).json({ error: 'Internal server error' });
   }
 };
 
@@ -221,7 +215,7 @@ export const getHierarchicalDocuments = async (req: AuthRequest, res: Response) 
     });
 
     if (!item) {
-      return res.status(404).json({ message: 'Item not found' });
+      return res.status(404).json({ error: 'Item not found' });
     }
 
     let itemIds: string[] = [itemId];
@@ -352,8 +346,8 @@ export const getHierarchicalDocuments = async (req: AuthRequest, res: Response) 
 
     res.json({ files, links });
   } catch (error) {
-    console.error('Error fetching hierarchical documents:', error);
-    res.status(500).json({ message: 'Failed to fetch documents' });
+    errorLogger.error('Error fetching hierarchical documents:', { error });
+    res.status(500).json({ error: 'Internal server error' });
   }
 };
 
@@ -368,7 +362,7 @@ export const deleteFile = async (req: AuthRequest, res: Response) => {
     const userRole = req.user?.role;
 
     if (!userId) {
-      return res.status(401).json({ message: 'Unauthorized' });
+      return res.status(401).json({ error: 'Unauthorized' });
     }
 
     // Get file
@@ -377,12 +371,12 @@ export const deleteFile = async (req: AuthRequest, res: Response) => {
     });
 
     if (!file) {
-      return res.status(404).json({ message: 'File not found' });
+      return res.status(404).json({ error: 'File not found' });
     }
 
     // Check permissions: only ADMIN or uploader can delete
     if (userRole !== UserRole.ADMIN && file.uploadedById !== userId) {
-      return res.status(403).json({ message: 'You do not have permission to delete this file' });
+      return res.status(403).json({ error: 'You do not have permission to delete this file' });
     }
 
     // Delete file from filesystem
@@ -397,7 +391,7 @@ export const deleteFile = async (req: AuthRequest, res: Response) => {
 
     res.json({ message: 'File deleted successfully' });
   } catch (error) {
-    console.error('Error deleting file:', error);
-    res.status(500).json({ message: 'Failed to delete file' });
+    errorLogger.error('Error deleting file:', { error });
+    res.status(500).json({ error: 'Internal server error' });
   }
 };

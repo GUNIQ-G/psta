@@ -4,6 +4,7 @@ import prisma from '../config/database';
 import ldapService from '../config/ldap';
 import { randomUUID } from 'crypto';
 import crypto from 'crypto';
+import appLogger, { errorLogger, ldapLogger } from '../config/logger';
 
 const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || 'default-encryption-key-change-in-production';
 const ALGORITHM = 'aes-256-cbc';
@@ -85,7 +86,8 @@ export const getAllLdapConfigs = async (req: AuthRequest, res: Response) => {
 
     res.json(configsWithUserCounts);
   } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    errorLogger.error('Error fetching LDAP configs', { error });
+    res.status(500).json({ error: 'Internal server error' });
   }
 };
 
@@ -137,7 +139,8 @@ export const getLdapConfig = async (req: AuthRequest, res: Response) => {
       updatedAt: config.updatedAt,
     });
   } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    errorLogger.error('Error fetching LDAP config', { error });
+    res.status(500).json({ error: 'Internal server error' });
   }
 };
 
@@ -230,7 +233,8 @@ export const createLdapConfig = async (req: AuthRequest, res: Response) => {
       id: config.id,
     });
   } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    errorLogger.error('Error creating LDAP config', { error });
+    res.status(500).json({ error: 'Internal server error' });
   }
 };
 
@@ -320,7 +324,8 @@ export const updateLdapConfig = async (req: AuthRequest, res: Response) => {
 
     res.json({ message: 'LDAP config updated successfully' });
   } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    errorLogger.error('Error updating LDAP config', { error });
+    res.status(500).json({ error: 'Internal server error' });
   }
 };
 
@@ -337,7 +342,8 @@ export const deleteLdapConfig = async (req: AuthRequest, res: Response) => {
 
     res.json({ message: 'LDAP config deleted successfully' });
   } catch (error: any) {
-    res.status(500).json({ error: error.message });
+    errorLogger.error('Error deleting LDAP config', { error });
+    res.status(500).json({ error: 'Internal server error' });
   }
 };
 
@@ -400,6 +406,7 @@ export const testLdapConfig = async (req: AuthRequest, res: Response) => {
       // Ignore update error
     }
 
+    ldapLogger.error('LDAP connection test failed', { error });
     res.status(400).json({
       success: false,
       message: error.message || 'LDAP connection test failed',
@@ -452,6 +459,7 @@ export const testLdapConnection = async (req: AuthRequest, res: Response) => {
       });
     }
   } catch (error: any) {
+    ldapLogger.error('LDAP connection pre-save test failed', { error });
     res.status(400).json({
       success: false,
       message: error.message || 'LDAP 연결 테스트 실패',

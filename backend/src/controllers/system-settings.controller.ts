@@ -1,8 +1,9 @@
 import { Request, Response } from 'express';
-import { PrismaClient } from '@prisma/client';
 import { randomUUID } from 'crypto';
-
-const prisma = new PrismaClient();
+import fs from 'fs';
+import path from 'path';
+import prisma from '../config/database';
+import appLogger, { errorLogger } from '../config/logger';
 
 // Get all system settings
 export const getSystemSettings = async (req: Request, res: Response) => {
@@ -19,8 +20,8 @@ export const getSystemSettings = async (req: Request, res: Response) => {
 
     res.json(settingsObject);
   } catch (error: any) {
-    console.error('Error fetching system settings:', error);
-    res.status(500).json({ error: 'Failed to fetch system settings' });
+    errorLogger.error('Error fetching system settings:', { error });
+    res.status(500).json({ error: 'Internal server error' });
   }
 };
 
@@ -38,8 +39,8 @@ export const getSettingByKey = async (req: Request, res: Response) => {
 
     res.json({ key: setting.key, value: setting.value });
   } catch (error: any) {
-    console.error('Error fetching setting:', error);
-    res.status(500).json({ error: 'Failed to fetch setting' });
+    errorLogger.error('Error fetching setting:', { error });
+    res.status(500).json({ error: 'Internal server error' });
   }
 };
 
@@ -70,8 +71,8 @@ export const updateSetting = async (req: Request, res: Response) => {
 
     res.json(setting);
   } catch (error: any) {
-    console.error('Error updating setting:', error);
-    res.status(500).json({ error: 'Failed to update setting' });
+    errorLogger.error('Error updating setting:', { error });
+    res.status(500).json({ error: 'Internal server error' });
   }
 };
 
@@ -101,8 +102,8 @@ export const updateSettings = async (req: Request, res: Response) => {
 
     res.json({ message: 'Settings updated successfully' });
   } catch (error: any) {
-    console.error('Error updating settings:', error);
-    res.status(500).json({ error: 'Failed to update settings' });
+    errorLogger.error('Error updating settings:', { error });
+    res.status(500).json({ error: 'Internal server error' });
   }
 };
 
@@ -133,8 +134,8 @@ export const uploadLogo = async (req: Request, res: Response) => {
 
     res.json({ logoUrl });
   } catch (error: any) {
-    console.error('Error uploading logo:', error);
-    res.status(500).json({ error: 'Failed to upload logo' });
+    errorLogger.error('Error uploading logo:', { error });
+    res.status(500).json({ error: 'Internal server error' });
   }
 };
 
@@ -147,8 +148,6 @@ export const deleteLogo = async (req: Request, res: Response) => {
 
     if (setting) {
       // Delete the file
-      const fs = require('fs');
-      const path = require('path');
       const filepath = path.join(__dirname, '../../', setting.value);
 
       if (fs.existsSync(filepath)) {
@@ -163,8 +162,8 @@ export const deleteLogo = async (req: Request, res: Response) => {
 
     res.json({ message: 'Logo deleted successfully' });
   } catch (error: any) {
-    console.error('Error deleting logo:', error);
-    res.status(500).json({ error: 'Failed to delete logo' });
+    errorLogger.error('Error deleting logo:', { error });
+    res.status(500).json({ error: 'Internal server error' });
   }
 };
 
@@ -195,8 +194,8 @@ export const uploadFavicon = async (req: Request, res: Response) => {
 
     res.json({ faviconUrl });
   } catch (error: any) {
-    console.error('Error uploading favicon:', error);
-    res.status(500).json({ error: 'Failed to upload favicon' });
+    errorLogger.error('Error uploading favicon:', { error });
+    res.status(500).json({ error: 'Internal server error' });
   }
 };
 
@@ -209,8 +208,6 @@ export const deleteFavicon = async (req: Request, res: Response) => {
 
     if (setting) {
       // Delete the file
-      const fs = require('fs');
-      const path = require('path');
       const filepath = path.join(__dirname, '../../', setting.value);
 
       if (fs.existsSync(filepath)) {
@@ -225,7 +222,7 @@ export const deleteFavicon = async (req: Request, res: Response) => {
 
     res.json({ message: 'Favicon deleted successfully' });
   } catch (error: any) {
-    console.error('Error deleting favicon:', error);
-    res.status(500).json({ error: 'Failed to delete favicon' });
+    errorLogger.error('Error deleting favicon:', { error });
+    res.status(500).json({ error: 'Internal server error' });
   }
 };
