@@ -4,6 +4,47 @@
 
 ---
 
+## v1.1.32 (2026-06-18)
+
+### 🔐 로컬 인증 & 멤버 관리
+
+#### 핵심 변경사항
+- ✅ **admin 계정 DB 저장**: User 테이블에 `authType`(LOCAL/LDAP) + `passwordHash` 필드 추가
+- ✅ **설치 마법사 Step 3**: admin 비밀번호 직접 입력 (bcrypt 해시 후 DB 저장)
+- ✅ **비밀번호 변경**: `POST /api/auth/change-password` — 프로필 페이지에서 변경 가능
+- ✅ **프로필 편집**: LOCAL 계정은 이름·이메일·전화번호 직접 수정 가능
+- ✅ **멤버 관리 페이지**: 시스템 설정 → 멤버 관리 (탭 구조)
+  - 멤버 조회 탭: 로컬 계정 생성·수정·비밀번호 초기화·활성화/비활성화
+  - LDAP 인증 탭: LDAP 설정 + 동기화 관리 모달 통합
+  - LDAP 활성화 시 로컬 계정 생성 비활성화 + 안내 메시지
+- ✅ **권한 관리 동기화**: 누락된 리소스(`members`, `ldap-sync`, `feedback`, `team-status` 등) 추가
+- ✅ **메뉴 정리**: LDAP 인증·동기화 별도 메뉴 제거 → 멤버 관리로 통합
+
+#### DB 변경
+- Migration: `20260618000000_add_local_auth` — User 테이블 `authType`, `passwordHash` 컬럼 추가
+
+#### API 추가
+- `GET/POST /api/admin/members` — 멤버 목록 조회 / 로컬 계정 생성
+- `PUT /api/admin/members/:id` — 멤버 정보 수정
+- `PUT /api/admin/members/:id/toggle-active` — 활성화/비활성화
+- `POST /api/admin/members/:id/reset-password` — 비밀번호 초기화
+- `PUT /api/admin/members/profile` — 본인 프로필 수정
+- `POST /api/auth/change-password` — 비밀번호 변경
+
+---
+
+## v1.1.31 (2026-06-17)
+
+### 🧙 WordPress 스타일 웹 설치 마법사 + 경로 환경변수화
+
+#### 핵심 변경사항
+- ✅ **웹 설치 마법사**: `docker compose up -d` 후 브라우저에서 `/install` 접근하여 초기 설정
+- ✅ **경로 환경변수화**: `PSTA_DATA_DIR`, `PSTA_LOG_DIR` 로 모든 경로 설정 가능
+- ✅ **기본 로고·파비콘**: Logo_02_color+white, favicon_01_full_colored 기본 적용
+- ✅ **포트·호스트 환경변수**: `FRONTEND_PORT`, `BACKEND_PORT`, `BACKEND_HOST` 지원
+
+---
+
 ## v1.1.30 (2026-06-16)
 
 ### 🐳 프론트엔드 서빙 방식 변경: nginx Docker

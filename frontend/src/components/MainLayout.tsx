@@ -10,7 +10,6 @@ import {
   LogoutOutlined,
   SettingOutlined,
   TeamOutlined,
-  SafetyOutlined,
   CheckCircleOutlined,
   FolderOutlined,
   AppstoreOutlined,
@@ -21,9 +20,9 @@ import {
   MailOutlined,
   FileSearchOutlined,
   ApiOutlined,
-  SyncOutlined,
   DeleteOutlined,
   CommentOutlined,
+  IdcardOutlined,
 } from '@ant-design/icons';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
@@ -352,16 +351,10 @@ export const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
           onClick: () => navigate('/general-settings'),
         },
         {
-          key: '/ldap-auth',
-          icon: <SafetyOutlined />,
-          label: 'LDAP 인증',
-          onClick: () => navigate('/ldap-auth'),
-        },
-        {
-          key: '/ldap-sync',
-          icon: <SyncOutlined />,
-          label: 'LDAP 동기화',
-          onClick: () => navigate('/ldap-sync'),
+          key: '/members',
+          icon: <IdcardOutlined />,
+          label: '멤버 관리',
+          onClick: () => navigate('/members'),
         },
         {
           key: '/notification-apps',

@@ -20,6 +20,9 @@ const Install: React.FC = () => {
   const [done, setDone] = useState(false);
   const [error, setError] = useState('');
   const [frontendUrl, setFrontendUrl] = useState('');
+  const [adminPassword, setAdminPassword] = useState('');
+  const [adminPasswordConfirm, setAdminPasswordConfirm] = useState('');
+  const [passwordError, setPasswordError] = useState('');
 
   useEffect(() => {
     getInstallStatus().then(s => {
@@ -33,10 +36,18 @@ const Install: React.FC = () => {
   }, []);
 
   const handleInstall = async () => {
+    if (adminPassword.length < 6) {
+      setError('관리자 비밀번호는 6자 이상이어야 합니다.');
+      return;
+    }
+    if (adminPassword !== adminPasswordConfirm) {
+      setError('비밀번호가 일치하지 않습니다.');
+      return;
+    }
     setInstalling(true);
     setError('');
     try {
-      await runInstall({ frontendUrl });
+      await runInstall({ frontendUrl, adminPassword });
       setDone(true);
     } catch (e: any) {
       setError(e.response?.data?.error || '설치 중 오류가 발생했습니다.');
@@ -64,7 +75,7 @@ const Install: React.FC = () => {
             <Card key="cred" size="small" style={{ textAlign: 'left', marginBottom: 16 }}>
               <Space direction="vertical">
                 <Text><strong>아이디:</strong> admin</Text>
-                <Text><strong>비밀번호:</strong> pstaadmin</Text>
+                <Text><strong>비밀번호:</strong> 설치 시 설정한 비밀번호</Text>
               </Space>
             </Card>,
             <Button type="primary" key="login" size="large" onClick={() => window.location.href = '/login'}>
@@ -116,22 +127,41 @@ const Install: React.FC = () => {
 
     // Step 2: 관리자 계정
     <Space direction="vertical" style={{ width: '100%' }} size="large">
-      <Title level={4}><UserOutlined /> 기본 관리자 계정</Title>
+      <Title level={4}><UserOutlined /> 관리자 계정 설정</Title>
       <Paragraph type="secondary">
-        설치 후 아래 계정으로 로그인하세요. 로그인 후 비밀번호를 변경하거나 LDAP 인증을 설정할 수 있습니다.
+        최초 로그인에 사용할 관리자 비밀번호를 설정하세요. 아이디는 <strong>admin</strong>으로 고정됩니다.
       </Paragraph>
-      <Card style={{ background: '#f6ffed', border: '1px solid #b7eb8f' }}>
-        <Space direction="vertical" size="small">
-          <Text><strong>아이디:</strong> <Tag color="green">admin</Tag></Text>
-          <Text><strong>비밀번호:</strong> <Tag color="green">pstaadmin</Tag></Text>
-          <Text><strong>권한:</strong> <Tag color="blue">ADMIN</Tag></Text>
-        </Space>
-      </Card>
-      <Alert
-        type="warning"
-        showIcon
-        message="보안을 위해 설치 완료 후 반드시 관리자 비밀번호를 변경하거나 LDAP 인증을 활성화하세요."
-      />
+      <Form layout="vertical">
+        <Form.Item label="관리자 아이디">
+          <Input value="admin" disabled size="large" />
+        </Form.Item>
+        <Form.Item
+          label="관리자 비밀번호"
+          required
+          validateStatus={passwordError ? 'error' : ''}
+          help={passwordError || '6자 이상 입력하세요.'}
+        >
+          <Input.Password
+            value={adminPassword}
+            onChange={e => { setAdminPassword(e.target.value); setPasswordError(''); }}
+            placeholder="비밀번호 (6자 이상)"
+            size="large"
+          />
+        </Form.Item>
+        <Form.Item
+          label="비밀번호 확인"
+          required
+          validateStatus={adminPasswordConfirm && adminPassword !== adminPasswordConfirm ? 'error' : ''}
+          help={adminPasswordConfirm && adminPassword !== adminPasswordConfirm ? '비밀번호가 일치하지 않습니다.' : ''}
+        >
+          <Input.Password
+            value={adminPasswordConfirm}
+            onChange={e => setAdminPasswordConfirm(e.target.value)}
+            placeholder="비밀번호 재입력"
+            size="large"
+          />
+        </Form.Item>
+      </Form>
     </Space>,
 
     // Step 3: 설치 실행
@@ -141,7 +171,7 @@ const Install: React.FC = () => {
         <Space direction="vertical" size="small" style={{ width: '100%' }}>
           <Text><CheckCircleOutlined style={{ color: '#52c41a' }} /> 데이터베이스 연결 확인</Text>
           <Text><CheckCircleOutlined style={{ color: '#52c41a' }} /> 서버 URL: <strong>{frontendUrl}</strong></Text>
-          <Text><CheckCircleOutlined style={{ color: '#52c41a' }} /> 관리자 계정: admin / pstaadmin</Text>
+          <Text><CheckCircleOutlined style={{ color: '#52c41a' }} /> 관리자 계정: admin / (설정한 비밀번호)</Text>
         </Space>
       </Card>
       {error && <Alert type="error" showIcon message={error} />}
@@ -179,7 +209,19 @@ const Install: React.FC = () => {
               type="primary"
               size="large"
               disabled={current === 0 && !status?.dbConnected}
-              onClick={() => setCurrent(c => c + 1)}
+              onClick={() => {
+                if (current === 2) {
+                  if (adminPassword.length < 6) {
+                    setPasswordError('비밀번호는 6자 이상이어야 합니다.');
+                    return;
+                  }
+                  if (adminPassword !== adminPasswordConfirm) {
+                    setPasswordError('비밀번호가 일치하지 않습니다.');
+                    return;
+                  }
+                }
+                setCurrent(c => c + 1);
+              }}
             >
               다음
             </Button>

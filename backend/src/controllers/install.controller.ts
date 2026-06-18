@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { execSync } from 'child_process';
 import path from 'path';
+import bcrypt from 'bcryptjs';
 import { PrismaClient } from '@prisma/client';
 import { isInstalled, markInstalled } from '../config/install';
 import appLogger from '../config/logger';
@@ -45,7 +46,11 @@ export const runInstall = async (req: Request, res: Response) => {
     return res.status(400).json({ error: '이미 설치되어 있습니다' });
   }
 
-  const { frontendUrl } = req.body;
+  const { frontendUrl, adminPassword } = req.body;
+
+  if (!adminPassword || adminPassword.length < 6) {
+    return res.status(400).json({ error: '관리자 비밀번호는 6자 이상이어야 합니다.' });
+  }
 
   try {
     // 1. Prisma 마이그레이션
@@ -80,14 +85,33 @@ export const runInstall = async (req: Request, res: Response) => {
       });
     }
 
-    // 3. FRONTEND_URL 환경변수 업데이트
+    // 3. admin 계정 생성 (LOCAL auth + bcrypt 해시)
+    const passwordHash = await bcrypt.hash(adminPassword, 10);
+    await prisma.user.upsert({
+      where: { username: 'admin' },
+      update: { passwordHash, authType: 'LOCAL', updatedAt: now },
+      create: {
+        id: randomUUID(),
+        username: 'admin',
+        email: 'admin@localhost',
+        displayName: '최고 관리자',
+        authType: 'LOCAL',
+        passwordHash,
+        role: 'ADMIN',
+        isVerified: true,
+        updatedAt: now,
+      },
+    });
+    appLogger.info('[Install] admin user created');
+
+    // 4. FRONTEND_URL 환경변수 업데이트
     if (frontendUrl) {
       process.env.FRONTEND_URL = frontendUrl;
     }
 
     await prisma.$disconnect();
 
-    // 4. 설치 완료 표시
+    // 5. 설치 완료 표시
     markInstalled();
     appLogger.info('[Install] installation complete');
 

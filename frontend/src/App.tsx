@@ -30,6 +30,7 @@ import OrganizationManagement from './pages/OrganizationManagement';
 import { TeamStatusOverview } from './pages/TeamStatusOverview';
 import { FeedbackList } from './pages/FeedbackList';
 import Install from './pages/Install';
+import { MemberManagement } from './pages/MemberManagement';
 import { MainLayout } from './components/MainLayout';
 import { useAuthStore } from './store/authStore';
 import { usePermissionStore } from './store/permissionStore';
@@ -393,6 +394,14 @@ function App() {
             element={
               <ProtectedRoute resource="permissions">
                 <PermissionManagement />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/members"
+            element={
+              <ProtectedRoute resource="members">
+                <MemberManagement />
               </ProtectedRoute>
             }
           />
