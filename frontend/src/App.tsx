@@ -58,6 +58,7 @@ const ROUTE_RESOURCE_MAP: { [key: string]: string } = {
   '/ldap-auth': 'ldap-auth',
   '/notification-apps': 'notification-apps',
   '/permissions': 'permissions',
+  '/members': 'members',
   '/general-settings': 'general-settings',
   '/ldap-sync': 'ldap-sync',
 };
