@@ -32,36 +32,13 @@ import { ActionCreateDrawer } from './ActionCreateDrawer';
 import { TrashModal } from './TrashModal';
 import { systemSettingsApi } from '../api/system-settings';
 import type { MenuProps } from 'antd';
+import { ROUTE_RESOURCE_MAP } from '../constants/routeResourceMap';
 
 const { Header, Sider, Content } = Layout;
 
 interface MainLayoutProps {
   children: React.ReactNode;
 }
-
-// Map routes to resource names for permission checking
-const ROUTE_RESOURCE_MAP: { [key: string]: string } = {
-  '/dashboard': 'dashboard',
-  '/requests': 'requests',
-  '/psta': 'psta',
-  '/wbs': 'wbs',
-  '/report': 'report',
-  '/integrated-files': 'integrated-files',
-  '/feedback': 'feedback',
-  '/clients': 'clients',
-  '/projects': 'projects',
-  '/services': 'services',
-  '/team-status': 'team-status',
-  '/actions': 'actions',
-  '/teams': 'teams',
-  '/users': 'users',
-  '/organization': 'organization',
-  '/ldap-auth': 'ldap-auth',
-  '/ldap-sync': 'ldap-sync',
-  '/permissions': 'permissions',
-  '/notification-apps': 'notification-apps',
-  '/general-settings': 'general-settings',
-};
 
 export const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
   const navigate = useNavigate();

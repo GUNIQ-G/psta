@@ -37,31 +37,7 @@ import { usePermissionStore } from './store/permissionStore';
 import { Result, Button, Spin } from 'antd';
 import { systemSettingsApi } from './api/system-settings';
 import { getInstallStatus } from './api/install';
-
-// Map routes to resource names for permission checking
-const ROUTE_RESOURCE_MAP: { [key: string]: string } = {
-  '/dashboard': 'dashboard',
-  '/requests': 'requests',
-  '/psta': 'psta',
-  '/wbs': 'wbs',
-  '/report': 'report',
-  '/integrated-files': 'integrated-files',
-  '/feedback': 'feedback',
-  '/clients': 'clients',
-  '/projects': 'projects',
-  '/services': 'services',
-  '/team-status': 'team-status',
-  '/actions': 'actions',
-  '/teams': 'teams',
-  '/users': 'users',
-  '/organization': 'organization',
-  '/ldap-auth': 'ldap-auth',
-  '/notification-apps': 'notification-apps',
-  '/permissions': 'permissions',
-  '/members': 'members',
-  '/general-settings': 'general-settings',
-  '/ldap-sync': 'ldap-sync',
-};
+import { ROUTE_RESOURCE_MAP } from './constants/routeResourceMap';
 
 const ProtectedRoute: React.FC<{ children: React.ReactNode; resource?: string }> = ({
   children,
