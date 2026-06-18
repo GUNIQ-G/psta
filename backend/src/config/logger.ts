@@ -1,8 +1,7 @@
 import winston from 'winston';
 import DailyRotateFile from 'winston-daily-rotate-file';
 import path from 'path';
-
-const LOG_DIR = '/log/psta';
+import { LOG_DIR } from './paths';
 
 // Custom format for JSON logging
 const jsonFormat = winston.format.combine(

@@ -30,11 +30,11 @@ services:
       JWT_SECRET: ${JWT_SECRET:-change-this-secret-in-production}
       JWT_EXPIRES_IN: "24h"
       FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
-      INSTALL_DATA_DIR: /app/data
+      PSTA_DATA_DIR: ${PSTA_DATA_DIR:-/data/psta}
+      PSTA_LOG_DIR: ${PSTA_LOG_DIR:-/log/psta}
     volumes:
-      - psta-uploads:/app/data/uploads
-      - psta-config:/app/data
-      - psta-logs:/app/logs
+      - ${PSTA_DATA_DIR:-/data/psta}:${PSTA_DATA_DIR:-/data/psta}
+      - ${PSTA_LOG_DIR:-/log/psta}:${PSTA_LOG_DIR:-/log/psta}
     depends_on:
       db:
         condition: service_healthy
@@ -51,12 +51,11 @@ services:
     environment:
       BACKEND_HOST: backend
       BACKEND_PORT: ${BACKEND_PORT:-3001}
+    volumes:
+      - ${NGINX_LOG_DIR:-/log/nginx}:/var/log/nginx
     depends_on:
       - backend
     restart: unless-stopped
 
 volumes:
   psta-db-data:
-  psta-uploads:
-  psta-config:
-  psta-logs:

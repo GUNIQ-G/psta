@@ -4,6 +4,7 @@ import dotenv from 'dotenv';
 import path from 'path';
 import appLogger, { logHttpRequest, errorLogger } from './config/logger';
 import { isInstalled } from './config/install';
+import { UPLOADS_DIR } from './config/paths';
 import installRoutes from './routes/install.routes';
 import authRoutes from './routes/auth.routes';
 import itemRoutes from './routes/item.routes';
@@ -52,8 +53,7 @@ app.use((req, res, next) => {
 });
 
 // Serve static files from uploads
-const uploadsDir = process.env.INSTALL_DATA_DIR ? `${process.env.INSTALL_DATA_DIR}/uploads` : '/data/psta/uploads';
-app.use('/uploads', express.static(uploadsDir));
+app.use('/uploads', express.static(UPLOADS_DIR));
 
 app.use('/api/auth', authRoutes);
 app.use('/api/items', itemRoutes);

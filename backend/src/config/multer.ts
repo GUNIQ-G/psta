@@ -1,9 +1,9 @@
 import multer from 'multer';
 import path from 'path';
 import { randomUUID } from 'crypto';
+import { UPLOADS_DIR } from './paths';
 
-// Base upload directory: /data/psta/uploads
-const UPLOAD_BASE_DIR = '/data/psta/uploads';
+const UPLOAD_BASE_DIR = UPLOADS_DIR;
 
 // Storage configuration for client logos
 const storage = multer.diskStorage({
