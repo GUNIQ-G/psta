@@ -484,8 +484,11 @@ export const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
                 src={systemLogo}
                 alt="System Logo"
                 style={{
+                  display: 'block',
                   maxWidth: '100%',
-                  maxHeight: '100%',
+                  maxHeight: 48,
+                  width: 'auto',
+                  height: 'auto',
                   objectFit: 'contain',
                 }}
               />
