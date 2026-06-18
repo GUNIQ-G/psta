@@ -13,7 +13,7 @@ export const login = async (req: Request, res: Response) => {
     }
 
     // Check for local admin account first
-    if (username === 'admin' && password === 'proadmin123$%') {
+    if (username === 'admin' && password === (process.env.ADMIN_PASSWORD || 'pstaadmin')) {
       let adminUser = await prisma.user.findUnique({
         where: { username: 'admin' },
       });
