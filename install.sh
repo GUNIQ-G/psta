@@ -42,7 +42,7 @@ JWT_SECRET="${JWT_SECRET:-}"
 FRONTEND_URL="${FRONTEND_URL:-}"
 
 NODE_VERSION="24"
-PG_VERSION="${PG_VERSION:-}"
+PG_VERSION="${PG_VERSION:-16}"
 
 # ─── OS 확인 ──────────────────────────────────────────────────────────────────
 check_os() {
