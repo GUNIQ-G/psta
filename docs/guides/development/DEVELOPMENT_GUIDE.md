@@ -446,15 +446,54 @@ import ExamplePage from './pages/ExamplePage';
 <Route path="/examples" element={<ExamplePage />} />
 ```
 
-#### Step 3: 메뉴 추가
-`frontend/src/components/MainLayout.tsx`:
-```typescript
+#### Step 3: 메뉴 + 권한 등록 (한 파일만 수정)
+
+**`frontend/src/constants/menuConfig.tsx`** — 이 파일 하나만 수정하면 사이드바·라우트 보호·권한관리 UI가 모두 자동 반영됩니다.
+
+```tsx
+// MENU_ENTRIES 배열에 항목 추가
 {
-  key: 'examples',
-  icon: <AppstoreOutlined />,
-  label: <Link to="/examples">예제</Link>,
-}
+  route: '/examples',
+  resource: 'examples',          // DB Permission 리소스 키
+  label: '예제 페이지',
+  group: '데이터 관리',           // 사이드바 그룹 (없으면 사이드바에 안 보임)
+  icon: <AppstoreOutlined />,    // 사이드바 아이콘 (없으면 사이드바에 안 보임)
+  // badge: { text: 'E', color: '#722ed1' },  // 선택: P/S/T/A 같은 배지
+  // permGroup: '데이터 관리',   // 권한관리 UI 그룹 (group과 다를 때만)
+},
 ```
+
+| 속성 | 필수 | 설명 |
+|---|---|---|
+| `route` | ✅ | URL 경로 |
+| `resource` | ✅ | DB Permission 리소스 키 |
+| `label` | ✅ | 표시 이름 |
+| `group` | 선택 | 사이드바 그룹명 (없으면 사이드바 미표시) |
+| `icon` | 선택 | 사이드바 아이콘 (없으면 사이드바 미표시) |
+| `badge` | 선택 | 우측 배지 태그 (text, color) |
+| `permGroup` | 선택 | 권한관리 UI 그룹 (기본값: group) |
+
+**자동 반영되는 곳:**
+- `ROUTE_RESOURCE_MAP` → App.tsx ProtectedRoute 권한 체크
+- `SIDEBAR_GROUPS` → MainLayout.tsx 사이드바 메뉴
+- `PERMISSION_GROUPS` → PermissionManagement.tsx 권한관리 UI
+
+**Step 4: DB Permission 행 추가**
+
+새 resource는 DB에 존재해야 권한관리 UI에서 값을 저장할 수 있습니다.
+
+```sql
+-- 역할별 초기 권한 설정 (예: examples는 모든 role이 조회 가능)
+INSERT INTO "Permission" (id, role, resource, "canView", "canCreate", "canUpdate", "canDelete", "updatedAt")
+VALUES
+  (gen_random_uuid(), 'ADMIN',  'examples', true,  true,  true,  true,  NOW()),
+  (gen_random_uuid(), 'PO',     'examples', true,  false, false, false, NOW()),
+  (gen_random_uuid(), 'PM',     'examples', true,  false, false, false, NOW()),
+  (gen_random_uuid(), 'MEMBER', 'examples', true,  false, false, false, NOW())
+ON CONFLICT (role, resource) DO NOTHING;
+```
+
+또는 관리자가 **권한관리 페이지**에서 역할별 on/off를 직접 설정.
 
 ### 4.2 API 클라이언트 작성
 
