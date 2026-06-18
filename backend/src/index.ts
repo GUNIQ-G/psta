@@ -1,6 +1,6 @@
+import './env'; // dotenv.config() must run before any other module loads
 import express from 'express';
 import cors from 'cors';
-import dotenv from 'dotenv';
 import path from 'path';
 import appLogger, { logHttpRequest, errorLogger } from './config/logger';
 import { isInstalled } from './config/install';
@@ -20,8 +20,6 @@ import assetsRoutes from './routes/assets.routes';
 import workRoutes from './routes/work.routes';
 import trashRoutes from './routes/trash.routes';
 import membersRoutes from './routes/members.routes';
-
-dotenv.config();
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3001;
