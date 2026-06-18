@@ -19,8 +19,8 @@
     "pms",
     "project-management"
   ],
-  "author": "",
-  "license": "MIT",
+  "author": "GUNIQ <gunique.co.kr@gmail.com>",
+  "license": "SEE LICENSE IN LICENSE",
   "dependencies": {
     "@prisma/client": "^5.7.1",
     "@slack/web-api": "^7.0.2",
