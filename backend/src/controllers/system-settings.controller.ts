@@ -5,6 +5,14 @@ import path from 'path';
 import prisma from '../config/database';
 import appLogger, { errorLogger } from '../config/logger';
 
+const SETTING_DEFAULTS: Record<string, string> = {
+  systemName: 'PSTA',
+  systemDescription: 'Project-Service-Team-Action 관리 시스템',
+  systemLogo: '/psta-logo.png',
+  favicon: '/psta-favicon.png',
+  copyrightText: 'PSTA. All rights reserved.',
+};
+
 // Get all system settings
 export const getSystemSettings = async (req: Request, res: Response) => {
   try {
@@ -12,8 +20,8 @@ export const getSystemSettings = async (req: Request, res: Response) => {
       where: { category: 'general' },
     });
 
-    // Convert array to object for easier access
-    const settingsObject: { [key: string]: string } = {};
+    // 기본값 먼저 적용 후 DB 값으로 덮어씀
+    const settingsObject: Record<string, string> = { ...SETTING_DEFAULTS };
     settings.forEach((setting) => {
       settingsObject[setting.key] = setting.value;
     });
