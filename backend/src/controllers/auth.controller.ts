@@ -1,4 +1,5 @@
 import { Request, Response } from 'express';
+import bcrypt from 'bcryptjs';
 import ldapService from '../config/ldap';
 import prisma from '../config/database';
 import { generateToken, AuthRequest } from '../middleware/auth';
@@ -12,48 +13,38 @@ export const login = async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Username and password are required' });
     }
 
-    // Check for local admin account first
-    if (username === 'admin' && password === (process.env.ADMIN_PASSWORD || 'pstaadmin')) {
-      let adminUser = await prisma.user.findUnique({
-        where: { username: 'admin' },
-      });
+    // LOCAL 계정 인증 (authType = 'LOCAL', DB에 passwordHash 존재)
+    const localUser = await prisma.user.findUnique({
+      where: { username },
+    });
 
-      if (!adminUser) {
-        // Create admin user if doesn't exist
-        const { randomUUID } = require('crypto');
-        adminUser = await prisma.user.create({
-          data: {
-            id: randomUUID(),
-            username: 'admin',
-            email: '-',
-            displayName: '최고 관리자',
-            ldapDn: null,
-            role: 'ADMIN',
-            isVerified: true,
-            updatedAt: new Date(),
-          },
-        });
+    if (localUser && localUser.authType === 'LOCAL' && localUser.passwordHash) {
+      const valid = await bcrypt.compare(password, localUser.passwordHash);
+      if (!valid) {
+        authLogger.warn('Local login failed: invalid password', { username, ip: req.ip });
+        return res.status(401).json({ error: '사용자명 또는 비밀번호가 올바르지 않습니다.' });
       }
 
-      const token = generateToken(adminUser.id, adminUser.username, adminUser.email, adminUser.displayName, adminUser.role);
+      const token = generateToken(localUser.id, localUser.username, localUser.email, localUser.displayName, localUser.role);
 
-      authLogger.info('Admin login successful', {
-        userId: adminUser.id,
-        username: adminUser.username,
-        role: adminUser.role,
+      authLogger.info('Local login successful', {
+        userId: localUser.id,
+        username: localUser.username,
+        role: localUser.role,
         ip: req.ip,
       });
 
       return res.json({
         token,
         user: {
-          id: adminUser.id,
-          username: adminUser.username,
-          email: adminUser.email,
-          displayName: adminUser.displayName,
-          role: adminUser.role,
-          isVerified: adminUser.isVerified,
-          teamId: adminUser.teamId,
+          id: localUser.id,
+          username: localUser.username,
+          email: localUser.email,
+          displayName: localUser.displayName,
+          role: localUser.role,
+          authType: localUser.authType,
+          isVerified: localUser.isVerified,
+          teamId: localUser.teamId,
         },
       });
     }
@@ -187,6 +178,7 @@ export const me = async (req: AuthRequest, res: Response) => {
         displayName: true,
         role: true,
         teamId: true,
+        authType: true,
         isVerified: true,
         isActive: true,
         approvalRequested: true,
@@ -213,6 +205,47 @@ export const me = async (req: AuthRequest, res: Response) => {
     res.json(user);
   } catch (error) {
     errorLogger.error('Get current user error', { error });
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+export const changePassword = async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const { currentPassword, newPassword } = req.body;
+
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ error: '현재 비밀번호와 새 비밀번호를 입력하세요.' });
+    }
+
+    if (newPassword.length < 6) {
+      return res.status(400).json({ error: '새 비밀번호는 6자 이상이어야 합니다.' });
+    }
+
+    const user = await prisma.user.findUnique({ where: { id: req.user.id } });
+
+    if (!user || user.authType !== 'LOCAL' || !user.passwordHash) {
+      return res.status(400).json({ error: '로컬 계정만 비밀번호를 변경할 수 있습니다.' });
+    }
+
+    const valid = await bcrypt.compare(currentPassword, user.passwordHash);
+    if (!valid) {
+      return res.status(401).json({ error: '현재 비밀번호가 올바르지 않습니다.' });
+    }
+
+    const hash = await bcrypt.hash(newPassword, 10);
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { passwordHash: hash, updatedAt: new Date() },
+    });
+
+    authLogger.info('Password changed', { userId: user.id, username: user.username });
+    res.json({ ok: true, message: '비밀번호가 변경되었습니다.' });
+  } catch (error) {
+    errorLogger.error('Change password error', { error });
     res.status(500).json({ error: 'Internal server error' });
   }
 };

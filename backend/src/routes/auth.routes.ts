@@ -7,5 +7,6 @@ const router = Router();
 router.post('/login', authController.login as RequestHandler);
 router.get('/me', authMiddleware as RequestHandler, authController.me as RequestHandler);
 router.post('/request-approval', authMiddleware as RequestHandler, authController.requestApproval as RequestHandler);
+router.post('/change-password', authMiddleware as RequestHandler, authController.changePassword as RequestHandler);
 
 export default router;

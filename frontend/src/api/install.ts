@@ -13,5 +13,5 @@ export const getInstallStatus = () =>
 export const testDbConnection = (databaseUrl: string) =>
   axios.post<{ ok: boolean; error?: string }>(`${BASE}/test-db`, { databaseUrl }).then(r => r.data);
 
-export const runInstall = (data: { frontendUrl: string }) =>
+export const runInstall = (data: { frontendUrl: string; adminPassword: string }) =>
   axios.post<{ ok: boolean; message: string }>(`${BASE}/run`, data).then(r => r.data);

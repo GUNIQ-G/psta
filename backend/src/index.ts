@@ -19,6 +19,7 @@ import notificationsRoutes from './routes/notifications.routes';
 import assetsRoutes from './routes/assets.routes';
 import workRoutes from './routes/work.routes';
 import trashRoutes from './routes/trash.routes';
+import membersRoutes from './routes/members.routes';
 
 dotenv.config();
 
@@ -68,6 +69,7 @@ app.use('/api/notifications', notificationsRoutes);
 app.use('/api/assets', assetsRoutes);
 app.use('/api/work', workRoutes);
 app.use('/api/trash', trashRoutes);
+app.use('/api/admin/members', membersRoutes);
 
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });

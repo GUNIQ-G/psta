@@ -57,15 +57,20 @@ const RESOURCE_GROUPS = [
     title: '조직 관리',
     resources: [
       { key: 'teams', label: '팀 관리' },
-      { key: 'users', label: '회원 관리' },
+      { key: 'users', label: '회원 관리 (LDAP)' },
+      { key: 'organization', label: '조직도' },
+      { key: 'team-status', label: '팀 현황' },
       { key: 'user-approval', label: '사용자 승인' },
+      { key: 'feedback', label: '버그/건의 게시판' },
     ],
   },
   {
     title: '시스템 설정',
     resources: [
       { key: 'general-settings', label: '일반' },
+      { key: 'members', label: '멤버 관리' },
       { key: 'ldap-auth', label: 'LDAP 인증' },
+      { key: 'ldap-sync', label: 'LDAP 동기화' },
       { key: 'notification-apps', label: '알림앱 연동' },
       { key: 'permissions', label: '권한 관리' },
     ],

@@ -32,6 +32,7 @@ export interface User {
   displayName: string;
   phoneNumber?: string;
   ldapDn?: string;
+  authType?: string;
   isVerified: boolean;
   isActive?: boolean;
   approvalRequested?: boolean;

@@ -217,6 +217,8 @@ model User {
   positionType                PositionType   @default(NONE)  // 직책 enum (v1.1.20)
   roleOverride                UserRole?      // 역할 수동 override (null이면 직책 기반 자동 계산)
   departmentNumber            String?        // 부서 코드
+  authType                    String         @default("LDAP") // "LOCAL" | "LDAP"
+  passwordHash                String?        // LOCAL 계정 전용
   isVerified                  Boolean        @default(false)
   isActive                    Boolean        @default(true)
   approvalRequested           Boolean        @default(false)
