@@ -6,7 +6,9 @@ import { randomUUID } from 'crypto';
 import crypto from 'crypto';
 import appLogger, { errorLogger, ldapLogger } from '../config/logger';
 
-const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || 'default-encryption-key-change-in-production';
+const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY ?? (() => {
+  throw new Error('[FATAL] ENCRYPTION_KEY 환경변수가 설정되지 않았습니다.');
+})();
 const ALGORITHM = 'aes-256-cbc';
 
 function encrypt(text: string): string {

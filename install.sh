@@ -158,6 +158,7 @@ setup_env() {
     header "환경변수 설정"
 
     [[ -z "$JWT_SECRET" ]] && JWT_SECRET=$(openssl rand -base64 48 | tr -d '=/+')
+    local ENCRYPTION_KEY; ENCRYPTION_KEY=$(openssl rand -hex 32)
 
     local host_ip; host_ip=$(hostname -I | awk '{print $1}')
     [[ -z "$BACKEND_HOST" ]] && BACKEND_HOST="$host_ip"
@@ -179,6 +180,7 @@ PSTA_LOG_DIR="$PSTA_LOG_DIR"
 SLACK_BOT_TOKEN=""
 SLACK_SIGNING_SECRET=""
 SLACK_DEFAULT_CHANNEL="#psta-notifications"
+ENCRYPTION_KEY="$ENCRYPTION_KEY"
 EOF
 
     chown "$PSTA_USER":"$PSTA_USER" "$INSTALL_DIR/backend/.env"

@@ -11,6 +11,7 @@ const SETTING_DEFAULTS: Record<string, string> = {
   systemLogo: '/psta-logo.png',
   favicon: '/psta-favicon.png',
   copyrightText: 'PSTA. All rights reserved.',
+  adminEmail: '',
 };
 
 // Get all system settings

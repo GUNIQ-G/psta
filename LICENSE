@@ -1,0 +1,78 @@
+PSTA Source Available License v1.0
+===================================
+
+Copyright (c) 2024-2026 GUNIQ (gunique.co.kr@gmail.com)
+All rights reserved.
+
+---
+
+[한국어]
+
+## 허용 사항 (무료)
+
+다음의 경우 무료로 사용, 복사, 수정, 배포할 수 있습니다:
+
+1. **개인 사용**: 개인 프로젝트, 학습, 연구 목적
+2. **내부 업무용**: 기업·기관·단체가 내부 업무 관리를 위해 자체 설치하여 사용하는 경우
+3. **비영리 단체**: 영리를 목적으로 하지 않는 단체의 내부 사용
+
+단, 저작권 고지 및 이 라이선스 문구를 소프트웨어의 모든 사본에 포함해야 합니다.
+
+## 상업적 사용 (별도 계약 필요)
+
+다음 행위는 저작권자의 서면 동의 또는 별도의 상업적 라이선스 계약 없이 금지됩니다:
+
+1. **재판매**: 이 소프트웨어 또는 이를 기반으로 한 파생물을 제3자에게 유상으로 판매하는 행위
+2. **SaaS 서비스**: 이 소프트웨어의 기능을 기반으로 구독·과금 서비스를 운영하는 행위
+3. **SI/구축 사업**: 고객에게 이 소프트웨어를 설치·구축하고 대가를 받는 행위
+4. **OEM/번들**: 이 소프트웨어를 다른 상업용 제품에 포함하거나 번들로 제공하는 행위
+
+상업적 사용 문의: gunique.co.kr@gmail.com
+
+## 보증 부인
+
+이 소프트웨어는 "있는 그대로(AS IS)" 제공됩니다. 저작권자는 상품성, 특정 목적에의 적합성 및
+비침해에 대한 보증을 포함하여 명시적이든 묵시적이든 어떠한 종류의 보증도 하지 않습니다.
+어떠한 경우에도 저작권자는 이 소프트웨어의 사용으로 인해 발생하는 손해에 대해 책임을 지지 않습니다.
+
+---
+
+[English]
+
+## Permitted Use (Free of Charge)
+
+You may use, copy, modify, and distribute this software free of charge for:
+
+1. **Personal Use**: Personal projects, learning, and research purposes
+2. **Internal Business Use**: Installation and use by companies, organizations, or institutions
+   solely for their own internal operations and workflow management
+3. **Non-profit Organizations**: Internal use by non-profit entities
+
+All copies must include this copyright notice and license text.
+
+## Commercial Use (Requires Separate Agreement)
+
+The following activities are prohibited without prior written consent from the copyright
+holder or a separate commercial license agreement:
+
+1. **Resale**: Selling this software or derivative works to third parties
+2. **SaaS / Hosted Service**: Operating a subscription or paid service based on
+   the functionality of this software
+3. **SI / Implementation Services**: Installing or deploying this software for clients
+   in exchange for payment or compensation
+4. **OEM / Bundling**: Including this software in other commercial products or
+   distributing it as part of a commercial bundle
+
+For commercial licensing inquiries: gunique.co.kr@gmail.com
+
+## Disclaimer of Warranties
+
+THIS SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED,
+INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR
+PURPOSE, AND NON-INFRINGEMENT. IN NO EVENT SHALL THE COPYRIGHT HOLDER BE LIABLE FOR ANY
+CLAIM, DAMAGES, OR OTHER LIABILITY ARISING FROM THE USE OF THIS SOFTWARE.
+
+---
+
+이 라이선스는 PSTA v1.0.0 이후 모든 버전에 적용됩니다.
+This license applies to all versions of PSTA from v1.0.0 onwards.

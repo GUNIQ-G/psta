@@ -14,6 +14,7 @@ export const LoginPage: React.FC = () => {
   const [systemName, setSystemName] = useState('PSTA 프로젝트 일정 관리');
   const [systemDescription, setSystemDescription] = useState('더존테크윌');
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
+  const [adminEmail, setAdminEmail] = useState('');
   const navigate = useNavigate();
   const login = useAuthStore((state) => state.login);
 
@@ -35,6 +36,9 @@ export const LoginPage: React.FC = () => {
       }
       if (settings.systemLogo) {
         setLogoUrl(settings.systemLogo);
+      }
+      if (settings.adminEmail) {
+        setAdminEmail(settings.adminEmail);
       }
     } catch (error) {
       // 로그인 페이지이므로 에러가 발생해도 무시 (인증 실패일 수 있음)
@@ -239,10 +243,14 @@ export const LoginPage: React.FC = () => {
               marginLeft: 24,
             }}
           >
-            관리자:{' '}
-            <a href="mailto:yg.kim@dztechwill.com" style={{ color: 'rgb(0, 140, 214)' }}>
-              yg.kim@dztechwill.com
-            </a>
+            {adminEmail && (
+              <>
+                관리자:{' '}
+                <a href={`mailto:${adminEmail}`} style={{ color: 'rgb(0, 140, 214)' }}>
+                  {adminEmail}
+                </a>
+              </>
+            )}
           </div>
         </div>
 

@@ -2,7 +2,9 @@ import ldap from 'ldapjs';
 import prisma from './database';
 import crypto from 'crypto';
 
-const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || 'default-encryption-key-change-in-production';
+const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY ?? (() => {
+  throw new Error('[FATAL] ENCRYPTION_KEY 환경변수가 설정되지 않았습니다. .env 파일을 확인하세요.');
+})();
 const ALGORITHM = 'aes-256-cbc';
 
 function decrypt(encryptedText: string): string {
