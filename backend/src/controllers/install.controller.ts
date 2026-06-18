@@ -58,10 +58,29 @@ export const runInstall = async (req: Request, res: Response) => {
     });
     appLogger.info('[Install] migration complete');
 
-    // 2. 기본 권한 seeding (Permission 테이블)
+    // 2. 기본 시스템 설정 seed
     const prisma = new PrismaClient();
+    const { randomUUID } = await import('crypto');
+    const now = new Date();
 
-    // 3. FRONTEND_URL 업데이트 (환경변수는 런타임에만 영향)
+    const defaultSettings = [
+      { key: 'systemName',        value: 'PSTA' },
+      { key: 'systemDescription', value: 'Project-Service-Team-Action 관리 시스템' },
+      { key: 'systemLogo',        value: '/psta-logo.png' },
+      { key: 'favicon',           value: '/psta-favicon.png' },
+      { key: 'copyrightText',     value: 'PSTA. All rights reserved.' },
+      { key: 'frontendUrl',       value: frontendUrl || process.env.FRONTEND_URL || '' },
+    ];
+
+    for (const s of defaultSettings) {
+      await prisma.systemSetting.upsert({
+        where: { key: s.key },
+        update: { value: s.value, updatedAt: now },
+        create: { id: randomUUID(), key: s.key, value: s.value, category: 'general', updatedAt: now },
+      });
+    }
+
+    // 3. FRONTEND_URL 환경변수 업데이트
     if (frontendUrl) {
       process.env.FRONTEND_URL = frontendUrl;
     }
