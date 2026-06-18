@@ -197,8 +197,8 @@ EOF
 # ─── npm 의존성 설치 ───────────────────────────────────────────────────────────
 install_dependencies() {
     header "의존성 설치"
-    sudo -u "$PSTA_USER" bash -c "cd $INSTALL_DIR/backend && npm ci"
-    sudo -u "$PSTA_USER" bash -c "cd $INSTALL_DIR/frontend && npm ci"
+    sudo -u "$PSTA_USER" bash -c "cd $INSTALL_DIR/backend && NODE_ENV=development npm ci"
+    sudo -u "$PSTA_USER" bash -c "cd $INSTALL_DIR/frontend && NODE_ENV=development npm ci"
     success "의존성 설치 완료"
 }
 
@@ -206,9 +206,9 @@ install_dependencies() {
 build() {
     header "빌드"
     info "백엔드 빌드 중..."
-    sudo -u "$PSTA_USER" bash -c "cd $INSTALL_DIR/backend && npm run build"
+    sudo -u "$PSTA_USER" bash -c "cd $INSTALL_DIR/backend && NODE_ENV=development npm run build"
     info "프론트엔드 빌드 중..."
-    sudo -u "$PSTA_USER" bash -c "cd $INSTALL_DIR/frontend && npm run build"
+    sudo -u "$PSTA_USER" bash -c "cd $INSTALL_DIR/frontend && NODE_ENV=development npm run build"
     rm -rf "$INSTALL_DIR/nginx/dist/"*
     cp -r "$INSTALL_DIR/frontend/dist/." "$INSTALL_DIR/nginx/dist/"
     info "백엔드 devDependencies 정리 중..."
