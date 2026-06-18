@@ -112,7 +112,7 @@ clone_repo() {
 
     if [[ -d "$INSTALL_DIR/.git" ]]; then
         warn "$INSTALL_DIR 이미 존재합니다. git pull로 업데이트합니다."
-        cd "$INSTALL_DIR" && git fetch origin && git reset --hard origin/main
+        cd "$INSTALL_DIR" && git stash && git pull --ff-only
     else
         mkdir -p "$(dirname "$INSTALL_DIR")"
         git clone $tag_arg "https://github.com/$GITHUB_REPO.git" "$INSTALL_DIR"
