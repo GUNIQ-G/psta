@@ -1,24 +1,83 @@
-import prisma from '../config/database';
-import { USER_SELECT } from '../utils/prisma-selects';
+import { query, queryOne } from '../config/database';
 
-// Shared include for fetching AssigneeTeam members (used in permission checks)
-export const ASSIGNEE_TEAM_CHECK_INCLUDE = {
-  AssigneeTeam: {
-    include: {
-      User: {
-        select: { id: true },
-      },
-    },
-  },
-} as const;
+const USER_COLS = `id, username, "displayName", email`;
 
-// Shared include for state transition responses (approve, reject, recall, resubmit, cancel, negotiate, unapprove)
-export const STATE_TRANSITION_INCLUDE = {
-  Requester: { select: USER_SELECT },
-  Assignee: { select: USER_SELECT },
-  AssigneeTeam: { select: { id: true, name: true, description: true } },
-  ApprovedBy: { select: USER_SELECT },
-} as const;
+// ─── Fetch helpers ─────────────────────────────────────────────────────────────
+
+/**
+ * Fetch a work request with its AssigneeTeam and team members (for permission checks).
+ * Mirrors the old ASSIGNEE_TEAM_CHECK_INCLUDE pattern.
+ */
+export const fetchWorkRequestWithAssigneeTeam = async (id: string): Promise<any | null> => {
+  const wr = await queryOne<any>(
+    `SELECT * FROM "WorkRequest" WHERE id = $1`,
+    [id],
+  );
+  if (!wr) return null;
+
+  if (wr.assigneeTeamId) {
+    const teamMembers = await query<any>(
+      `SELECT id FROM "User" WHERE "teamId" = $1`,
+      [wr.assigneeTeamId],
+    );
+    wr.AssigneeTeam = { User: teamMembers };
+  } else {
+    wr.AssigneeTeam = null;
+  }
+
+  return wr;
+};
+
+/**
+ * Fetch a work request with Requester, Assignee, AssigneeTeam, ApprovedBy
+ * (for state transition responses — mirrors STATE_TRANSITION_INCLUDE).
+ */
+export const fetchWorkRequestWithStateTransition = async (id: string): Promise<any | null> => {
+  return queryOne<any>(
+    `SELECT wr.*,
+            row_to_json(req.*) AS "Requester",
+            row_to_json(asgn.*) AS "Assignee",
+            json_build_object('id', at.id, 'name', at.name, 'description', at.description) FILTER (WHERE at.id IS NOT NULL) AS "AssigneeTeam",
+            row_to_json(appr.*) AS "ApprovedBy"
+     FROM "WorkRequest" wr
+     LEFT JOIN (SELECT ${USER_COLS} FROM "User") req ON req.id = wr."requesterId"
+     LEFT JOIN (SELECT ${USER_COLS} FROM "User") asgn ON asgn.id = wr."assigneeId"
+     LEFT JOIN "Team" at ON at.id = wr."assigneeTeamId"
+     LEFT JOIN (SELECT ${USER_COLS} FROM "User") appr ON appr.id = wr."approvedById"
+     WHERE wr.id = $1`,
+    [id],
+  );
+};
+
+/**
+ * Fetch a full work request with all related entities.
+ */
+export const fetchWorkRequestFull = async (id: string): Promise<any | null> => {
+  return queryOne<any>(
+    `SELECT wr.*,
+            row_to_json(req.*) AS "Requester",
+            row_to_json(asgn.*) AS "Assignee",
+            row_to_json(appr.*) AS "ApprovedBy",
+            row_to_json(act.*) AS "Action",
+            json_build_object('id', proj.id, 'name', proj.name) FILTER (WHERE proj.id IS NOT NULL) AS "Project",
+            json_build_object('id', svc.id, 'name', svc.name) FILTER (WHERE svc.id IS NOT NULL) AS "Service",
+            json_build_object('id', tm.id, 'name', tm.name) FILTER (WHERE tm.id IS NOT NULL) AS "Team",
+            json_build_object('id', at.id, 'name', at.name, 'description', at.description) FILTER (WHERE at.id IS NOT NULL) AS "AssigneeTeam"
+     FROM "WorkRequest" wr
+     LEFT JOIN (SELECT ${USER_COLS} FROM "User") req ON req.id = wr."requesterId"
+     LEFT JOIN (SELECT ${USER_COLS} FROM "User") asgn ON asgn.id = wr."assigneeId"
+     LEFT JOIN (SELECT ${USER_COLS} FROM "User") appr ON appr.id = wr."approvedById"
+     LEFT JOIN "Item" act ON act.id = wr."actionId"
+     LEFT JOIN "Item" proj ON proj.id = wr."projectId"
+     LEFT JOIN "Item" svc ON svc.id = wr."serviceId"
+     LEFT JOIN "Item" tm ON tm.id = wr."teamId"
+     LEFT JOIN "Team" at ON at.id = wr."assigneeTeamId"
+     WHERE wr.id = $1`,
+    [id],
+  );
+};
+
+// ─── Shared include constants (kept for compatibility, no longer Prisma objects) ──
 
 // Check if user is the assignee or a member of the assignee team
 export const isAssigneeOrTeamMember = (
@@ -38,14 +97,18 @@ export const isAssigneeOrTeamMember = (
 
 // Validate whether a work request has the required hierarchy (project, service, team) to create an action
 export const validateHierarchyForAction = async (workRequestId: string) => {
-  const workRequest = await prisma.workRequest.findUnique({
-    where: { id: workRequestId },
-    include: {
-      Project: true,
-      Service: true,
-      Team: true,
-    },
-  });
+  const workRequest = await queryOne<any>(
+    `SELECT wr.*,
+            row_to_json(proj.*) AS "Project",
+            row_to_json(svc.*) AS "Service",
+            row_to_json(tm.*) AS "Team"
+     FROM "WorkRequest" wr
+     LEFT JOIN "Item" proj ON proj.id = wr."projectId"
+     LEFT JOIN "Item" svc ON svc.id = wr."serviceId"
+     LEFT JOIN "Item" tm ON tm.id = wr."teamId"
+     WHERE wr.id = $1`,
+    [workRequestId],
+  );
 
   if (!workRequest) return null;
 
@@ -75,9 +138,10 @@ export const validateHierarchyForAction = async (workRequestId: string) => {
   }
 
   if (workRequest.projectId && !workRequest.serviceId) {
-    const services = await prisma.item.findMany({
-      where: { parentId: workRequest.projectId, type: 'SERVICE' },
-    });
+    const services = await query<any>(
+      `SELECT * FROM "Item" WHERE "parentId" = $1 AND type = 'SERVICE'`,
+      [workRequest.projectId],
+    );
     validation.canCreateAction = false;
     validation.missingHierarchy.push('SERVICE');
     if (services.length > 0) {
@@ -97,9 +161,10 @@ export const validateHierarchyForAction = async (workRequestId: string) => {
   }
 
   if (workRequest.serviceId && !workRequest.teamId) {
-    const teams = await prisma.item.findMany({
-      where: { parentId: workRequest.serviceId, type: 'TEAM' },
-    });
+    const teams = await query<any>(
+      `SELECT * FROM "Item" WHERE "parentId" = $1 AND type = 'TEAM'`,
+      [workRequest.serviceId],
+    );
     validation.canCreateAction = false;
     validation.missingHierarchy.push('TEAM');
     if (teams.length > 0) {

@@ -1,8 +1,8 @@
 import { Response } from 'express';
 import { AuthRequest } from '../middleware/auth';
-import prisma from '../config/database';
+import { query, queryOne } from '../config/database';
 import { randomUUID } from 'crypto';
-import { FeedbackStatus, FeedbackType, UserRole } from '@prisma/client';
+import { FeedbackStatus, FeedbackType, UserRole } from '../types/enums';
 import fs from 'fs';
 import appLogger, { errorLogger } from '../config/logger';
 import { UPLOADS_DIR } from '../config/paths';
@@ -16,50 +16,64 @@ export const getAllFeedbacks = async (req: AuthRequest, res: Response) => {
 
     const pageNum = parseInt(page as string);
     const limitNum = parseInt(limit as string);
-    const skip = (pageNum - 1) * limitNum;
+    const offset = (pageNum - 1) * limitNum;
 
-    const where: any = {};
+    const conditions: string[] = [];
+    const params: any[] = [];
 
     if (type && type !== 'ALL') {
-      where.type = type as FeedbackType;
+      params.push(type);
+      conditions.push(`f.type = $${params.length}`);
     }
 
     if (status && status !== 'ALL') {
-      where.status = status as FeedbackStatus;
+      params.push(status);
+      conditions.push(`f.status = $${params.length}`);
     }
 
-    const [feedbacks, total] = await Promise.all([
-      prisma.feedback.findMany({
-        where,
-        include: {
-          CreatedBy: {
-            select: {
-              id: true,
-              displayName: true,
-              username: true,
-              Team: {
-                select: {
-                  id: true,
-                  name: true,
-                },
-              },
-            },
-          },
-          ResolvedBy: {
-            select: {
-              id: true,
-              displayName: true,
-            },
-          },
-        },
-        orderBy: {
-          createdAt: 'desc',
-        },
-        skip,
-        take: limitNum,
-      }),
-      prisma.feedback.count({ where }),
-    ]);
+    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+
+    const countResult = await queryOne<any>(
+      `SELECT COUNT(*) AS total FROM "Feedback" f ${whereClause}`,
+      params
+    );
+    const total = parseInt(countResult?.total ?? '0');
+
+    const dataParams = [...params, limitNum, offset];
+    const rows = await query<any>(
+      `SELECT f.*,
+              u.id AS "cb_id", u."displayName" AS "cb_displayName", u.username AS "cb_username",
+              ut.id AS "cb_team_id", ut.name AS "cb_team_name",
+              r.id AS "rb_id", r."displayName" AS "rb_displayName"
+       FROM "Feedback" f
+       LEFT JOIN "User" u ON u.id = f."createdById"
+       LEFT JOIN "Team" ut ON ut.id = u."teamId"
+       LEFT JOIN "User" r ON r.id = f."resolvedById"
+       ${whereClause}
+       ORDER BY f."createdAt" DESC
+       LIMIT $${dataParams.length - 1} OFFSET $${dataParams.length}`,
+      dataParams
+    );
+
+    const feedbacks = rows.map((f: any) => {
+      const result: any = {};
+      for (const key of Object.keys(f)) {
+        if (!key.startsWith('cb_') && !key.startsWith('rb_')) {
+          result[key] = f[key];
+        }
+      }
+      result.CreatedBy = f.cb_id ? {
+        id: f.cb_id,
+        displayName: f.cb_displayName,
+        username: f.cb_username,
+        Team: f.cb_team_id ? { id: f.cb_team_id, name: f.cb_team_name } : null,
+      } : null;
+      result.ResolvedBy = f.rb_id ? {
+        id: f.rb_id,
+        displayName: f.rb_displayName,
+      } : null;
+      return result;
+    });
 
     res.json({
       data: feedbacks,
@@ -83,34 +97,39 @@ export const getFeedbackById = async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params;
 
-    const feedback = await prisma.feedback.findUnique({
-      where: { id },
-      include: {
-        CreatedBy: {
-          select: {
-            id: true,
-            displayName: true,
-            username: true,
-            Team: {
-              select: {
-                id: true,
-                name: true,
-              },
-            },
-          },
-        },
-        ResolvedBy: {
-          select: {
-            id: true,
-            displayName: true,
-          },
-        },
-      },
-    });
+    const f = await queryOne<any>(
+      `SELECT f.*,
+              u.id AS "cb_id", u."displayName" AS "cb_displayName", u.username AS "cb_username",
+              ut.id AS "cb_team_id", ut.name AS "cb_team_name",
+              r.id AS "rb_id", r."displayName" AS "rb_displayName"
+       FROM "Feedback" f
+       LEFT JOIN "User" u ON u.id = f."createdById"
+       LEFT JOIN "Team" ut ON ut.id = u."teamId"
+       LEFT JOIN "User" r ON r.id = f."resolvedById"
+       WHERE f.id = $1`,
+      [id]
+    );
 
-    if (!feedback) {
+    if (!f) {
       return res.status(404).json({ error: 'Not found' });
     }
+
+    const feedback: any = {};
+    for (const key of Object.keys(f)) {
+      if (!key.startsWith('cb_') && !key.startsWith('rb_')) {
+        feedback[key] = f[key];
+      }
+    }
+    feedback.CreatedBy = f.cb_id ? {
+      id: f.cb_id,
+      displayName: f.cb_displayName,
+      username: f.cb_username,
+      Team: f.cb_team_id ? { id: f.cb_team_id, name: f.cb_team_name } : null,
+    } : null;
+    feedback.ResolvedBy = f.rb_id ? {
+      id: f.rb_id,
+      displayName: f.rb_displayName,
+    } : null;
 
     res.json(feedback);
   } catch (error) {
@@ -135,31 +154,38 @@ export const createFeedback = async (req: AuthRequest, res: Response) => {
       return res.status(400).json({ error: 'Title, content, and type are required' });
     }
 
-    const feedback = await prisma.feedback.create({
-      data: {
-        id: randomUUID(),
-        title,
-        content,
-        type: type as FeedbackType,
-        createdById: userId,
-        updatedAt: new Date(),
-      },
-      include: {
-        CreatedBy: {
-          select: {
-            id: true,
-            displayName: true,
-            username: true,
-            Team: {
-              select: {
-                id: true,
-                name: true,
-              },
-            },
-          },
-        },
-      },
-    });
+    const feedbackId = randomUUID();
+    const now = new Date();
+
+    await query(
+      `INSERT INTO "Feedback" (id, title, content, type, "createdById", "createdAt", "updatedAt")
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [feedbackId, title, content, type as FeedbackType, userId, now, now]
+    );
+
+    const f = await queryOne<any>(
+      `SELECT f.*,
+              u.id AS "cb_id", u."displayName" AS "cb_displayName", u.username AS "cb_username",
+              ut.id AS "cb_team_id", ut.name AS "cb_team_name"
+       FROM "Feedback" f
+       LEFT JOIN "User" u ON u.id = f."createdById"
+       LEFT JOIN "Team" ut ON ut.id = u."teamId"
+       WHERE f.id = $1`,
+      [feedbackId]
+    );
+
+    const feedback: any = {};
+    for (const key of Object.keys(f)) {
+      if (!key.startsWith('cb_')) {
+        feedback[key] = f[key];
+      }
+    }
+    feedback.CreatedBy = f.cb_id ? {
+      id: f.cb_id,
+      displayName: f.cb_displayName,
+      username: f.cb_username,
+      Team: f.cb_team_id ? { id: f.cb_team_id, name: f.cb_team_name } : null,
+    } : null;
 
     res.status(201).json(feedback);
   } catch (error) {
@@ -182,77 +208,98 @@ export const updateFeedback = async (req: AuthRequest, res: Response) => {
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
-    const feedback = await prisma.feedback.findUnique({
-      where: { id },
-    });
+    const existing = await queryOne<any>(
+      `SELECT * FROM "Feedback" WHERE id = $1`,
+      [id]
+    );
 
-    if (!feedback) {
+    if (!existing) {
       return res.status(404).json({ error: 'Not found' });
     }
 
     const isAdmin = userRole === UserRole.ADMIN;
-    const isAuthor = feedback.createdById === userId;
-
-    // Build update data
-    const updateData: any = {
-      updatedAt: new Date(),
-    };
-
-    // Author can update title/content only if status is PENDING
-    if (isAuthor && feedback.status === FeedbackStatus.PENDING) {
-      if (title !== undefined) updateData.title = title;
-      if (content !== undefined) updateData.content = content;
-    }
-
-    // Admin can update status and adminComment
-    if (isAdmin) {
-      if (status !== undefined) {
-        updateData.status = status as FeedbackStatus;
-
-        // Set resolvedAt and resolvedById when resolved or rejected
-        if (status === FeedbackStatus.RESOLVED || status === FeedbackStatus.REJECTED) {
-          updateData.resolvedAt = new Date();
-          updateData.resolvedById = userId;
-        } else {
-          updateData.resolvedAt = null;
-          updateData.resolvedById = null;
-        }
-      }
-      if (adminComment !== undefined) updateData.adminComment = adminComment;
-    }
+    const isAuthor = existing.createdById === userId;
 
     // Check if user has permission to update
     if (!isAdmin && !isAuthor) {
       return res.status(403).json({ error: 'You do not have permission to update this feedback' });
     }
 
-    const updatedFeedback = await prisma.feedback.update({
-      where: { id },
-      data: updateData,
-      include: {
-        CreatedBy: {
-          select: {
-            id: true,
-            displayName: true,
-            username: true,
-            Team: {
-              select: {
-                id: true,
-                name: true,
-              },
-            },
-          },
-        },
-        ResolvedBy: {
-          select: {
-            id: true,
-            displayName: true,
-          },
-        },
-      },
-    });
+    // Build SET clauses
+    const setClauses: string[] = ['\"updatedAt\" = $1'];
+    const params: any[] = [new Date()];
 
-    res.json(updatedFeedback);
+    // Author can update title/content only if status is PENDING
+    if (isAuthor && existing.status === FeedbackStatus.PENDING) {
+      if (title !== undefined) {
+        params.push(title);
+        setClauses.push(`title = $${params.length}`);
+      }
+      if (content !== undefined) {
+        params.push(content);
+        setClauses.push(`content = $${params.length}`);
+      }
+    }
+
+    // Admin can update status and adminComment
+    if (isAdmin) {
+      if (status !== undefined) {
+        params.push(status as FeedbackStatus);
+        setClauses.push(`status = $${params.length}`);
+
+        if (status === FeedbackStatus.RESOLVED || status === FeedbackStatus.REJECTED) {
+          params.push(new Date());
+          setClauses.push(`"resolvedAt" = $${params.length}`);
+          params.push(userId);
+          setClauses.push(`"resolvedById" = $${params.length}`);
+        } else {
+          setClauses.push(`"resolvedAt" = NULL`);
+          setClauses.push(`"resolvedById" = NULL`);
+        }
+      }
+      if (adminComment !== undefined) {
+        params.push(adminComment);
+        setClauses.push(`"adminComment" = $${params.length}`);
+      }
+    }
+
+    params.push(id);
+    await query(
+      `UPDATE "Feedback" SET ${setClauses.join(', ')} WHERE id = $${params.length}`,
+      params
+    );
+
+    const f = await queryOne<any>(
+      `SELECT f.*,
+              u.id AS "cb_id", u."displayName" AS "cb_displayName", u.username AS "cb_username",
+              ut.id AS "cb_team_id", ut.name AS "cb_team_name",
+              r.id AS "rb_id", r."displayName" AS "rb_displayName"
+       FROM "Feedback" f
+       LEFT JOIN "User" u ON u.id = f."createdById"
+       LEFT JOIN "Team" ut ON ut.id = u."teamId"
+       LEFT JOIN "User" r ON r.id = f."resolvedById"
+       WHERE f.id = $1`,
+      [id]
+    );
+
+    const feedback: any = {};
+    for (const key of Object.keys(f)) {
+      if (!key.startsWith('cb_') && !key.startsWith('rb_')) {
+        feedback[key] = f[key];
+      }
+    }
+    feedback.CreatedBy = f.cb_id ? {
+      id: f.cb_id,
+      displayName: f.cb_displayName,
+      username: f.cb_username,
+      Team: f.cb_team_id ? { id: f.cb_team_id, name: f.cb_team_name } : null,
+    } : null;
+    feedback.ResolvedBy = f.rb_id ? {
+      id: f.rb_id,
+      displayName: f.rb_displayName,
+    } : null;
+
+    res.json(feedback);
   } catch (error) {
     errorLogger.error('Error updating feedback:', { error });
     res.status(500).json({ error: 'Internal server error' });
@@ -272,9 +319,10 @@ export const deleteFeedback = async (req: AuthRequest, res: Response) => {
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
-    const feedback = await prisma.feedback.findUnique({
-      where: { id },
-    });
+    const feedback = await queryOne<any>(
+      `SELECT * FROM "Feedback" WHERE id = $1`,
+      [id]
+    );
 
     if (!feedback) {
       return res.status(404).json({ error: 'Not found' });
@@ -292,9 +340,7 @@ export const deleteFeedback = async (req: AuthRequest, res: Response) => {
       });
     }
 
-    await prisma.feedback.delete({
-      where: { id },
-    });
+    await query(`DELETE FROM "Feedback" WHERE id = $1`, [id]);
 
     res.json({ message: 'Feedback deleted successfully' });
   } catch (error) {
@@ -308,26 +354,29 @@ export const deleteFeedback = async (req: AuthRequest, res: Response) => {
  */
 export const getFeedbackStats = async (req: AuthRequest, res: Response) => {
   try {
-    const [total, pending, inProgress, resolved, rejected, byType] = await Promise.all([
-      prisma.feedback.count(),
-      prisma.feedback.count({ where: { status: FeedbackStatus.PENDING } }),
-      prisma.feedback.count({ where: { status: FeedbackStatus.IN_PROGRESS } }),
-      prisma.feedback.count({ where: { status: FeedbackStatus.RESOLVED } }),
-      prisma.feedback.count({ where: { status: FeedbackStatus.REJECTED } }),
-      prisma.feedback.groupBy({
-        by: ['type'],
-        _count: true,
-      }),
+    const [totalRow, pendingRow, inProgressRow, resolvedRow, rejectedRow, byTypeRows] = await Promise.all([
+      queryOne<any>(`SELECT COUNT(*) AS cnt FROM "Feedback"`),
+      queryOne<any>(`SELECT COUNT(*) AS cnt FROM "Feedback" WHERE status = 'PENDING'`),
+      queryOne<any>(`SELECT COUNT(*) AS cnt FROM "Feedback" WHERE status = 'IN_PROGRESS'`),
+      queryOne<any>(`SELECT COUNT(*) AS cnt FROM "Feedback" WHERE status = 'RESOLVED'`),
+      queryOne<any>(`SELECT COUNT(*) AS cnt FROM "Feedback" WHERE status = 'REJECTED'`),
+      query<any>(`SELECT type, COUNT(*) AS cnt FROM "Feedback" GROUP BY type`),
     ]);
 
-    const typeStats = {
+    const total = parseInt(totalRow?.cnt ?? '0');
+    const pending = parseInt(pendingRow?.cnt ?? '0');
+    const inProgress = parseInt(inProgressRow?.cnt ?? '0');
+    const resolved = parseInt(resolvedRow?.cnt ?? '0');
+    const rejected = parseInt(rejectedRow?.cnt ?? '0');
+
+    const typeStats: Record<string, number> = {
       BUG: 0,
       FEATURE: 0,
       IMPROVEMENT: 0,
     };
 
-    byType.forEach((item) => {
-      typeStats[item.type] = item._count;
+    byTypeRows.forEach((item: any) => {
+      typeStats[item.type] = parseInt(item.cnt);
     });
 
     res.json({

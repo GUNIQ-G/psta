@@ -1,91 +1,166 @@
 import { Response } from 'express';
-import { WorkRequestStatus, WorkRequestType, ItemType } from '@prisma/client';
 import { randomUUID } from 'crypto';
+import { WorkRequestStatus, WorkRequestType, ItemType } from '../types/enums';
 import { AuthRequest } from '../middleware/auth';
 import { NotificationService } from '../services/notification.service';
-import prisma from '../config/database';
+import { query, queryOne, transaction } from '../config/database';
 import appLogger, { errorLogger } from '../config/logger';
-import { USER_SELECT, CREATOR_SELECT } from '../utils/prisma-selects';
 import {
-  ASSIGNEE_TEAM_CHECK_INCLUDE,
-  STATE_TRANSITION_INCLUDE,
   isAssigneeOrTeamMember,
   validateHierarchyForAction,
+  fetchWorkRequestWithAssigneeTeam,
+  fetchWorkRequestWithStateTransition,
+  fetchWorkRequestFull,
 } from '../services/work-request.service';
+
+// ─── SQL helper: fetch USER fields ────────────────────────────────────────────
+const USER_COLS = `id, username, "displayName", email`;
+
+/**
+ * Build a full work request row with all related entities attached.
+ * id is the WorkRequest id ($1).
+ */
+async function buildFullWorkRequest(id: string): Promise<any | null> {
+  const wr = await queryOne<any>(
+    `SELECT wr.*,
+            row_to_json(req.*) AS "Requester",
+            row_to_json(asgn.*) AS "Assignee",
+            row_to_json(appr.*) AS "ApprovedBy",
+            row_to_json(act.*) AS "Action",
+            json_build_object('id', proj.id, 'name', proj.name) FILTER (WHERE proj.id IS NOT NULL) AS "Project",
+            json_build_object('id', svc.id, 'name', svc.name) FILTER (WHERE svc.id IS NOT NULL) AS "Service",
+            json_build_object('id', tm.id, 'name', tm.name) FILTER (WHERE tm.id IS NOT NULL) AS "Team",
+            json_build_object('id', at.id, 'name', at.name, 'description', at.description) FILTER (WHERE at.id IS NOT NULL) AS "AssigneeTeam"
+     FROM "WorkRequest" wr
+     LEFT JOIN (SELECT ${USER_COLS} FROM "User") req ON req.id = wr."requesterId"
+     LEFT JOIN (SELECT ${USER_COLS} FROM "User") asgn ON asgn.id = wr."assigneeId"
+     LEFT JOIN (SELECT ${USER_COLS} FROM "User") appr ON appr.id = wr."approvedById"
+     LEFT JOIN "Item" act ON act.id = wr."actionId"
+     LEFT JOIN "Item" proj ON proj.id = wr."projectId"
+     LEFT JOIN "Item" svc ON svc.id = wr."serviceId"
+     LEFT JOIN "Item" tm ON tm.id = wr."teamId"
+     LEFT JOIN "Team" at ON at.id = wr."assigneeTeamId"
+     WHERE wr.id = $1`,
+    [id],
+  );
+  return wr;
+}
+
+/**
+ * Build work request with Requester, Assignee, AssigneeTeam, ApprovedBy only
+ * (used for state transition responses).
+ */
+async function buildStateTransitionWorkRequest(id: string): Promise<any | null> {
+  return queryOne<any>(
+    `SELECT wr.*,
+            row_to_json(req.*) AS "Requester",
+            row_to_json(asgn.*) AS "Assignee",
+            json_build_object('id', at.id, 'name', at.name, 'description', at.description) FILTER (WHERE at.id IS NOT NULL) AS "AssigneeTeam",
+            row_to_json(appr.*) AS "ApprovedBy"
+     FROM "WorkRequest" wr
+     LEFT JOIN (SELECT ${USER_COLS} FROM "User") req ON req.id = wr."requesterId"
+     LEFT JOIN (SELECT ${USER_COLS} FROM "User") asgn ON asgn.id = wr."assigneeId"
+     LEFT JOIN "Team" at ON at.id = wr."assigneeTeamId"
+     LEFT JOIN (SELECT ${USER_COLS} FROM "User") appr ON appr.id = wr."approvedById"
+     WHERE wr.id = $1`,
+    [id],
+  );
+}
+
+/**
+ * Build work request with Requester, Assignee, AssigneeTeam only (create/update response).
+ */
+async function buildBasicWorkRequest(id: string): Promise<any | null> {
+  return queryOne<any>(
+    `SELECT wr.*,
+            row_to_json(req.*) AS "Requester",
+            row_to_json(asgn.*) AS "Assignee",
+            json_build_object('id', at.id, 'name', at.name, 'description', at.description) FILTER (WHERE at.id IS NOT NULL) AS "AssigneeTeam"
+     FROM "WorkRequest" wr
+     LEFT JOIN (SELECT ${USER_COLS} FROM "User") req ON req.id = wr."requesterId"
+     LEFT JOIN (SELECT ${USER_COLS} FROM "User") asgn ON asgn.id = wr."assigneeId"
+     LEFT JOIN "Team" at ON at.id = wr."assigneeTeamId"
+     WHERE wr.id = $1`,
+    [id],
+  );
+}
+
+/**
+ * Build work request with all fields + Action (including assignee of action).
+ */
+async function buildWorkRequestWithAction(id: string): Promise<any | null> {
+  const wr = await queryOne<any>(
+    `SELECT wr.*,
+            row_to_json(req.*) AS "Requester",
+            row_to_json(asgn.*) AS "Assignee",
+            json_build_object('id', at.id, 'name', at.name, 'description', at.description) FILTER (WHERE at.id IS NOT NULL) AS "AssigneeTeam",
+            row_to_json(appr.*) AS "ApprovedBy",
+            row_to_json(act.*) AS "Action"
+     FROM "WorkRequest" wr
+     LEFT JOIN (SELECT ${USER_COLS} FROM "User") req ON req.id = wr."requesterId"
+     LEFT JOIN (SELECT ${USER_COLS} FROM "User") asgn ON asgn.id = wr."assigneeId"
+     LEFT JOIN "Team" at ON at.id = wr."assigneeTeamId"
+     LEFT JOIN (SELECT ${USER_COLS} FROM "User") appr ON appr.id = wr."approvedById"
+     LEFT JOIN "Item" act ON act.id = wr."actionId"
+     WHERE wr.id = $1`,
+    [id],
+  );
+  return wr;
+}
+
+// ─── Controllers ──────────────────────────────────────────────────────────────
 
 // Get all work requests
 export const getWorkRequests = async (req: AuthRequest, res: Response) => {
   try {
-    const userId = req.user?.id;
     const { status, priority, assigneeId, requesterId } = req.query;
 
-    const where: any = { isDeleted: false };
+    const conditions: string[] = [`wr."isDeleted" = false`];
+    const params: any[] = [];
+    let idx = 1;
 
-    // Filter by status
     if (status) {
-      where.status = status;
+      conditions.push(`wr.status = $${idx++}`);
+      params.push(status);
     }
-
-    // Filter by priority
     if (priority) {
-      where.priority = priority;
+      conditions.push(`wr.priority = $${idx++}`);
+      params.push(priority);
     }
-
-    // Filter by assignee
     if (assigneeId) {
-      where.assigneeId = assigneeId;
+      conditions.push(`wr."assigneeId" = $${idx++}`);
+      params.push(assigneeId);
     }
-
-    // Filter by requester
     if (requesterId) {
-      where.requesterId = requesterId;
+      conditions.push(`wr."requesterId" = $${idx++}`);
+      params.push(requesterId);
     }
 
-    const workRequests = await prisma.workRequest.findMany({
-      where,
-      include: {
-        Requester: {
-          select: USER_SELECT,
-        },
-        Assignee: {
-          select: USER_SELECT,
-        },
-        ApprovedBy: {
-          select: USER_SELECT,
-        },
-        Action: true,
-        Project: {
-          select: {
-            id: true,
-            name: true,
-          },
-        },
-        Service: {
-          select: {
-            id: true,
-            name: true,
-          },
-        },
-        Team: {
-          select: {
-            id: true,
-            name: true,
-          },
-        },
-        AssigneeTeam: {
-          select: {
-            id: true,
-            name: true,
-            description: true,
-          },
-        },
-      },
-      orderBy: [
-        { status: 'asc' },
-        { priority: 'desc' },
-        { createdAt: 'desc' },
-      ],
-    });
+    const whereClause = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+
+    const workRequests = await query<any>(
+      `SELECT wr.*,
+              row_to_json(req.*) AS "Requester",
+              row_to_json(asgn.*) AS "Assignee",
+              row_to_json(appr.*) AS "ApprovedBy",
+              row_to_json(act.*) AS "Action",
+              json_build_object('id', proj.id, 'name', proj.name) FILTER (WHERE proj.id IS NOT NULL) AS "Project",
+              json_build_object('id', svc.id, 'name', svc.name) FILTER (WHERE svc.id IS NOT NULL) AS "Service",
+              json_build_object('id', tm.id, 'name', tm.name) FILTER (WHERE tm.id IS NOT NULL) AS "Team",
+              json_build_object('id', at.id, 'name', at.name, 'description', at.description) FILTER (WHERE at.id IS NOT NULL) AS "AssigneeTeam"
+       FROM "WorkRequest" wr
+       LEFT JOIN (SELECT ${USER_COLS} FROM "User") req ON req.id = wr."requesterId"
+       LEFT JOIN (SELECT ${USER_COLS} FROM "User") asgn ON asgn.id = wr."assigneeId"
+       LEFT JOIN (SELECT ${USER_COLS} FROM "User") appr ON appr.id = wr."approvedById"
+       LEFT JOIN "Item" act ON act.id = wr."actionId"
+       LEFT JOIN "Item" proj ON proj.id = wr."projectId"
+       LEFT JOIN "Item" svc ON svc.id = wr."serviceId"
+       LEFT JOIN "Item" tm ON tm.id = wr."teamId"
+       LEFT JOIN "Team" at ON at.id = wr."assigneeTeamId"
+       ${whereClause}
+       ORDER BY wr.status ASC, wr.priority DESC, wr."createdAt" DESC`,
+      params,
+    );
 
     res.json(workRequests);
   } catch (error) {
@@ -99,46 +174,7 @@ export const getWorkRequestById = async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params;
 
-    const workRequest = await prisma.workRequest.findUnique({
-      where: { id },
-      include: {
-        Requester: {
-          select: USER_SELECT,
-        },
-        Assignee: {
-          select: USER_SELECT,
-        },
-        ApprovedBy: {
-          select: USER_SELECT,
-        },
-        Action: true,
-        Project: {
-          select: {
-            id: true,
-            name: true,
-          },
-        },
-        Service: {
-          select: {
-            id: true,
-            name: true,
-          },
-        },
-        Team: {
-          select: {
-            id: true,
-            name: true,
-          },
-        },
-        AssigneeTeam: {
-          select: {
-            id: true,
-            name: true,
-            description: true,
-          },
-        },
-      },
-    });
+    const workRequest = await buildFullWorkRequest(id);
 
     if (!workRequest) {
       return res.status(404).json({ error: 'Work request not found' });
@@ -170,37 +206,33 @@ export const createWorkRequest = async (req: AuthRequest, res: Response) => {
       return res.status(400).json({ error: 'Either assigneeId or assigneeTeamId must be provided' });
     }
 
-    const workRequest = await prisma.workRequest.create({
-      data: {
-        id: randomUUID(),
+    const newId = randomUUID();
+    const now = new Date();
+
+    await query(
+      `INSERT INTO "WorkRequest" (
+        id, title, description, priority, status, "projectId", "serviceId", "teamId",
+        "dueDate", "requesterId", "assigneeId", "assigneeTeamId", "createdAt", "updatedAt"
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+      [
+        newId,
         title,
         description,
-        priority: priority || 'MEDIUM',
-        projectId: projectId || null,
-        serviceId: serviceId || null,
-        teamId: teamId || null,
-        dueDate: dueDate ? new Date(dueDate) : null,
-        requesterId: userId,
-        assigneeId: assigneeId || null,
-        assigneeTeamId: assigneeTeamId || null,
-        updatedAt: new Date(),
-      },
-      include: {
-        Requester: {
-          select: USER_SELECT,
-        },
-        Assignee: {
-          select: USER_SELECT,
-        },
-        AssigneeTeam: {
-          select: {
-            id: true,
-            name: true,
-            description: true,
-          },
-        },
-      },
-    });
+        priority || 'MEDIUM',
+        'PENDING',
+        projectId || null,
+        serviceId || null,
+        teamId || null,
+        dueDate ? new Date(dueDate) : null,
+        userId,
+        assigneeId || null,
+        assigneeTeamId || null,
+        now,
+        now,
+      ],
+    );
+
+    const workRequest = await buildBasicWorkRequest(newId);
 
     // 알림 전송
     NotificationService.notifyWorkRequestCreated({
@@ -224,9 +256,22 @@ export const updateWorkRequest = async (req: AuthRequest, res: Response) => {
     const { id } = req.params;
     const { title, description, priority, status, projectId, serviceId, teamId, dueDate, assigneeId, assigneeTeamId, actionId } = req.body;
 
-    const workRequest = await prisma.workRequest.update({
-      where: { id },
-      data: {
+    await query(
+      `UPDATE "WorkRequest" SET
+        title = $1,
+        description = $2,
+        priority = $3,
+        status = $4,
+        "projectId" = $5,
+        "serviceId" = $6,
+        "teamId" = $7,
+        "dueDate" = $8,
+        "assigneeId" = $9,
+        "assigneeTeamId" = $10,
+        "actionId" = $11,
+        "updatedAt" = $12
+       WHERE id = $13`,
+      [
         title,
         description,
         priority,
@@ -234,28 +279,16 @@ export const updateWorkRequest = async (req: AuthRequest, res: Response) => {
         projectId,
         serviceId,
         teamId,
-        dueDate: dueDate ? new Date(dueDate) : null,
+        dueDate ? new Date(dueDate) : null,
         assigneeId,
         assigneeTeamId,
         actionId,
-        updatedAt: new Date(),
-      },
-      include: {
-        Requester: {
-          select: USER_SELECT,
-        },
-        Assignee: {
-          select: USER_SELECT,
-        },
-        AssigneeTeam: {
-          select: {
-            id: true,
-            name: true,
-            description: true,
-          },
-        },
-      },
-    });
+        new Date(),
+        id,
+      ],
+    );
+
+    const workRequest = await buildBasicWorkRequest(id);
 
     res.json(workRequest);
   } catch (error) {
@@ -274,9 +307,10 @@ export const deleteWorkRequest = async (req: AuthRequest, res: Response) => {
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
-    const workRequest = await prisma.workRequest.findUnique({
-      where: { id },
-    });
+    const workRequest = await queryOne<any>(
+      `SELECT id, "requesterId" FROM "WorkRequest" WHERE id = $1`,
+      [id],
+    );
 
     if (!workRequest) {
       return res.status(404).json({ error: 'Work request not found' });
@@ -287,9 +321,7 @@ export const deleteWorkRequest = async (req: AuthRequest, res: Response) => {
       return res.status(403).json({ error: 'Only requester can delete work request' });
     }
 
-    await prisma.workRequest.delete({
-      where: { id },
-    });
+    await query(`DELETE FROM "WorkRequest" WHERE id = $1`, [id]);
 
     res.json({ message: 'Work request deleted successfully' });
   } catch (error) {
@@ -308,9 +340,10 @@ export const recallWorkRequest = async (req: AuthRequest, res: Response) => {
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
-    const workRequest = await prisma.workRequest.findUnique({
-      where: { id },
-    });
+    const workRequest = await queryOne<any>(
+      `SELECT id, "requesterId" FROM "WorkRequest" WHERE id = $1`,
+      [id],
+    );
 
     if (!workRequest) {
       return res.status(404).json({ error: 'Work request not found' });
@@ -322,15 +355,12 @@ export const recallWorkRequest = async (req: AuthRequest, res: Response) => {
     }
 
     // Update to recalled status
-    const updatedWorkRequest = await prisma.workRequest.update({
-      where: { id },
-      data: {
-        isRecalled: true,
-        isApproved: false,
-        updatedAt: new Date(),
-      },
-      include: STATE_TRANSITION_INCLUDE,
-    });
+    await query(
+      `UPDATE "WorkRequest" SET "isRecalled" = true, "isApproved" = false, "updatedAt" = $1 WHERE id = $2`,
+      [new Date(), id],
+    );
+
+    const updatedWorkRequest = await buildStateTransitionWorkRequest(id);
 
     res.json(updatedWorkRequest);
   } catch (error) {
@@ -349,9 +379,10 @@ export const resubmitWorkRequest = async (req: AuthRequest, res: Response) => {
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
-    const workRequest = await prisma.workRequest.findUnique({
-      where: { id },
-    });
+    const workRequest = await queryOne<any>(
+      `SELECT id, "requesterId", status, "assigneeId", "assigneeTeamId" FROM "WorkRequest" WHERE id = $1`,
+      [id],
+    );
 
     if (!workRequest) {
       return res.status(404).json({ error: 'Work request not found' });
@@ -371,20 +402,21 @@ export const resubmitWorkRequest = async (req: AuthRequest, res: Response) => {
     }
 
     // Reset to PENDING status and clear rejection/negotiation fields
-    const updatedWorkRequest = await prisma.workRequest.update({
-      where: { id },
-      data: {
-        status: WorkRequestStatus.PENDING,
-        rejectedAt: null,
-        rejectedById: null,
-        rejectionMessage: null,
-        negotiationMessage: null,
-        negotiationAt: null,
-        negotiationById: null,
-        updatedAt: new Date(),
-      },
-      include: STATE_TRANSITION_INCLUDE,
-    });
+    await query(
+      `UPDATE "WorkRequest" SET
+        status = $1,
+        "rejectedAt" = NULL,
+        "rejectedById" = NULL,
+        "rejectionMessage" = NULL,
+        "negotiationMessage" = NULL,
+        "negotiationAt" = NULL,
+        "negotiationById" = NULL,
+        "updatedAt" = $2
+       WHERE id = $3`,
+      [WorkRequestStatus.PENDING, new Date(), id],
+    );
+
+    const updatedWorkRequest = await buildStateTransitionWorkRequest(id);
 
     // 알림 전송
     NotificationService.notifyWorkRequestResubmitted({
@@ -412,10 +444,7 @@ export const approveWorkRequest = async (req: AuthRequest, res: Response) => {
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
-    const workRequest = await prisma.workRequest.findUnique({
-      where: { id },
-      include: ASSIGNEE_TEAM_CHECK_INCLUDE,
-    });
+    const workRequest = await fetchWorkRequestWithAssigneeTeam(id);
 
     if (!workRequest) {
       return res.status(404).json({ error: 'Work request not found' });
@@ -431,16 +460,17 @@ export const approveWorkRequest = async (req: AuthRequest, res: Response) => {
     }
 
     // Update to approved status
-    const updatedWorkRequest = await prisma.workRequest.update({
-      where: { id },
-      data: {
-        isApproved: true,
-        approvedAt: new Date(),
-        approvedById: userId,
-        updatedAt: new Date(),
-      },
-      include: STATE_TRANSITION_INCLUDE,
-    });
+    await query(
+      `UPDATE "WorkRequest" SET
+        "isApproved" = true,
+        "approvedAt" = $1,
+        "approvedById" = $2,
+        "updatedAt" = $3
+       WHERE id = $4`,
+      [new Date(), userId, new Date(), id],
+    );
+
+    const updatedWorkRequest = await buildStateTransitionWorkRequest(id);
 
     // 알림 전송
     NotificationService.notifyWorkRequestApproved({
@@ -467,9 +497,10 @@ export const unapproveWorkRequest = async (req: AuthRequest, res: Response) => {
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
-    const workRequest = await prisma.workRequest.findUnique({
-      where: { id },
-    });
+    const workRequest = await queryOne<any>(
+      `SELECT id, "requesterId", "approvedById", "actionId", "isApproved", title FROM "WorkRequest" WHERE id = $1`,
+      [id],
+    );
 
     if (!workRequest) {
       return res.status(404).json({ error: 'Work request not found' });
@@ -491,28 +522,31 @@ export const unapproveWorkRequest = async (req: AuthRequest, res: Response) => {
     }
 
     // Update to unapproved status
-    const updatedWorkRequest = await prisma.workRequest.update({
-      where: { id },
-      data: {
-        isApproved: false,
-        approvedAt: null,
-        approvedById: null,
-        updatedAt: new Date(),
-      },
-      include: STATE_TRANSITION_INCLUDE,
-    });
+    await query(
+      `UPDATE "WorkRequest" SET
+        "isApproved" = false,
+        "approvedAt" = NULL,
+        "approvedById" = NULL,
+        "updatedAt" = $1
+       WHERE id = $2`,
+      [new Date(), id],
+    );
+
+    const updatedWorkRequest = await buildStateTransitionWorkRequest(id);
 
     // Create notification for requester
-    await prisma.notification.create({
-      data: {
-        id: randomUUID(),
-        type: 'work_request_unapproved',
-        content: `작업 요청 "${workRequest.title}"의 승인이 취소되었습니다.`,
-        fromUserId: userId,
-        toUserId: workRequest.requesterId,
-        createdAt: new Date(),
-      },
-    });
+    await query(
+      `INSERT INTO "Notification" (id, type, content, "fromUserId", "toUserId", "createdAt")
+       VALUES ($1, $2, $3, $4, $5, $6)`,
+      [
+        randomUUID(),
+        'work_request_unapproved',
+        `작업 요청 "${workRequest.title}"의 승인이 취소되었습니다.`,
+        userId,
+        workRequest.requesterId,
+        new Date(),
+      ],
+    );
 
     res.json(updatedWorkRequest);
   } catch (error) {
@@ -531,9 +565,10 @@ export const createActionFromWorkRequest = async (req: AuthRequest, res: Respons
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
-    const workRequest = await prisma.workRequest.findUnique({
-      where: { id },
-    });
+    const workRequest = await queryOne<any>(
+      `SELECT * FROM "WorkRequest" WHERE id = $1`,
+      [id],
+    );
 
     if (!workRequest) {
       return res.status(404).json({ error: 'Work request not found' });
@@ -578,49 +613,35 @@ export const createActionFromWorkRequest = async (req: AuthRequest, res: Respons
       });
     }
 
+    const actionId = randomUUID();
+    const now = new Date();
+
     // Create action
-    const action = await prisma.item.create({
-      data: {
-        id: randomUUID(),
-        type: 'ACTION',
-        name: workRequest.title,
-        description: workRequest.description,
-        parentId: workRequest.teamId,
-        assigneeId: workRequest.assigneeId,
-        createdById: userId,
-        startDate: new Date(),
-        endDate: workRequest.dueDate,
-        updatedAt: new Date(),
-      },
-    });
+    await query(
+      `INSERT INTO "Item" (id, type, name, description, "parentId", "assigneeId", "createdById", "startDate", "endDate", "updatedAt", "createdAt")
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+      [
+        actionId,
+        'ACTION',
+        workRequest.title,
+        workRequest.description,
+        workRequest.teamId,
+        workRequest.assigneeId,
+        userId,
+        now,
+        workRequest.dueDate || null,
+        now,
+        now,
+      ],
+    );
 
     // Link action to work request
-    const updatedWorkRequest = await prisma.workRequest.update({
-      where: { id },
-      data: {
-        actionId: action.id,
-        updatedAt: new Date(),
-      },
-      include: {
-        Requester: {
-          select: USER_SELECT,
-        },
-        Assignee: {
-          select: USER_SELECT,
-        },
-        AssigneeTeam: {
-          select: {
-            id: true,
-            name: true,
-            description: true,
-          },
-        },
-        ApprovedBy: {
-          select: USER_SELECT,
-        },
-        Action: true,
-      },
-    });
+    await query(
+      `UPDATE "WorkRequest" SET "actionId" = $1, "updatedAt" = $2 WHERE id = $3`,
+      [actionId, now, id],
+    );
+
+    const updatedWorkRequest = await buildWorkRequestWithAction(id);
 
     res.json(updatedWorkRequest);
   } catch (error) {
@@ -638,73 +659,39 @@ export const getTeamWorkRequests = async (req: AuthRequest, res: Response) => {
     }
 
     // Get user with team info
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      select: { teamId: true },
-    });
+    const user = await queryOne<any>(
+      `SELECT "teamId" FROM "User" WHERE id = $1`,
+      [userId],
+    );
 
     if (!user || !user.teamId) {
       // User has no team, return empty array
       return res.json([]);
     }
 
-    // Get all work requests where assigneeTeamId or teamId matches user's team
-    const workRequests = await prisma.workRequest.findMany({
-      where: {
-        OR: [
-          { assigneeTeamId: user.teamId }, // Team assigned work requests
-          { teamId: user.teamId },          // Work requests in team's project hierarchy
-        ],
-      },
-      include: {
-        Requester: {
-          select: USER_SELECT,
-        },
-        Assignee: {
-          select: USER_SELECT,
-        },
-        AssigneeTeam: {
-          select: {
-            id: true,
-            name: true,
-            description: true,
-          },
-        },
-        ApprovedBy: {
-          select: USER_SELECT,
-        },
-        Action: {
-          include: {
-            User_Item_assigneeIdToUser: {
-              select: USER_SELECT,
-            },
-          },
-        },
-        Project: {
-          select: {
-            id: true,
-            name: true,
-          },
-        },
-        Service: {
-          select: {
-            id: true,
-            name: true,
-          },
-        },
-        Team: {
-          select: {
-            id: true,
-            name: true,
-          },
-        },
-      },
-      orderBy: [
-        { status: 'asc' },
-        { priority: 'desc' },
-        { createdAt: 'desc' },
-      ],
-    });
+    const workRequests = await query<any>(
+      `SELECT wr.*,
+              row_to_json(req.*) AS "Requester",
+              row_to_json(asgn.*) AS "Assignee",
+              json_build_object('id', at.id, 'name', at.name, 'description', at.description) FILTER (WHERE at.id IS NOT NULL) AS "AssigneeTeam",
+              row_to_json(appr.*) AS "ApprovedBy",
+              row_to_json(act.*) AS "Action",
+              json_build_object('id', proj.id, 'name', proj.name) FILTER (WHERE proj.id IS NOT NULL) AS "Project",
+              json_build_object('id', svc.id, 'name', svc.name) FILTER (WHERE svc.id IS NOT NULL) AS "Service",
+              json_build_object('id', tm.id, 'name', tm.name) FILTER (WHERE tm.id IS NOT NULL) AS "Team"
+       FROM "WorkRequest" wr
+       LEFT JOIN (SELECT ${USER_COLS} FROM "User") req ON req.id = wr."requesterId"
+       LEFT JOIN (SELECT ${USER_COLS} FROM "User") asgn ON asgn.id = wr."assigneeId"
+       LEFT JOIN "Team" at ON at.id = wr."assigneeTeamId"
+       LEFT JOIN (SELECT ${USER_COLS} FROM "User") appr ON appr.id = wr."approvedById"
+       LEFT JOIN "Item" act ON act.id = wr."actionId"
+       LEFT JOIN "Item" proj ON proj.id = wr."projectId"
+       LEFT JOIN "Item" svc ON svc.id = wr."serviceId"
+       LEFT JOIN "Item" tm ON tm.id = wr."teamId"
+       WHERE wr."assigneeTeamId" = $1 OR wr."teamId" = $1
+       ORDER BY wr.status ASC, wr.priority DESC, wr."createdAt" DESC`,
+      [user.teamId],
+    );
 
     res.json(workRequests);
   } catch (error) {
@@ -729,22 +716,14 @@ export const assignToIndividual = async (req: AuthRequest, res: Response) => {
       return res.status(400).json({ error: 'Assignee ID is required' });
     }
 
-    // Get work request
-    const workRequest = await prisma.workRequest.findUnique({
-      where: { id },
-      include: {
-        AssigneeTeam: {
-          include: {
-            User: {
-              select: {
-                id: true,
-                role: true,
-              },
-            },
-          },
-        },
-      },
-    });
+    // Get work request with assignee team members
+    const workRequest = await queryOne<any>(
+      `SELECT wr.*, at.id AS "at_id", at.name AS "at_name", at.description AS "at_desc"
+       FROM "WorkRequest" wr
+       LEFT JOIN "Team" at ON at.id = wr."assigneeTeamId"
+       WHERE wr.id = $1`,
+      [id],
+    );
 
     if (!workRequest) {
       return res.status(404).json({ error: 'Work request not found' });
@@ -757,13 +736,19 @@ export const assignToIndividual = async (req: AuthRequest, res: Response) => {
       });
     }
 
+    // Fetch team members for permission check
+    const teamMembers = await query<any>(
+      `SELECT id, role FROM "User" WHERE "teamId" = $1`,
+      [workRequest.assigneeTeamId],
+    );
+
     // Check permission: ADMIN, or PM/PO in the assigned team
     let hasPermission = false;
 
     if (userRole === 'ADMIN') {
       hasPermission = true;
-    } else if (workRequest.AssigneeTeam) {
-      const userInTeam = workRequest.AssigneeTeam.User.find((u) => u.id === userId);
+    } else {
+      const userInTeam = teamMembers.find((u: any) => u.id === userId);
       if (userInTeam && (userInTeam.role === 'PM' || userInTeam.role === 'PO')) {
         hasPermission = true;
       }
@@ -776,60 +761,20 @@ export const assignToIndividual = async (req: AuthRequest, res: Response) => {
     }
 
     // Verify assignee is in the team
-    if (workRequest.AssigneeTeam) {
-      const assigneeInTeam = workRequest.AssigneeTeam.User.some((u) => u.id === assigneeId);
-      if (!assigneeInTeam) {
-        return res.status(400).json({
-          error: 'Assignee must be a member of the assigned team'
-        });
-      }
+    const assigneeInTeam = teamMembers.some((u: any) => u.id === assigneeId);
+    if (!assigneeInTeam) {
+      return res.status(400).json({
+        error: 'Assignee must be a member of the assigned team'
+      });
     }
 
     // Update work request with individual assignee
-    const updatedWorkRequest = await prisma.workRequest.update({
-      where: { id },
-      data: {
-        assigneeId,
-        updatedAt: new Date(),
-      },
-      include: {
-        Requester: {
-          select: USER_SELECT,
-        },
-        Assignee: {
-          select: USER_SELECT,
-        },
-        AssigneeTeam: {
-          select: {
-            id: true,
-            name: true,
-            description: true,
-          },
-        },
-        ApprovedBy: {
-          select: USER_SELECT,
-        },
-        Action: true,
-        Project: {
-          select: {
-            id: true,
-            name: true,
-          },
-        },
-        Service: {
-          select: {
-            id: true,
-            name: true,
-          },
-        },
-        Team: {
-          select: {
-            id: true,
-            name: true,
-          },
-        },
-      },
-    });
+    await query(
+      `UPDATE "WorkRequest" SET "assigneeId" = $1, "updatedAt" = $2 WHERE id = $3`,
+      [assigneeId, new Date(), id],
+    );
+
+    const updatedWorkRequest = await buildFullWorkRequest(id);
 
     // 알림 전송
     NotificationService.notifyWorkRequestAssigned({
@@ -857,10 +802,7 @@ export const rejectWorkRequest = async (req: AuthRequest, res: Response) => {
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
-    const workRequest = await prisma.workRequest.findUnique({
-      where: { id },
-      include: ASSIGNEE_TEAM_CHECK_INCLUDE,
-    });
+    const workRequest = await fetchWorkRequestWithAssigneeTeam(id);
 
     if (!workRequest) {
       return res.status(404).json({ error: 'Work request not found' });
@@ -878,17 +820,18 @@ export const rejectWorkRequest = async (req: AuthRequest, res: Response) => {
       return res.status(400).json({ error: 'Cannot reject recalled work request' });
     }
 
-    const updatedWorkRequest = await prisma.workRequest.update({
-      where: { id },
-      data: {
-        status: 'REJECTED',
-        rejectedAt: new Date(),
-        rejectedById: userId,
-        rejectionMessage,
-        updatedAt: new Date(),
-      },
-      include: STATE_TRANSITION_INCLUDE,
-    });
+    await query(
+      `UPDATE "WorkRequest" SET
+        status = $1,
+        "rejectedAt" = $2,
+        "rejectedById" = $3,
+        "rejectionMessage" = $4,
+        "updatedAt" = $5
+       WHERE id = $6`,
+      ['REJECTED', new Date(), userId, rejectionMessage, new Date(), id],
+    );
+
+    const updatedWorkRequest = await buildStateTransitionWorkRequest(id);
 
     // 알림 전송
     NotificationService.notifyWorkRequestRejected({
@@ -921,10 +864,7 @@ export const requestNegotiation = async (req: AuthRequest, res: Response) => {
       return res.status(400).json({ error: 'Negotiation message is required' });
     }
 
-    const workRequest = await prisma.workRequest.findUnique({
-      where: { id },
-      include: ASSIGNEE_TEAM_CHECK_INCLUDE,
-    });
+    const workRequest = await fetchWorkRequestWithAssigneeTeam(id);
 
     if (!workRequest) {
       return res.status(404).json({ error: 'Work request not found' });
@@ -942,17 +882,18 @@ export const requestNegotiation = async (req: AuthRequest, res: Response) => {
       return res.status(400).json({ error: 'Cannot negotiate recalled work request' });
     }
 
-    const updatedWorkRequest = await prisma.workRequest.update({
-      where: { id },
-      data: {
-        status: 'IN_NEGOTIATION',
-        negotiationMessage,
-        negotiationAt: new Date(),
-        negotiationById: userId,
-        updatedAt: new Date(),
-      },
-      include: STATE_TRANSITION_INCLUDE,
-    });
+    await query(
+      `UPDATE "WorkRequest" SET
+        status = $1,
+        "negotiationMessage" = $2,
+        "negotiationAt" = $3,
+        "negotiationById" = $4,
+        "updatedAt" = $5
+       WHERE id = $6`,
+      ['IN_NEGOTIATION', negotiationMessage, new Date(), userId, new Date(), id],
+    );
+
+    const updatedWorkRequest = await buildStateTransitionWorkRequest(id);
 
     // 알림 전송
     NotificationService.notifyWorkRequestNegotiation({
@@ -1014,53 +955,65 @@ export const createHierarchyRequest = async (req: AuthRequest, res: Response) =>
       return res.status(400).json({ error: 'Missing required fields' });
     }
 
-    const workRequest = await prisma.workRequest.create({
-      data: {
-        id: randomUUID(),
-        title: title || `[자동] ${targetItemType} 생성 필요`,
-        description: description || `상위 작업 요청을 위해 ${targetItemType} 생성이 필요합니다.`,
-        priority: priority || 'HIGH',
-        status: 'PENDING',
-        requestType: requestType as WorkRequestType,
+    const newId = randomUUID();
+    const now = new Date();
+
+    await query(
+      `INSERT INTO "WorkRequest" (
+        id, title, description, priority, status, "requestType", "parentWorkRequestId",
+        "targetItemType", "projectId", "serviceId", "requesterId", "assigneeId",
+        "createdAt", "updatedAt"
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+      [
+        newId,
+        title || `[자동] ${targetItemType} 생성 필요`,
+        description || `상위 작업 요청을 위해 ${targetItemType} 생성이 필요합니다.`,
+        priority || 'HIGH',
+        'PENDING',
+        requestType as WorkRequestType,
         parentWorkRequestId,
-        targetItemType: targetItemType as ItemType,
+        targetItemType as ItemType,
         projectId,
         serviceId,
-        requesterId: userId,
+        userId,
         assigneeId,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      },
-      include: {
-        Requester: {
-          select: USER_SELECT,
-        },
-        Assignee: {
-          select: USER_SELECT,
-        },
-        ParentWorkRequest: true,
-      },
-    });
+        now,
+        now,
+      ],
+    );
+
+    // Fetch created work request with relations
+    const workRequest = await queryOne<any>(
+      `SELECT wr.*,
+              row_to_json(req.*) AS "Requester",
+              row_to_json(asgn.*) AS "Assignee",
+              row_to_json(pwr.*) AS "ParentWorkRequest"
+       FROM "WorkRequest" wr
+       LEFT JOIN (SELECT ${USER_COLS} FROM "User") req ON req.id = wr."requesterId"
+       LEFT JOIN (SELECT ${USER_COLS} FROM "User") asgn ON asgn.id = wr."assigneeId"
+       LEFT JOIN "WorkRequest" pwr ON pwr.id = wr."parentWorkRequestId"
+       WHERE wr.id = $1`,
+      [newId],
+    );
 
     // Send notification to assignee
     if (assigneeId) {
-      // Get project/service names for notification context
       let projectName: string | undefined;
       let serviceName: string | undefined;
 
       if (projectId) {
-        const project = await prisma.item.findUnique({
-          where: { id: projectId },
-          select: { name: true },
-        });
+        const project = await queryOne<any>(
+          `SELECT name FROM "Item" WHERE id = $1`,
+          [projectId],
+        );
         projectName = project?.name;
       }
 
       if (serviceId) {
-        const service = await prisma.item.findUnique({
-          where: { id: serviceId },
-          select: { name: true },
-        });
+        const service = await queryOne<any>(
+          `SELECT name FROM "Item" WHERE id = $1`,
+          [serviceId],
+        );
         serviceName = service?.name;
       }
 
@@ -1091,50 +1044,57 @@ export const linkCreatedHierarchy = async (req: AuthRequest, res: Response) => {
     const { id } = req.params;
     const { createdItemId } = req.body;
 
-    const workRequest = await prisma.workRequest.findUnique({
-      where: { id },
-    });
+    const workRequest = await queryOne<any>(
+      `SELECT * FROM "WorkRequest" WHERE id = $1`,
+      [id],
+    );
 
     if (!workRequest) {
       return res.status(404).json({ error: 'Work request not found' });
     }
 
-    const updated = await prisma.workRequest.update({
-      where: { id },
-      data: {
-        createdItemId,
-        updatedAt: new Date(),
-      },
-    });
+    await query(
+      `UPDATE "WorkRequest" SET "createdItemId" = $1, "updatedAt" = $2 WHERE id = $3`,
+      [createdItemId, new Date(), id],
+    );
+
+    const updated = await queryOne<any>(
+      `SELECT * FROM "WorkRequest" WHERE id = $1`,
+      [id],
+    );
 
     // Update parent work request with created hierarchy
     if (workRequest.parentWorkRequestId) {
-      const updateData: any = { updatedAt: new Date() };
+      const updateFields: string[] = [`"updatedAt" = $1`];
+      const updateParams: any[] = [new Date()];
+      let paramIdx = 2;
 
       if (workRequest.requestType === 'SERVICE_CREATE') {
-        updateData.serviceId = createdItemId;
+        updateFields.push(`"serviceId" = $${paramIdx++}`);
+        updateParams.push(createdItemId);
       } else if (workRequest.requestType === 'TEAM_CREATE') {
-        updateData.teamId = createdItemId;
+        updateFields.push(`"teamId" = $${paramIdx++}`);
+        updateParams.push(createdItemId);
       }
 
-      await prisma.workRequest.update({
-        where: { id: workRequest.parentWorkRequestId },
-        data: updateData,
-      });
+      updateParams.push(workRequest.parentWorkRequestId);
+      await query(
+        `UPDATE "WorkRequest" SET ${updateFields.join(', ')} WHERE id = $${paramIdx}`,
+        updateParams,
+      );
 
       // Notify original requester that hierarchy was created
-      const parentRequest = await prisma.workRequest.findUnique({
-        where: { id: workRequest.parentWorkRequestId },
-        select: { requesterId: true, assigneeId: true },
-      });
+      const parentRequest = await queryOne<any>(
+        `SELECT "requesterId", "assigneeId" FROM "WorkRequest" WHERE id = $1`,
+        [workRequest.parentWorkRequestId],
+      );
 
-      const createdItem = await prisma.item.findUnique({
-        where: { id: createdItemId },
-        select: { name: true },
-      });
+      const createdItem = await queryOne<any>(
+        `SELECT name FROM "Item" WHERE id = $1`,
+        [createdItemId],
+      );
 
       if (parentRequest && createdItem) {
-        // Notify the assignee of the parent request (who triggered the hierarchy request)
         const notifyUserId = parentRequest.assigneeId || parentRequest.requesterId;
         const creatorId = req.user?.id || workRequest.requesterId;
 
@@ -1168,54 +1128,27 @@ export const getAllWorkRequests = async (req: AuthRequest, res: Response) => {
       return res.status(403).json({ error: 'Only administrators can view all work requests' });
     }
 
-    const workRequests = await prisma.workRequest.findMany({
-      include: {
-        Requester: {
-          select: USER_SELECT,
-        },
-        Assignee: {
-          select: USER_SELECT,
-        },
-        AssigneeTeam: {
-          select: {
-            id: true,
-            name: true,
-            description: true,
-          },
-        },
-        ApprovedBy: {
-          select: USER_SELECT,
-        },
-        Action: {
-          include: {
-            User_Item_assigneeIdToUser: {
-              select: USER_SELECT,
-            },
-          },
-        },
-        Project: {
-          select: {
-            id: true,
-            name: true,
-          },
-        },
-        Service: {
-          select: {
-            id: true,
-            name: true,
-          },
-        },
-        Team: {
-          select: {
-            id: true,
-            name: true,
-          },
-        },
-      },
-      orderBy: [
-        { createdAt: 'desc' },
-      ],
-    });
+    const workRequests = await query<any>(
+      `SELECT wr.*,
+              row_to_json(req.*) AS "Requester",
+              row_to_json(asgn.*) AS "Assignee",
+              json_build_object('id', at.id, 'name', at.name, 'description', at.description) FILTER (WHERE at.id IS NOT NULL) AS "AssigneeTeam",
+              row_to_json(appr.*) AS "ApprovedBy",
+              row_to_json(act.*) AS "Action",
+              json_build_object('id', proj.id, 'name', proj.name) FILTER (WHERE proj.id IS NOT NULL) AS "Project",
+              json_build_object('id', svc.id, 'name', svc.name) FILTER (WHERE svc.id IS NOT NULL) AS "Service",
+              json_build_object('id', tm.id, 'name', tm.name) FILTER (WHERE tm.id IS NOT NULL) AS "Team"
+       FROM "WorkRequest" wr
+       LEFT JOIN (SELECT ${USER_COLS} FROM "User") req ON req.id = wr."requesterId"
+       LEFT JOIN (SELECT ${USER_COLS} FROM "User") asgn ON asgn.id = wr."assigneeId"
+       LEFT JOIN "Team" at ON at.id = wr."assigneeTeamId"
+       LEFT JOIN (SELECT ${USER_COLS} FROM "User") appr ON appr.id = wr."approvedById"
+       LEFT JOIN "Item" act ON act.id = wr."actionId"
+       LEFT JOIN "Item" proj ON proj.id = wr."projectId"
+       LEFT JOIN "Item" svc ON svc.id = wr."serviceId"
+       LEFT JOIN "Item" tm ON tm.id = wr."teamId"
+       ORDER BY wr."createdAt" DESC`,
+    );
 
     res.json(workRequests);
   } catch (error) {
@@ -1234,10 +1167,7 @@ export const cancelWorkRequest = async (req: AuthRequest, res: Response) => {
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
-    const workRequest = await prisma.workRequest.findUnique({
-      where: { id },
-      include: ASSIGNEE_TEAM_CHECK_INCLUDE,
-    });
+    const workRequest = await fetchWorkRequestWithAssigneeTeam(id);
 
     if (!workRequest) {
       return res.status(404).json({ error: 'Work request not found' });
@@ -1263,26 +1193,26 @@ export const cancelWorkRequest = async (req: AuthRequest, res: Response) => {
       return res.status(400).json({ error: 'Cannot cancel work request with action' });
     }
 
-    const updatedWorkRequest = await prisma.workRequest.update({
-      where: { id },
-      data: {
-        status: 'CANCELLED',
-        updatedAt: new Date(),
-      },
-      include: STATE_TRANSITION_INCLUDE,
-    });
+    await query(
+      `UPDATE "WorkRequest" SET status = $1, "updatedAt" = $2 WHERE id = $3`,
+      ['CANCELLED', new Date(), id],
+    );
+
+    const updatedWorkRequest = await buildStateTransitionWorkRequest(id);
 
     // 알림 전송
-    await prisma.notification.create({
-      data: {
-        id: randomUUID(),
-        type: 'work_request_cancelled',
-        content: `작업 요청 "${workRequest.title}"이(가) 취소되었습니다.`,
-        fromUserId: userId,
-        toUserId: workRequest.requesterId,
-        createdAt: new Date(),
-      },
-    });
+    await query(
+      `INSERT INTO "Notification" (id, type, content, "fromUserId", "toUserId", "createdAt")
+       VALUES ($1, $2, $3, $4, $5, $6)`,
+      [
+        randomUUID(),
+        'work_request_cancelled',
+        `작업 요청 "${workRequest.title}"이(가) 취소되었습니다.`,
+        userId,
+        workRequest.requesterId,
+        new Date(),
+      ],
+    );
 
     res.json(updatedWorkRequest);
   } catch (error) {
@@ -1301,9 +1231,10 @@ export const adminDeleteWorkRequest = async (req: AuthRequest, res: Response) =>
       return res.status(403).json({ error: 'Only administrators can force delete work requests' });
     }
 
-    const workRequest = await prisma.workRequest.findUnique({
-      where: { id },
-    });
+    const workRequest = await queryOne<any>(
+      `SELECT id, "actionId" FROM "WorkRequest" WHERE id = $1`,
+      [id],
+    );
 
     if (!workRequest) {
       return res.status(404).json({ error: 'Work request not found' });
@@ -1314,9 +1245,7 @@ export const adminDeleteWorkRequest = async (req: AuthRequest, res: Response) =>
       return res.status(400).json({ error: 'Cannot delete work request with existing action' });
     }
 
-    await prisma.workRequest.delete({
-      where: { id },
-    });
+    await query(`DELETE FROM "WorkRequest" WHERE id = $1`, [id]);
 
     res.json({ message: 'Work request deleted successfully by admin' });
   } catch (error) {
@@ -1337,13 +1266,10 @@ export const forwardWorkRequest = async (req: AuthRequest, res: Response): Promi
     }
 
     // Get work request
-    const workRequest = await prisma.workRequest.findUnique({
-      where: { id },
-      include: {
-        Requester: true,
-        Assignee: true,
-      },
-    });
+    const workRequest = await queryOne<any>(
+      `SELECT * FROM "WorkRequest" WHERE id = $1`,
+      [id],
+    );
 
     if (!workRequest) {
       return res.status(404).json({ error: '작업 요청을 찾을 수 없습니다' });
@@ -1365,39 +1291,22 @@ export const forwardWorkRequest = async (req: AuthRequest, res: Response): Promi
     }
 
     // Get new assignee info
-    const newAssignee = await prisma.user.findUnique({
-      where: { id: newAssigneeId },
-    });
+    const newAssignee = await queryOne<any>(
+      `SELECT id, "teamId", "displayName" FROM "User" WHERE id = $1`,
+      [newAssigneeId],
+    );
 
     if (!newAssignee) {
       return res.status(404).json({ error: '전달받을 사용자를 찾을 수 없습니다' });
     }
 
     // Update work request
-    const updated = await prisma.workRequest.update({
-      where: { id },
-      data: {
-        assigneeId: newAssigneeId,
-        assigneeTeamId: newAssignee.teamId,
-        updatedAt: new Date(),
-      },
-      include: {
-        Requester: {
-          select: USER_SELECT,
-        },
-        Assignee: {
-          select: USER_SELECT,
-        },
-        AssigneeTeam: true,
-        ApprovedBy: {
-          select: USER_SELECT,
-        },
-        Action: true,
-        Project: true,
-        Service: true,
-        Team: true,
-      },
-    });
+    await query(
+      `UPDATE "WorkRequest" SET "assigneeId" = $1, "assigneeTeamId" = $2, "updatedAt" = $3 WHERE id = $4`,
+      [newAssigneeId, newAssignee.teamId, new Date(), id],
+    );
+
+    const updated = await buildFullWorkRequest(id);
 
     // Create notification for new assignee
     await NotificationService.createNotification({

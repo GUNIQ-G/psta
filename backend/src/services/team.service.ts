@@ -1,27 +1,35 @@
-import { PrismaClient } from '@prisma/client';
 import { randomUUID } from 'crypto';
+import { query, queryOne, transaction } from '../config/database';
 import ldapService from '../config/ldap';
-
-const prisma = new PrismaClient();
 
 class TeamService {
   async getAllTeams() {
-    return prisma.team.findMany({
-      where: { isActive: true },
-      include: {
-        User: {
-          select: {
-            id: true,
-            username: true,
-            displayName: true,
-            role: true,
-            title: true,
-            position: true,
-          },
-        },
-      },
-      orderBy: { name: 'asc' },
+    const teams = await query<any>(
+      `SELECT * FROM "Team" WHERE "isActive" = true ORDER BY "name" ASC`
+    );
+
+    if (teams.length === 0) return teams;
+
+    const teamIds = teams.map((t: any) => t.id);
+    const placeholders = teamIds.map((_: any, i: number) => `$${i + 1}`).join(', ');
+
+    const users = await query<any>(
+      `SELECT "id", "username", "displayName", "role", "title", "position", "teamId"
+       FROM "User"
+       WHERE "teamId" IN (${placeholders})`,
+      teamIds
+    );
+
+    const usersByTeam = new Map<string, any[]>();
+    users.forEach((u: any) => {
+      if (!usersByTeam.has(u.teamId)) usersByTeam.set(u.teamId, []);
+      usersByTeam.get(u.teamId)!.push(u);
     });
+
+    return teams.map((team: any) => ({
+      ...team,
+      User: usersByTeam.get(team.id) || [],
+    }));
   }
 
   /**
@@ -29,36 +37,31 @@ class TeamService {
    * v1.1.18: Returns teams organized in parent-child hierarchy
    */
   async getTeamHierarchy() {
-    // Fetch all active teams with their users
-    const allTeams = await prisma.team.findMany({
-      where: { isActive: true },
-      include: {
-        User: {
-          where: {
-            isActive: true,
-          },
-          select: {
-            id: true,
-            username: true,
-            displayName: true,
-            email: true,
-            phoneNumber: true,
-            role: true,
-            title: true,
-            position: true,
-            departmentNumber: true,
-          },
-          orderBy: [
-            { position: 'asc' },
-            { title: 'asc' },
-            { displayName: 'asc' },
-          ],
-        },
-      },
-      orderBy: [
-        { level: 'asc' },
-        { name: 'asc' },
-      ],
+    // Fetch all active teams
+    const allTeams = await query<any>(
+      `SELECT * FROM "Team" WHERE "isActive" = true ORDER BY "level" ASC, "name" ASC`
+    );
+
+    if (allTeams.length === 0) return [];
+
+    const teamIds = allTeams.map((t: any) => t.id);
+    const placeholders = teamIds.map((_: any, i: number) => `$${i + 1}`).join(', ');
+
+    // Fetch active users belonging to these teams, ordered by position/title/displayName
+    const users = await query<any>(
+      `SELECT "id", "username", "displayName", "email", "phoneNumber", "role",
+              "title", "position", "departmentNumber", "teamId"
+       FROM "User"
+       WHERE "teamId" IN (${placeholders})
+         AND "isActive" = true
+       ORDER BY "position" ASC, "title" ASC, "displayName" ASC`,
+      teamIds
+    );
+
+    const usersByTeam = new Map<string, any[]>();
+    users.forEach((u: any) => {
+      if (!usersByTeam.has(u.teamId)) usersByTeam.set(u.teamId, []);
+      usersByTeam.get(u.teamId)!.push(u);
     });
 
     // Build hierarchy: group teams by parent
@@ -66,15 +69,16 @@ class TeamService {
     const rootTeams: any[] = [];
 
     // First pass: create map of all teams
-    allTeams.forEach(team => {
+    allTeams.forEach((team: any) => {
       teamMap.set(team.id, {
         ...team,
+        User: usersByTeam.get(team.id) || [],
         children: [],
       });
     });
 
     // Second pass: build hierarchy
-    allTeams.forEach(team => {
+    allTeams.forEach((team: any) => {
       const teamWithChildren = teamMap.get(team.id)!;
 
       if (team.parentId) {
@@ -95,22 +99,24 @@ class TeamService {
   }
 
   async getTeamById(id: string) {
-    return prisma.team.findUnique({
-      where: { id },
-      include: {
-        User: {
-          select: {
-            id: true,
-            username: true,
-            displayName: true,
-            email: true,
-            role: true,
-            isVerified: true,
-            isActive: true,
-          },
-        },
-      },
-    });
+    const team = await queryOne<any>(
+      `SELECT * FROM "Team" WHERE "id" = $1`,
+      [id]
+    );
+
+    if (!team) return null;
+
+    const users = await query<any>(
+      `SELECT "id", "username", "displayName", "email", "role", "isVerified", "isActive"
+       FROM "User"
+       WHERE "teamId" = $1`,
+      [id]
+    );
+
+    return {
+      ...team,
+      User: users,
+    };
   }
 
   async createTeam(data: {
@@ -118,15 +124,15 @@ class TeamService {
     ldapDn?: string;
     description?: string;
   }) {
-    return prisma.team.create({
-      data: {
-        id: randomUUID(),
-        name: data.name,
-        ldapDn: data.ldapDn,
-        description: data.description,
-        updatedAt: new Date(),
-      },
-    });
+    const now = new Date();
+    const id = randomUUID();
+
+    return queryOne<any>(
+      `INSERT INTO "Team" ("id", "name", "ldapDn", "description", "updatedAt")
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING *`,
+      [id, data.name, data.ldapDn ?? null, data.description ?? null, now]
+    );
   }
 
   async updateTeam(
@@ -138,54 +144,57 @@ class TeamService {
       isActive?: boolean;
     }
   ) {
-    return prisma.team.update({
-      where: { id },
-      data: {
-        ...data,
-        updatedAt: new Date(),
-      },
-    });
+    const fields: string[] = [];
+    const params: any[] = [];
+    let idx = 1;
+
+    if (data.name !== undefined) { fields.push(`"name" = $${idx++}`); params.push(data.name); }
+    if (data.ldapDn !== undefined) { fields.push(`"ldapDn" = $${idx++}`); params.push(data.ldapDn); }
+    if (data.description !== undefined) { fields.push(`"description" = $${idx++}`); params.push(data.description); }
+    if (data.isActive !== undefined) { fields.push(`"isActive" = $${idx++}`); params.push(data.isActive); }
+
+    fields.push(`"updatedAt" = $${idx++}`);
+    params.push(new Date());
+
+    params.push(id);
+
+    return queryOne<any>(
+      `UPDATE "Team" SET ${fields.join(', ')} WHERE "id" = $${idx} RETURNING *`,
+      params
+    );
   }
 
   async deleteTeam(id: string) {
     // 먼저 해당 팀의 사용자들을 팀에서 제거
-    await prisma.user.updateMany({
-      where: { teamId: id },
-      data: { teamId: null, updatedAt: new Date() },
-    });
+    await query(
+      `UPDATE "User" SET "teamId" = NULL, "updatedAt" = $1 WHERE "teamId" = $2`,
+      [new Date(), id]
+    );
 
-    return prisma.team.delete({
-      where: { id },
-    });
+    return queryOne<any>(
+      `DELETE FROM "Team" WHERE "id" = $1 RETURNING *`,
+      [id]
+    );
   }
 
   async getTeamMembers(teamId: string) {
-    const team = await prisma.team.findUnique({
-      where: { id: teamId },
-      include: {
-        User: {
-          select: {
-            id: true,
-            username: true,
-            displayName: true,
-            email: true,
-            role: true,
-            isActive: true,
-            isVerified: true,
-          },
-          where: {
-            isActive: true,
-            isVerified: true,
-          },
-        },
-      },
-    });
+    const team = await queryOne<any>(
+      `SELECT "id" FROM "Team" WHERE "id" = $1`,
+      [teamId]
+    );
 
     if (!team) {
       throw new Error('Team not found');
     }
 
-    return team.User;
+    return query<any>(
+      `SELECT "id", "username", "displayName", "email", "role", "isActive", "isVerified"
+       FROM "User"
+       WHERE "teamId" = $1
+         AND "isActive" = true
+         AND "isVerified" = true`,
+      [teamId]
+    );
   }
 
   /**
@@ -193,24 +202,25 @@ class TeamService {
    * v1.1.19: Organization initialization feature
    */
   async resetAllTeams() {
-    // Start a transaction to ensure data consistency
-    return prisma.$transaction(async (tx) => {
+    return transaction(async (client) => {
       // 1. Count teams before deletion
-      const teamCount = await tx.team.count();
-      const userCount = await tx.user.count({ where: { teamId: { not: null } } });
+      const teamCountResult = await client.query(`SELECT COUNT(*) FROM "Team"`);
+      const teamCount = parseInt(teamCountResult.rows[0].count, 10);
+
+      const userCountResult = await client.query(
+        `SELECT COUNT(*) FROM "User" WHERE "teamId" IS NOT NULL`
+      );
+      const userCount = parseInt(userCountResult.rows[0].count, 10);
 
       // 2. Clear all user team assignments
-      await tx.user.updateMany({
-        where: { teamId: { not: null } },
-        data: {
-          teamId: null,
-          organizationId: null,
-          updatedAt: new Date()
-        },
-      });
+      await client.query(
+        `UPDATE "User" SET "teamId" = NULL, "organizationId" = NULL, "updatedAt" = $1
+         WHERE "teamId" IS NOT NULL`,
+        [new Date()]
+      );
 
       // 3. Delete all teams
-      await tx.team.deleteMany({});
+      await client.query(`DELETE FROM "Team"`);
 
       return {
         deletedTeams: teamCount,
@@ -234,36 +244,28 @@ class TeamService {
           const groupDn = typeof group.dn === 'string' ? group.dn : group.dn.toString();
           const groupDescription = group.description || `LDAP 그룹: ${group.name}`;
 
-          const existing = await prisma.team.findFirst({
-            where: { ldapDn: groupDn },
-          });
+          const existing = await queryOne<any>(
+            `SELECT * FROM "Team" WHERE "ldapDn" = $1 LIMIT 1`,
+            [groupDn]
+          );
 
           if (existing) {
             // Only update if there are actual changes
             if (existing.name !== group.name || existing.description !== groupDescription) {
-              await prisma.team.update({
-                where: { id: existing.id },
-                data: {
-                  name: group.name,
-                  description: groupDescription,
-                  updatedAt: new Date(),
-                },
-              });
+              await query(
+                `UPDATE "Team" SET "name" = $1, "description" = $2, "updatedAt" = $3
+                 WHERE "id" = $4`,
+                [group.name, groupDescription, new Date(), existing.id]
+              );
               results.updated++;
             }
             // If no changes, don't count as updated
           } else {
-            await prisma.team.create({
-              data: {
-                id: randomUUID(),
-                name: group.name,
-                ldapDn: groupDn,
-                description: groupDescription,
-                isActive: true,
-                createdAt: new Date(),
-                updatedAt: new Date(),
-              },
-            });
+            await query(
+              `INSERT INTO "Team" ("id", "name", "ldapDn", "description", "isActive", "createdAt", "updatedAt")
+               VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+              [randomUUID(), group.name, groupDn, groupDescription, true, new Date(), new Date()]
+            );
             results.created++;
           }
         } catch (error: any) {

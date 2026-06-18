@@ -1,9 +1,8 @@
 import { Request, Response } from 'express';
 import { randomUUID } from 'crypto';
 import { AuthRequest } from '../middleware/auth';
-import prisma from '../config/database';
+import { query, queryOne } from '../config/database';
 import appLogger, { errorLogger } from '../config/logger';
-import { USER_SELECT } from '../utils/prisma-selects';
 
 /**
  * Create a new report snapshot
@@ -23,24 +22,38 @@ export const createSnapshot = async (req: AuthRequest, res: Response) => {
       return res.status(400).json({ error: 'Missing required fields' });
     }
 
-    const snapshot = await prisma.reportSnapshot.create({
-      data: {
-        id: randomUUID(),
-        title,
-        clientId,
-        clientName,
-        startDate: new Date(startDate),
-        endDate: new Date(endDate),
-        data: JSON.stringify(data),
-        statistics: JSON.stringify(statistics),
-        createdById: userId,
-      },
-      include: {
-        CreatedBy: {
-          select: USER_SELECT,
-        },
-      },
-    });
+    const newId = randomUUID();
+    const snapshot = await queryOne<any>(`
+      WITH inserted AS (
+        INSERT INTO "ReportSnapshot" (
+          "id", "title", "clientId", "clientName",
+          "startDate", "endDate", "data", "statistics",
+          "createdById", "createdAt", "updatedAt"
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW())
+        RETURNING *
+      )
+      SELECT
+        i.*,
+        json_build_object(
+          'id', u."id",
+          'username', u."username",
+          'displayName', u."displayName",
+          'email', u."email"
+        ) AS "CreatedBy"
+      FROM inserted i
+      LEFT JOIN "User" u ON u."id" = i."createdById"
+    `, [
+      newId,
+      title,
+      clientId,
+      clientName,
+      new Date(startDate),
+      new Date(endDate),
+      JSON.stringify(data),
+      JSON.stringify(statistics),
+      userId,
+    ]);
 
     // Parse JSON strings back to objects for response
     const response = {
@@ -64,19 +77,28 @@ export const getSnapshots = async (req: AuthRequest, res: Response) => {
   try {
     const { clientId } = req.query;
 
-    const where = clientId ? { clientId: clientId as string } : {};
+    let sql = `
+      SELECT
+        s.*,
+        json_build_object(
+          'id', u."id",
+          'username', u."username",
+          'displayName', u."displayName",
+          'email', u."email"
+        ) AS "CreatedBy"
+      FROM "ReportSnapshot" s
+      LEFT JOIN "User" u ON u."id" = s."createdById"
+    `;
+    const params: any[] = [];
 
-    const snapshots = await prisma.reportSnapshot.findMany({
-      where,
-      include: {
-        CreatedBy: {
-          select: USER_SELECT,
-        },
-      },
-      orderBy: {
-        createdAt: 'desc',
-      },
-    });
+    if (clientId) {
+      sql += ` WHERE s."clientId" = $1`;
+      params.push(clientId as string);
+    }
+
+    sql += ` ORDER BY s."createdAt" DESC`;
+
+    const snapshots = await query(sql, params);
 
     // Parse JSON strings back to objects
     const response = snapshots.map(snapshot => ({
@@ -100,14 +122,19 @@ export const getSnapshotById = async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params;
 
-    const snapshot = await prisma.reportSnapshot.findUnique({
-      where: { id },
-      include: {
-        CreatedBy: {
-          select: USER_SELECT,
-        },
-      },
-    });
+    const snapshot = await queryOne<any>(`
+      SELECT
+        s.*,
+        json_build_object(
+          'id', u."id",
+          'username', u."username",
+          'displayName', u."displayName",
+          'email', u."email"
+        ) AS "CreatedBy"
+      FROM "ReportSnapshot" s
+      LEFT JOIN "User" u ON u."id" = s."createdById"
+      WHERE s."id" = $1
+    `, [id]);
 
     if (!snapshot) {
       return res.status(404).json({ error: 'Snapshot not found' });
@@ -142,9 +169,10 @@ export const deleteSnapshot = async (req: AuthRequest, res: Response) => {
     }
 
     // Check if snapshot exists
-    const snapshot = await prisma.reportSnapshot.findUnique({
-      where: { id },
-    });
+    const snapshot = await queryOne<any>(
+      `SELECT * FROM "ReportSnapshot" WHERE "id" = $1`,
+      [id]
+    );
 
     if (!snapshot) {
       return res.status(404).json({ error: 'Snapshot not found' });
@@ -155,9 +183,7 @@ export const deleteSnapshot = async (req: AuthRequest, res: Response) => {
       return res.status(403).json({ error: 'Permission denied. Only ADMIN or creator can delete snapshots.' });
     }
 
-    await prisma.reportSnapshot.delete({
-      where: { id },
-    });
+    await query(`DELETE FROM "ReportSnapshot" WHERE "id" = $1`, [id]);
 
     res.json({ message: 'Snapshot deleted successfully' });
   } catch (error: any) {

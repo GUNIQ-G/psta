@@ -1,8 +1,8 @@
 import { Request, Response } from 'express';
-import { UserRole } from '@prisma/client';
+import { UserRole } from '../types/enums';
 import userService from '../services/user.service';
 import ldapService from '../config/ldap';
-import prisma from '../config/database';
+import { query, queryOne } from '../config/database';
 import { AuthRequest } from '../middleware/auth';
 import appLogger, { errorLogger, ldapLogger } from '../config/logger';
 
@@ -145,9 +145,14 @@ export const rejectUser = async (req: Request, res: Response) => {
 
 export const syncUserFromLDAP = async (req: Request, res: Response) => {
   try {
-    const user = await prisma.user.findUnique({
-      where: { id: req.params.id },
-    });
+    const user = await queryOne<{
+      id: string;
+      username: string;
+      ldapDn: string | null;
+    }>(
+      `SELECT id, username, "ldapDn" FROM "User" WHERE id = $1`,
+      [req.params.id]
+    );
 
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
@@ -172,12 +177,11 @@ export const syncUserFromLDAP = async (req: Request, res: Response) => {
     // Find the first matching team
     let teamId: string | null = null;
     if (userGroups.length > 0) {
-      const team = await prisma.team.findFirst({
-        where: {
-          name: { in: userGroups },
-          isActive: true,
-        },
-      });
+      const placeholders = userGroups.map((_, i) => `$${i + 1}`).join(', ');
+      const team = await queryOne<{ id: string; name: string }>(
+        `SELECT id, name FROM "Team" WHERE name IN (${placeholders}) AND "isActive" = true LIMIT 1`,
+        userGroups
+      );
       if (team) {
         teamId = team.id;
         ldapLogger.info(`[LDAP SYNC] User assigned to team: ${team.name}`);
@@ -186,23 +190,31 @@ export const syncUserFromLDAP = async (req: Request, res: Response) => {
       }
     }
 
-    // Update user's team
-    const updatedUser = await prisma.user.update({
-      where: { id: user.id },
-      data: {
-        teamId: teamId,
-        updatedAt: new Date(),
-      },
-      include: {
-        Team: true,
-      },
-    });
+    // Update user's team and fetch with Team join
+    const updatedUser = await queryOne<any>(
+      `UPDATE "User"
+       SET "teamId" = $1, "updatedAt" = $2
+       WHERE id = $3
+       RETURNING *`,
+      [teamId, new Date(), user.id]
+    );
 
-    ldapLogger.info(`[LDAP SYNC] User ${user.username} synced successfully. Team: ${updatedUser.Team?.name || 'none'}`);
+    // Fetch team info separately if teamId is set
+    let teamInfo: any = null;
+    if (teamId) {
+      teamInfo = await queryOne<any>(
+        `SELECT * FROM "Team" WHERE id = $1`,
+        [teamId]
+      );
+    }
+
+    const userWithTeam = { ...updatedUser, Team: teamInfo };
+
+    ldapLogger.info(`[LDAP SYNC] User ${user.username} synced successfully. Team: ${teamInfo?.name || 'none'}`);
 
     res.json({
       message: 'User synced from LDAP successfully',
-      user: updatedUser,
+      user: userWithTeam,
     });
   } catch (error: any) {
     errorLogger.error('[LDAP SYNC] Sync user error:', { error });
@@ -214,11 +226,13 @@ export const syncAllUsersFromLDAP = async (req: Request, res: Response) => {
   try {
     ldapLogger.info('[LDAP SYNC ALL] Starting to sync all LDAP users...');
 
-    const ldapUsers = await prisma.user.findMany({
-      where: {
-        ldapDn: { not: null },
-      },
-    });
+    const ldapUsers = await query<{
+      id: string;
+      username: string;
+      ldapDn: string;
+    }>(
+      `SELECT id, username, "ldapDn" FROM "User" WHERE "ldapDn" IS NOT NULL`
+    );
 
     const results = {
       total: ldapUsers.length,
@@ -229,30 +243,26 @@ export const syncAllUsersFromLDAP = async (req: Request, res: Response) => {
     for (const user of ldapUsers) {
       try {
         // Get user's LDAP groups
-        const userGroups = await ldapService.getUserGroups(user.ldapDn!);
+        const userGroups = await ldapService.getUserGroups(user.ldapDn);
 
         // Find the first matching team
         let teamId: string | null = null;
         if (userGroups.length > 0) {
-          const team = await prisma.team.findFirst({
-            where: {
-              name: { in: userGroups },
-              isActive: true,
-            },
-          });
+          const placeholders = userGroups.map((_, i) => `$${i + 1}`).join(', ');
+          const team = await queryOne<{ id: string }>(
+            `SELECT id FROM "Team" WHERE name IN (${placeholders}) AND "isActive" = true LIMIT 1`,
+            userGroups
+          );
           if (team) {
             teamId = team.id;
           }
         }
 
         // Update user's team
-        await prisma.user.update({
-          where: { id: user.id },
-          data: {
-            teamId: teamId,
-            updatedAt: new Date(),
-          },
-        });
+        await query(
+          `UPDATE "User" SET "teamId" = $1, "updatedAt" = $2 WHERE id = $3`,
+          [teamId, new Date(), user.id]
+        );
 
         results.synced++;
         ldapLogger.info(`[LDAP SYNC ALL] Synced user ${user.username}`);
@@ -280,12 +290,13 @@ export const getUserManagers = async (req: AuthRequest, res: Response) => {
     const { userId } = req.params;
     const { context } = req.query; // 'service', 'team', 'project'
 
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      include: {
-        Team: true,
-      },
-    });
+    const user = await queryOne<{
+      id: string;
+      teamId: string | null;
+    }>(
+      `SELECT id, "teamId" FROM "User" WHERE id = $1`,
+      [userId]
+    );
 
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
@@ -295,21 +306,21 @@ export const getUserManagers = async (req: AuthRequest, res: Response) => {
     const managerIds = new Set<string>();
 
     // 1. User's team members with PO/PM roles
-    if (user.Team) {
-      const teamManagers = await prisma.user.findMany({
-        where: {
-          teamId: user.Team.id,
-          role: { in: ['PO', 'PM'] },
-          isActive: true,
-        },
-        select: {
-          id: true,
-          username: true,
-          displayName: true,
-          email: true,
-          role: true,
-        },
-      });
+    if (user.teamId) {
+      const teamManagers = await query<{
+        id: string;
+        username: string;
+        displayName: string;
+        email: string;
+        role: string;
+      }>(
+        `SELECT id, username, "displayName", email, role
+         FROM "User"
+         WHERE "teamId" = $1
+           AND role IN ('PO', 'PM')
+           AND "isActive" = true`,
+        [user.teamId]
+      );
 
       teamManagers.forEach(manager => {
         if (!managerIds.has(manager.id)) {
@@ -324,19 +335,17 @@ export const getUserManagers = async (req: AuthRequest, res: Response) => {
     }
 
     // 2. All PO users (high priority)
-    const pos = await prisma.user.findMany({
-      where: {
-        role: 'PO',
-        isActive: true,
-      },
-      select: {
-        id: true,
-        username: true,
-        displayName: true,
-        email: true,
-        role: true,
-      },
-    });
+    const pos = await query<{
+      id: string;
+      username: string;
+      displayName: string;
+      email: string;
+      role: string;
+    }>(
+      `SELECT id, username, "displayName", email, role
+       FROM "User"
+       WHERE role = 'PO' AND "isActive" = true`
+    );
 
     pos.forEach(po => {
       if (!managerIds.has(po.id)) {
@@ -350,19 +359,17 @@ export const getUserManagers = async (req: AuthRequest, res: Response) => {
     });
 
     // 3. All PM users (medium priority)
-    const pms = await prisma.user.findMany({
-      where: {
-        role: 'PM',
-        isActive: true,
-      },
-      select: {
-        id: true,
-        username: true,
-        displayName: true,
-        email: true,
-        role: true,
-      },
-    });
+    const pms = await query<{
+      id: string;
+      username: string;
+      displayName: string;
+      email: string;
+      role: string;
+    }>(
+      `SELECT id, username, "displayName", email, role
+       FROM "User"
+       WHERE role = 'PM' AND "isActive" = true`
+    );
 
     pms.forEach(pm => {
       if (!managerIds.has(pm.id)) {

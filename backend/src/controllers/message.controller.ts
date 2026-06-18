@@ -1,10 +1,9 @@
 import { Response } from 'express';
 import { AuthRequest } from '../middleware/auth';
-import prisma from '../config/database';
+import { query, queryOne } from '../config/database';
 import { randomUUID } from 'crypto';
 import { NotificationService } from '../services/notification.service';
 import { errorLogger } from '../config/logger';
-import { USER_SELECT } from '../utils/prisma-selects';
 
 // 받은 메시지 목록 조회
 export const getReceivedMessages = async (req: AuthRequest, res: Response) => {
@@ -12,20 +11,28 @@ export const getReceivedMessages = async (req: AuthRequest, res: Response) => {
     const userId = req.user!.id;
     const { unreadOnly } = req.query;
 
-    const where: any = { toUserId: userId };
+    let sql = `
+      SELECT
+        m.*,
+        json_build_object(
+          'id', fu."id",
+          'username', fu."username",
+          'displayName', fu."displayName",
+          'email', fu."email"
+        ) AS "FromUser"
+      FROM "Message" m
+      LEFT JOIN "User" fu ON fu."id" = m."fromUserId"
+      WHERE m."toUserId" = $1
+    `;
+    const params: any[] = [userId];
+
     if (unreadOnly === 'true') {
-      where.isRead = false;
+      sql += ` AND m."isRead" = false`;
     }
 
-    const messages = await prisma.message.findMany({
-      where,
-      include: {
-        FromUser: {
-          select: USER_SELECT,
-        },
-      },
-      orderBy: { createdAt: 'desc' },
-    });
+    sql += ` ORDER BY m."createdAt" DESC`;
+
+    const messages = await query(sql, params);
 
     res.json(messages);
   } catch (error) {
@@ -39,15 +46,22 @@ export const getSentMessages = async (req: AuthRequest, res: Response) => {
   try {
     const userId = req.user!.id;
 
-    const messages = await prisma.message.findMany({
-      where: { fromUserId: userId },
-      include: {
-        ToUser: {
-          select: USER_SELECT,
-        },
-      },
-      orderBy: { createdAt: 'desc' },
-    });
+    const sql = `
+      SELECT
+        m.*,
+        json_build_object(
+          'id', tu."id",
+          'username', tu."username",
+          'displayName', tu."displayName",
+          'email', tu."email"
+        ) AS "ToUser"
+      FROM "Message" m
+      LEFT JOIN "User" tu ON tu."id" = m."toUserId"
+      WHERE m."fromUserId" = $1
+      ORDER BY m."createdAt" DESC
+    `;
+
+    const messages = await query(sql, [userId]);
 
     res.json(messages);
   } catch (error) {
@@ -62,17 +76,26 @@ export const getMessageById = async (req: AuthRequest, res: Response) => {
     const { id } = req.params;
     const userId = req.user!.id;
 
-    const message = await prisma.message.findUnique({
-      where: { id },
-      include: {
-        FromUser: {
-          select: USER_SELECT,
-        },
-        ToUser: {
-          select: USER_SELECT,
-        },
-      },
-    });
+    const message = await queryOne<any>(`
+      SELECT
+        m.*,
+        json_build_object(
+          'id', fu."id",
+          'username', fu."username",
+          'displayName', fu."displayName",
+          'email', fu."email"
+        ) AS "FromUser",
+        json_build_object(
+          'id', tu."id",
+          'username', tu."username",
+          'displayName', tu."displayName",
+          'email', tu."email"
+        ) AS "ToUser"
+      FROM "Message" m
+      LEFT JOIN "User" fu ON fu."id" = m."fromUserId"
+      LEFT JOIN "User" tu ON tu."id" = m."toUserId"
+      WHERE m."id" = $1
+    `, [id]);
 
     if (!message) {
       return res.status(404).json({ error: 'Message not found' });
@@ -85,13 +108,10 @@ export const getMessageById = async (req: AuthRequest, res: Response) => {
 
     // 수신자가 읽을 경우 읽음 처리
     if (message.toUserId === userId && !message.isRead) {
-      await prisma.message.update({
-        where: { id },
-        data: {
-          isRead: true,
-          readAt: new Date()
-        },
-      });
+      await query(
+        `UPDATE "Message" SET "isRead" = true, "readAt" = $1 WHERE "id" = $2`,
+        [new Date(), id]
+      );
       message.isRead = true;
     }
 
@@ -113,31 +133,40 @@ export const sendMessage = async (req: AuthRequest, res: Response) => {
     }
 
     // 수신자 존재 확인
-    const toUser = await prisma.user.findUnique({
-      where: { id: toUserId },
-    });
+    const toUser = await queryOne<any>(
+      `SELECT "id" FROM "User" WHERE "id" = $1`,
+      [toUserId]
+    );
 
     if (!toUser) {
       return res.status(404).json({ error: 'Recipient not found' });
     }
 
-    const message = await prisma.message.create({
-      data: {
-        id: randomUUID(),
-        fromUserId,
-        toUserId,
-        subject,
-        content,
-      },
-      include: {
-        FromUser: {
-          select: USER_SELECT,
-        },
-        ToUser: {
-          select: USER_SELECT,
-        },
-      },
-    });
+    const newId = randomUUID();
+    const message = await queryOne<any>(`
+      WITH inserted AS (
+        INSERT INTO "Message" ("id", "fromUserId", "toUserId", "subject", "content", "createdAt", "updatedAt")
+        VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
+        RETURNING *
+      )
+      SELECT
+        i.*,
+        json_build_object(
+          'id', fu."id",
+          'username', fu."username",
+          'displayName', fu."displayName",
+          'email', fu."email"
+        ) AS "FromUser",
+        json_build_object(
+          'id', tu."id",
+          'username', tu."username",
+          'displayName', tu."displayName",
+          'email', tu."email"
+        ) AS "ToUser"
+      FROM inserted i
+      LEFT JOIN "User" fu ON fu."id" = i."fromUserId"
+      LEFT JOIN "User" tu ON tu."id" = i."toUserId"
+    `, [newId, fromUserId, toUserId, subject, content]);
 
     // 알림 생성 및 Slack 전송
     await NotificationService.createNotification({
@@ -164,14 +193,12 @@ export const getUnreadCount = async (req: AuthRequest, res: Response) => {
   try {
     const userId = req.user!.id;
 
-    const count = await prisma.message.count({
-      where: {
-        toUserId: userId,
-        isRead: false,
-      },
-    });
+    const row = await queryOne<{ count: number }>(
+      `SELECT COUNT(*)::int AS count FROM "Message" WHERE "toUserId" = $1 AND "isRead" = false`,
+      [userId]
+    );
 
-    res.json({ count });
+    res.json({ count: row?.count ?? 0 });
   } catch (error) {
     errorLogger.error('Get unread message count error', { error });
     res.status(500).json({ error: 'Internal server error' });
@@ -184,9 +211,10 @@ export const markAsRead = async (req: AuthRequest, res: Response) => {
     const { id } = req.params;
     const userId = req.user!.id;
 
-    const message = await prisma.message.findUnique({
-      where: { id },
-    });
+    const message = await queryOne<any>(
+      `SELECT * FROM "Message" WHERE "id" = $1`,
+      [id]
+    );
 
     if (!message) {
       return res.status(404).json({ error: 'Message not found' });
@@ -197,13 +225,10 @@ export const markAsRead = async (req: AuthRequest, res: Response) => {
       return res.status(403).json({ error: 'Access denied' });
     }
 
-    const updatedMessage = await prisma.message.update({
-      where: { id },
-      data: {
-        isRead: true,
-        readAt: new Date()
-      },
-    });
+    const updatedMessage = await queryOne<any>(
+      `UPDATE "Message" SET "isRead" = true, "readAt" = $1, "updatedAt" = $2 WHERE "id" = $3 RETURNING *`,
+      [new Date(), new Date(), id]
+    );
 
     res.json(updatedMessage);
   } catch (error) {
@@ -218,9 +243,10 @@ export const deleteMessage = async (req: AuthRequest, res: Response) => {
     const { id } = req.params;
     const userId = req.user!.id;
 
-    const message = await prisma.message.findUnique({
-      where: { id },
-    });
+    const message = await queryOne<any>(
+      `SELECT * FROM "Message" WHERE "id" = $1`,
+      [id]
+    );
 
     if (!message) {
       return res.status(404).json({ error: 'Message not found' });
@@ -231,9 +257,7 @@ export const deleteMessage = async (req: AuthRequest, res: Response) => {
       return res.status(403).json({ error: 'Access denied' });
     }
 
-    await prisma.message.delete({
-      where: { id },
-    });
+    await query(`DELETE FROM "Message" WHERE "id" = $1`, [id]);
 
     res.status(204).send();
   } catch (error) {

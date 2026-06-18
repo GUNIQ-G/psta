@@ -1,5 +1,5 @@
 import crypto from 'crypto';
-import prisma from '../config/database';
+import { query, queryOne } from '../config/database';
 import { NotificationSlackService } from './notification-slack.service';
 
 interface CreateNotificationParams {
@@ -26,28 +26,22 @@ export class NotificationService {
 
     try {
       // 1. 데이터베이스에 알림 생성
-      await prisma.notification.create({
-        data: {
-          id: crypto.randomUUID(),
-          type,
-          content,
-          itemId,
-          commentId,
-          fromUserId,
-          toUserId,
-        },
-      });
+      await query(
+        `INSERT INTO "Notification" ("id", "type", "content", "itemId", "commentId", "fromUserId", "toUserId")
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [crypto.randomUUID(), type, content, itemId ?? null, commentId ?? null, fromUserId, toUserId]
+      );
 
       // 2. 수신자 정보 가져오기
       const [fromUser, toUser] = await Promise.all([
-        prisma.user.findUnique({
-          where: { id: fromUserId },
-          select: { email: true },
-        }),
-        prisma.user.findUnique({
-          where: { id: toUserId },
-          select: { email: true },
-        }),
+        queryOne<{ email: string }>(
+          `SELECT "email" FROM "User" WHERE id = $1`,
+          [fromUserId]
+        ),
+        queryOne<{ email: string }>(
+          `SELECT "email" FROM "User" WHERE id = $1`,
+          [toUserId]
+        ),
       ]);
 
       // 3. Slack 알림 전송 (비동기, 실패해도 메인 로직에 영향 없음)
@@ -205,13 +199,10 @@ export class NotificationService {
 
     // 팀 할당된 경우
     if (params.assigneeTeamId) {
-      const teamMembers = await prisma.user.findMany({
-        where: {
-          teamId: params.assigneeTeamId,
-          isVerified: true,
-        },
-        select: { id: true },
-      });
+      const teamMembers = await query<{ id: string }>(
+        `SELECT "id" FROM "User" WHERE "teamId" = $1 AND "isVerified" = true`,
+        [params.assigneeTeamId]
+      );
 
       await this.createBulkNotifications(
         {
@@ -312,13 +303,10 @@ export class NotificationService {
 
     // 팀 할당된 경우
     if (params.assigneeTeamId) {
-      const teamMembers = await prisma.user.findMany({
-        where: {
-          teamId: params.assigneeTeamId,
-          isVerified: true,
-        },
-        select: { id: true },
-      });
+      const teamMembers = await query<{ id: string }>(
+        `SELECT "id" FROM "User" WHERE "teamId" = $1 AND "isVerified" = true`,
+        [params.assigneeTeamId]
+      );
 
       await this.createBulkNotifications(
         {
@@ -419,30 +407,28 @@ export class NotificationService {
     teamId: string;
   }): Promise<void> {
     // 팀장 찾기: positionType이 TEAM_LEADER 또는 PART_LEADER, 또는 role이 PM/PO인 사용자
-    const teamLeaders = await prisma.user.findMany({
-      where: {
-        teamId: params.teamId,
-        isVerified: true,
-        isActive: true,
-        OR: [
-          { positionType: { in: ['TEAM_LEADER', 'PART_LEADER'] } },
-          { role: { in: ['PM', 'PO'] } },
-        ],
-      },
-      select: { id: true },
-    });
+    const teamLeaders = await query<{ id: string }>(
+      `SELECT "id" FROM "User"
+       WHERE "teamId" = $1
+         AND "isVerified" = true
+         AND "isActive" = true
+         AND (
+           "positionType" IN ('TEAM_LEADER', 'PART_LEADER')
+           OR "role" IN ('PM', 'PO')
+         )`,
+      [params.teamId]
+    );
 
     // 팀장이 없으면 ADMIN에게 알림
     let notifyUserIds = teamLeaders.map(u => u.id);
     if (notifyUserIds.length === 0) {
-      const admins = await prisma.user.findMany({
-        where: {
-          role: 'ADMIN',
-          isVerified: true,
-          isActive: true,
-        },
-        select: { id: true },
-      });
+      const admins = await query<{ id: string }>(
+        `SELECT "id" FROM "User"
+         WHERE "role" = 'ADMIN'
+           AND "isVerified" = true
+           AND "isActive" = true`,
+        []
+      );
       notifyUserIds = admins.map(u => u.id);
     }
 

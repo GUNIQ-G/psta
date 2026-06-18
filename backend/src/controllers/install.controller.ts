@@ -1,8 +1,9 @@
 import { Request, Response } from 'express';
-import { execSync } from 'child_process';
 import path from 'path';
+import { execSync } from 'child_process';
+import { randomUUID } from 'crypto';
 import bcrypt from 'bcryptjs';
-import { PrismaClient } from '@prisma/client';
+import { query, queryOne } from '../config/database';
 import { isInstalled, markInstalled } from '../config/install';
 import appLogger from '../config/logger';
 
@@ -12,12 +13,9 @@ export const getInstallStatus = async (req: Request, res: Response) => {
     return res.json({ installed: true });
   }
 
-  // DB 연결 테스트
   let dbConnected = false;
   try {
-    const prisma = new PrismaClient();
-    await prisma.$queryRaw`SELECT 1`;
-    await prisma.$disconnect();
+    await queryOne('SELECT 1');
     dbConnected = true;
   } catch {}
 
@@ -30,13 +28,15 @@ export const testDbConnection = async (req: Request, res: Response) => {
   if (!databaseUrl) {
     return res.status(400).json({ error: 'databaseUrl 필수' });
   }
+  const { Pool } = await import('pg');
+  const testPool = new Pool({ connectionString: databaseUrl });
   try {
-    const prisma = new PrismaClient({ datasources: { db: { url: databaseUrl } } });
-    await prisma.$queryRaw`SELECT 1`;
-    await prisma.$disconnect();
+    await testPool.query('SELECT 1');
     res.json({ ok: true });
   } catch (err: any) {
     res.status(400).json({ ok: false, error: err.message });
+  } finally {
+    await testPool.end();
   }
 };
 
@@ -53,21 +53,17 @@ export const runInstall = async (req: Request, res: Response) => {
   }
 
   try {
-    // 1. Prisma 마이그레이션
-    appLogger.info('[Install] running prisma migrate deploy...');
-    const prismaPath = path.join(process.cwd(), 'node_modules', '.bin', 'prisma');
-    execSync(`${prismaPath} migrate deploy`, {
-      cwd: process.cwd(),
+    // 1. 스키마 적용
+    appLogger.info('[Install] applying schema.sql...');
+    const schemaPath = path.join(process.cwd(), 'prisma', 'schema.sql');
+    execSync(`psql "${process.env.DATABASE_URL}" -f "${schemaPath}"`, {
       env: { ...process.env },
       stdio: 'pipe',
     });
-    appLogger.info('[Install] migration complete');
+    appLogger.info('[Install] schema applied');
 
     // 2. 기본 시스템 설정 seed
-    const prisma = new PrismaClient();
-    const { randomUUID } = await import('crypto');
     const now = new Date();
-
     const defaultSettings = [
       { key: 'systemName',        value: 'PSTA' },
       { key: 'systemDescription', value: 'Project-Service-Team-Action 관리 시스템' },
@@ -78,40 +74,28 @@ export const runInstall = async (req: Request, res: Response) => {
     ];
 
     for (const s of defaultSettings) {
-      await prisma.systemSetting.upsert({
-        where: { key: s.key },
-        update: { value: s.value, updatedAt: now },
-        create: { id: randomUUID(), key: s.key, value: s.value, category: 'general', updatedAt: now },
-      });
+      await query(
+        `INSERT INTO "SystemSetting" (id, key, value, category, "isEncrypted", "createdAt", "updatedAt")
+         VALUES ($1, $2, $3, 'general', false, $4, $4)
+         ON CONFLICT (key) DO UPDATE SET value = $3, "updatedAt" = $4`,
+        [randomUUID(), s.key, s.value, now]
+      );
     }
 
-    // 3. admin 계정 생성 (LOCAL auth + bcrypt 해시)
+    // 3. admin 계정 생성
     const passwordHash = await bcrypt.hash(adminPassword, 10);
-    await prisma.user.upsert({
-      where: { username: 'admin' },
-      update: { passwordHash, authType: 'LOCAL', updatedAt: now },
-      create: {
-        id: randomUUID(),
-        username: 'admin',
-        email: 'admin@localhost',
-        displayName: '최고 관리자',
-        authType: 'LOCAL',
-        passwordHash,
-        role: 'ADMIN',
-        isVerified: true,
-        updatedAt: now,
-      },
-    });
+    await query(
+      `INSERT INTO "User" (id, username, email, "displayName", "authType", "passwordHash", role, "isVerified", "isActive", "updatedAt")
+       VALUES ($1, 'admin', 'admin@localhost', '최고 관리자', 'LOCAL', $2, 'ADMIN', true, true, $3)
+       ON CONFLICT (username) DO UPDATE SET "passwordHash" = $2, "authType" = 'LOCAL', "updatedAt" = $3`,
+      [randomUUID(), passwordHash, now]
+    );
     appLogger.info('[Install] admin user created');
 
-    // 4. FRONTEND_URL 환경변수 업데이트
     if (frontendUrl) {
       process.env.FRONTEND_URL = frontendUrl;
     }
 
-    await prisma.$disconnect();
-
-    // 5. 설치 완료 표시
     markInstalled();
     appLogger.info('[Install] installation complete');
 

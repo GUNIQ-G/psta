@@ -1,7 +1,8 @@
 import { Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
+import { randomUUID } from 'crypto';
 import ldapService from '../config/ldap';
-import prisma from '../config/database';
+import { query, queryOne } from '../config/database';
 import { generateToken, AuthRequest } from '../middleware/auth';
 import { appLogger, authLogger, errorLogger } from '../config/logger';
 
@@ -14,9 +15,10 @@ export const login = async (req: Request, res: Response) => {
     }
 
     // LOCAL 계정 인증 (authType = 'LOCAL', DB에 passwordHash 존재)
-    const localUser = await prisma.user.findUnique({
-      where: { username },
-    });
+    const localUser = await queryOne<any>(
+      `SELECT * FROM "User" WHERE "username" = $1`,
+      [username]
+    );
 
     if (localUser && localUser.authType === 'LOCAL' && localUser.passwordHash) {
       const valid = await bcrypt.compare(password, localUser.passwordHash);
@@ -54,54 +56,57 @@ export const login = async (req: Request, res: Response) => {
       const ldapUser = await ldapService.authenticate(username, password);
 
       // 로그인 시 팀 배정하지 않음 - 조직도는 관리자가 수동으로 관리
-      let user = await prisma.user.findUnique({
-        where: { username: ldapUser.username },
-      });
+      let user = await queryOne<any>(
+        `SELECT * FROM "User" WHERE "username" = $1`,
+        [ldapUser.username]
+      );
 
       if (!user) {
         // 신규 사용자: teamId = null로 생성 (관리자가 수동 배정)
-        const { randomUUID } = require('crypto');
-        user = await prisma.user.create({
-          data: {
-            id: randomUUID(),
-            username: ldapUser.username,
-            email: ldapUser.email,
-            displayName: ldapUser.displayName,
-            phoneNumber: ldapUser.phoneNumber,
-            ldapDn: ldapUser.dn,
-            role: 'MEMBER',
-            teamId: null,
-            isVerified: false,
-            updatedAt: new Date(),
-          },
-        });
+        user = await queryOne<any>(
+          `INSERT INTO "User" ("id", "username", "email", "displayName", "phoneNumber", "ldapDn", "role", "teamId", "isVerified", "updatedAt")
+           VALUES ($1, $2, $3, $4, $5, $6, 'MEMBER', NULL, false, $7)
+           RETURNING *`,
+          [
+            randomUUID(),
+            ldapUser.username,
+            ldapUser.email,
+            ldapUser.displayName,
+            ldapUser.phoneNumber,
+            ldapUser.dn,
+            new Date(),
+          ]
+        );
       } else {
         // 기존 사용자: teamId 유지, 기본 정보만 업데이트
-        user = await prisma.user.update({
-          where: { id: user.id },
-          data: {
-            email: ldapUser.email,
-            displayName: ldapUser.displayName,
-            phoneNumber: ldapUser.phoneNumber,
-            ldapDn: ldapUser.dn,
-            updatedAt: new Date(),
-          },
-        });
+        user = await queryOne<any>(
+          `UPDATE "User"
+           SET "email" = $1, "displayName" = $2, "phoneNumber" = $3, "ldapDn" = $4, "updatedAt" = $5
+           WHERE "id" = $6
+           RETURNING *`,
+          [
+            ldapUser.email,
+            ldapUser.displayName,
+            ldapUser.phoneNumber,
+            ldapUser.dn,
+            new Date(),
+            user.id,
+          ]
+        );
       }
 
       // Fetch user with team info for response
-      const userWithTeam = await prisma.user.findUnique({
-        where: { id: user.id },
-        include: {
-          Team: {
-            select: {
-              id: true,
-              name: true,
-              description: true,
-            },
-          },
-        },
-      });
+      const userWithTeam = await queryOne<any>(
+        `SELECT u.*, t."id" AS "team_id", t."name" AS "team_name", t."description" AS "team_description"
+         FROM "User" u
+         LEFT JOIN "Team" t ON t."id" = u."teamId"
+         WHERE u."id" = $1`,
+        [user.id]
+      );
+
+      const team = userWithTeam && userWithTeam.team_id
+        ? { id: userWithTeam.team_id, name: userWithTeam.team_name, description: userWithTeam.team_description }
+        : null;
 
       const token = generateToken(user.id, user.username, user.email, user.displayName, user.role);
 
@@ -124,7 +129,7 @@ export const login = async (req: Request, res: Response) => {
           role: user.role,
           isVerified: user.isVerified,
           teamId: user.teamId,
-          Team: userWithTeam?.Team || null,
+          Team: team,
         },
       });
     } catch (ldapError: any) {
@@ -169,37 +174,45 @@ export const me = async (req: AuthRequest, res: Response) => {
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
-    const user = await prisma.user.findUnique({
-      where: { id: req.user.id },
-      select: {
-        id: true,
-        username: true,
-        email: true,
-        displayName: true,
-        role: true,
-        teamId: true,
-        authType: true,
-        isVerified: true,
-        isActive: true,
-        approvalRequested: true,
-        approvalRequestedAt: true,
-        approvalMessage: true,
-        createdAt: true,
-        Team: {
-          select: {
-            id: true,
-            name: true,
-            description: true,
-          },
-        },
-      },
-    });
+    const row = await queryOne<any>(
+      `SELECT u."id", u."username", u."email", u."displayName", u."role", u."teamId",
+              u."authType", u."isVerified", u."isActive", u."approvalRequested",
+              u."approvalRequestedAt", u."approvalMessage", u."createdAt",
+              t."id" AS "team_id", t."name" AS "team_name", t."description" AS "team_description"
+       FROM "User" u
+       LEFT JOIN "Team" t ON t."id" = u."teamId"
+       WHERE u."id" = $1`,
+      [req.user.id]
+    );
+
+    if (!row) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    const user = {
+      id: row.id,
+      username: row.username,
+      email: row.email,
+      displayName: row.displayName,
+      role: row.role,
+      teamId: row.teamId,
+      authType: row.authType,
+      isVerified: row.isVerified,
+      isActive: row.isActive,
+      approvalRequested: row.approvalRequested,
+      approvalRequestedAt: row.approvalRequestedAt,
+      approvalMessage: row.approvalMessage,
+      createdAt: row.createdAt,
+      Team: row.team_id
+        ? { id: row.team_id, name: row.team_name, description: row.team_description }
+        : null,
+    };
 
     appLogger.debug('GET /me returning user', {
-      username: user?.username,
-      displayName: user?.displayName,
-      role: user?.role,
-      isVerified: user?.isVerified,
+      username: user.username,
+      displayName: user.displayName,
+      role: user.role,
+      isVerified: user.isVerified,
     });
 
     res.json(user);
@@ -225,7 +238,10 @@ export const changePassword = async (req: AuthRequest, res: Response) => {
       return res.status(400).json({ error: '새 비밀번호는 6자 이상이어야 합니다.' });
     }
 
-    const user = await prisma.user.findUnique({ where: { id: req.user.id } });
+    const user = await queryOne<any>(
+      `SELECT * FROM "User" WHERE "id" = $1`,
+      [req.user.id]
+    );
 
     if (!user || user.authType !== 'LOCAL' || !user.passwordHash) {
       return res.status(400).json({ error: '로컬 계정만 비밀번호를 변경할 수 있습니다.' });
@@ -237,10 +253,10 @@ export const changePassword = async (req: AuthRequest, res: Response) => {
     }
 
     const hash = await bcrypt.hash(newPassword, 10);
-    await prisma.user.update({
-      where: { id: user.id },
-      data: { passwordHash: hash, updatedAt: new Date() },
-    });
+    await query(
+      `UPDATE "User" SET "passwordHash" = $1, "updatedAt" = $2 WHERE "id" = $3`,
+      [hash, new Date(), user.id]
+    );
 
     authLogger.info('Password changed', { userId: user.id, username: user.username });
     res.json({ ok: true, message: '비밀번호가 변경되었습니다.' });
@@ -258,15 +274,13 @@ export const requestApproval = async (req: AuthRequest, res: Response) => {
 
     const { message } = req.body;
 
-    const user = await prisma.user.update({
-      where: { id: req.user.id },
-      data: {
-        approvalRequested: true,
-        approvalRequestedAt: new Date(),
-        approvalMessage: message || null,
-        updatedAt: new Date(),
-      },
-    });
+    const user = await queryOne<any>(
+      `UPDATE "User"
+       SET "approvalRequested" = true, "approvalRequestedAt" = $1, "approvalMessage" = $2, "updatedAt" = $3
+       WHERE "id" = $4
+       RETURNING *`,
+      [new Date(), message || null, new Date(), req.user.id]
+    );
 
     authLogger.info('User requested approval', {
       userId: user.id,

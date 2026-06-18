@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt, { SignOptions } from 'jsonwebtoken';
-import prisma from '../config/database';
-import { UserRole } from '@prisma/client';
+import { queryOne } from '../config/database';
+import { UserRole } from '../types/enums';
 
 export interface UserPayload {
   id: string;
@@ -39,9 +39,17 @@ export const authMiddleware = async (
     const token = authHeader.substring(7);
     const decoded = jwt.verify(token, JWT_SECRET) as any;
 
-    const user = await prisma.user.findUnique({
-      where: { id: decoded.id },
-    });
+    const user = await queryOne<{
+      id: string;
+      username: string;
+      email: string;
+      displayName: string;
+      role: UserRole;
+      isActive: boolean;
+    }>(
+      `SELECT id, username, email, "displayName", role, "isActive" FROM "User" WHERE id = $1`,
+      [decoded.id]
+    );
 
     if (!user || !user.isActive) {
       return res.status(401).json({ error: 'Invalid user' });

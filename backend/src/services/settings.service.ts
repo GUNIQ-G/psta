@@ -1,4 +1,4 @@
-import prisma from '../config/database';
+import { query, queryOne } from '../config/database';
 import crypto, { randomUUID } from 'crypto';
 
 const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || 'default-encryption-key-change-in-production';
@@ -25,7 +25,10 @@ class SettingsService {
   }
 
   async getSetting(key: string): Promise<string | null> {
-    const setting = await prisma.systemSetting.findUnique({ where: { key } });
+    const setting = await queryOne<{ value: string; isEncrypted: boolean }>(
+      `SELECT "value", "isEncrypted" FROM "SystemSetting" WHERE "key" = $1`,
+      [key]
+    );
     if (!setting) return null;
 
     if (setting.isEncrypted) {
@@ -36,16 +39,25 @@ class SettingsService {
 
   async setSetting(key: string, value: string, category: string = 'general', isEncrypted: boolean = false): Promise<void> {
     const storedValue = isEncrypted ? this.encrypt(value) : value;
+    const now = new Date();
 
-    await prisma.systemSetting.upsert({
-      where: { key },
-      update: { value: storedValue, category, isEncrypted, updatedAt: new Date() },
-      create: { id: randomUUID(), key, value: storedValue, category, isEncrypted, updatedAt: new Date() },
-    });
+    await query(
+      `INSERT INTO "SystemSetting" ("id", "key", "value", "category", "isEncrypted", "createdAt", "updatedAt")
+       VALUES ($1, $2, $3, $4, $5, $6, $6)
+       ON CONFLICT ("key") DO UPDATE SET
+         "value" = EXCLUDED."value",
+         "category" = EXCLUDED."category",
+         "isEncrypted" = EXCLUDED."isEncrypted",
+         "updatedAt" = EXCLUDED."updatedAt"`,
+      [randomUUID(), key, storedValue, category, isEncrypted, now]
+    );
   }
 
   async getSettingsByCategory(category: string): Promise<Record<string, string>> {
-    const settings = await prisma.systemSetting.findMany({ where: { category } });
+    const settings = await query<{ key: string; value: string; isEncrypted: boolean }>(
+      `SELECT "key", "value", "isEncrypted" FROM "SystemSetting" WHERE "category" = $1`,
+      [category]
+    );
     const result: Record<string, string> = {};
 
     for (const setting of settings) {
@@ -58,7 +70,10 @@ class SettingsService {
   }
 
   async deleteSetting(key: string): Promise<void> {
-    await prisma.systemSetting.delete({ where: { key } });
+    await query(
+      `DELETE FROM "SystemSetting" WHERE "key" = $1`,
+      [key]
+    );
   }
 
   // LDAP specific methods

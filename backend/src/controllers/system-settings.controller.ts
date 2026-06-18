@@ -2,7 +2,7 @@ import { Request, Response } from 'express';
 import { randomUUID } from 'crypto';
 import fs from 'fs';
 import path from 'path';
-import prisma from '../config/database';
+import { query, queryOne } from '../config/database';
 import appLogger, { errorLogger } from '../config/logger';
 
 const SETTING_DEFAULTS: Record<string, string> = {
@@ -17,13 +17,13 @@ const SETTING_DEFAULTS: Record<string, string> = {
 // Get all system settings
 export const getSystemSettings = async (req: Request, res: Response) => {
   try {
-    const settings = await prisma.systemSetting.findMany({
-      where: { category: 'general' },
-    });
+    const settings = await query<any>(
+      `SELECT * FROM "SystemSetting" WHERE category = 'general'`
+    );
 
     // 기본값 먼저 적용 후 DB 값으로 덮어씀
     const settingsObject: Record<string, string> = { ...SETTING_DEFAULTS };
-    settings.forEach((setting) => {
+    settings.forEach((setting: any) => {
       settingsObject[setting.key] = setting.value;
     });
 
@@ -38,9 +38,10 @@ export const getSystemSettings = async (req: Request, res: Response) => {
 export const getSettingByKey = async (req: Request, res: Response) => {
   try {
     const { key } = req.params;
-    const setting = await prisma.systemSetting.findUnique({
-      where: { key },
-    });
+    const setting = await queryOne<any>(
+      `SELECT * FROM "SystemSetting" WHERE key = $1`,
+      [key]
+    );
 
     if (!setting) {
       return res.status(404).json({ error: 'Setting not found' });
@@ -63,20 +64,17 @@ export const updateSetting = async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Value is required' });
     }
 
-    const setting = await prisma.systemSetting.upsert({
-      where: { key },
-      update: {
-        value,
-        updatedAt: new Date(),
-      },
-      create: {
-        id: randomUUID(),
-        key,
-        value,
-        category: 'general',
-        updatedAt: new Date(),
-      },
-    });
+    const now = new Date();
+
+    const setting = await queryOne<any>(
+      `INSERT INTO "SystemSetting" (id, key, value, category, "createdAt", "updatedAt")
+       VALUES ($1, $2, $3, 'general', $4, $4)
+       ON CONFLICT (key) DO UPDATE
+         SET value = EXCLUDED.value,
+             "updatedAt" = EXCLUDED."updatedAt"
+       RETURNING *`,
+      [randomUUID(), key, value, now]
+    );
 
     res.json(setting);
   } catch (error: any) {
@@ -90,21 +88,18 @@ export const updateSettings = async (req: Request, res: Response) => {
   try {
     const settings = req.body; // { systemName: 'value', systemDescription: 'value', ... }
 
+    const now = new Date();
+
     const updates = Object.entries(settings).map(([key, value]) => {
-      return prisma.systemSetting.upsert({
-        where: { key },
-        update: {
-          value: value as string,
-          updatedAt: new Date(),
-        },
-        create: {
-          id: randomUUID(),
-          key,
-          value: value as string,
-          category: 'general',
-          updatedAt: new Date(),
-        },
-      });
+      return queryOne<any>(
+        `INSERT INTO "SystemSetting" (id, key, value, category, "createdAt", "updatedAt")
+         VALUES ($1, $2, $3, 'general', $4, $4)
+         ON CONFLICT (key) DO UPDATE
+           SET value = EXCLUDED.value,
+               "updatedAt" = EXCLUDED."updatedAt"
+         RETURNING *`,
+        [randomUUID(), key, value as string, now]
+      );
     });
 
     await Promise.all(updates);
@@ -124,22 +119,18 @@ export const uploadLogo = async (req: Request, res: Response) => {
     }
 
     const logoUrl = `/uploads/system-logos/${req.file.filename}`;
+    const now = new Date();
 
     // Save logo URL to system settings
-    await prisma.systemSetting.upsert({
-      where: { key: 'systemLogo' },
-      update: {
-        value: logoUrl,
-        updatedAt: new Date(),
-      },
-      create: {
-        id: randomUUID(),
-        key: 'systemLogo',
-        value: logoUrl,
-        category: 'general',
-        updatedAt: new Date(),
-      },
-    });
+    await queryOne<any>(
+      `INSERT INTO "SystemSetting" (id, key, value, category, "createdAt", "updatedAt")
+       VALUES ($1, 'systemLogo', $2, 'general', $3, $3)
+       ON CONFLICT (key) DO UPDATE
+         SET value = EXCLUDED.value,
+             "updatedAt" = EXCLUDED."updatedAt"
+       RETURNING *`,
+      [randomUUID(), logoUrl, now]
+    );
 
     res.json({ logoUrl });
   } catch (error: any) {
@@ -151,9 +142,9 @@ export const uploadLogo = async (req: Request, res: Response) => {
 // Delete logo
 export const deleteLogo = async (req: Request, res: Response) => {
   try {
-    const setting = await prisma.systemSetting.findUnique({
-      where: { key: 'systemLogo' },
-    });
+    const setting = await queryOne<any>(
+      `SELECT * FROM "SystemSetting" WHERE key = 'systemLogo'`
+    );
 
     if (setting) {
       // Delete the file
@@ -164,9 +155,7 @@ export const deleteLogo = async (req: Request, res: Response) => {
       }
 
       // Delete from database
-      await prisma.systemSetting.delete({
-        where: { key: 'systemLogo' },
-      });
+      await query(`DELETE FROM "SystemSetting" WHERE key = 'systemLogo'`);
     }
 
     res.json({ message: 'Logo deleted successfully' });
@@ -184,22 +173,18 @@ export const uploadFavicon = async (req: Request, res: Response) => {
     }
 
     const faviconUrl = `/uploads/system-logos/${req.file.filename}`;
+    const now = new Date();
 
     // Save favicon URL to system settings
-    await prisma.systemSetting.upsert({
-      where: { key: 'favicon' },
-      update: {
-        value: faviconUrl,
-        updatedAt: new Date(),
-      },
-      create: {
-        id: randomUUID(),
-        key: 'favicon',
-        value: faviconUrl,
-        category: 'general',
-        updatedAt: new Date(),
-      },
-    });
+    await queryOne<any>(
+      `INSERT INTO "SystemSetting" (id, key, value, category, "createdAt", "updatedAt")
+       VALUES ($1, 'favicon', $2, 'general', $3, $3)
+       ON CONFLICT (key) DO UPDATE
+         SET value = EXCLUDED.value,
+             "updatedAt" = EXCLUDED."updatedAt"
+       RETURNING *`,
+      [randomUUID(), faviconUrl, now]
+    );
 
     res.json({ faviconUrl });
   } catch (error: any) {
@@ -211,9 +196,9 @@ export const uploadFavicon = async (req: Request, res: Response) => {
 // Delete favicon
 export const deleteFavicon = async (req: Request, res: Response) => {
   try {
-    const setting = await prisma.systemSetting.findUnique({
-      where: { key: 'favicon' },
-    });
+    const setting = await queryOne<any>(
+      `SELECT * FROM "SystemSetting" WHERE key = 'favicon'`
+    );
 
     if (setting) {
       // Delete the file
@@ -224,9 +209,7 @@ export const deleteFavicon = async (req: Request, res: Response) => {
       }
 
       // Delete from database
-      await prisma.systemSetting.delete({
-        where: { key: 'favicon' },
-      });
+      await query(`DELETE FROM "SystemSetting" WHERE key = 'favicon'`);
     }
 
     res.json({ message: 'Favicon deleted successfully' });

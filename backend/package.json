@@ -15,7 +15,6 @@
   "author": "GUNIQ <gunique.co.kr@gmail.com>",
   "license": "SEE LICENSE IN LICENSE",
   "dependencies": {
-    "@prisma/client": "^5.7.1",
     "@slack/web-api": "^7.0.2",
     "@types/multer": "^2.0.0",
     "@types/node-cron": "^3.0.11",
@@ -30,6 +29,7 @@
     "node-cron": "^4.2.1",
     "passport": "^0.7.0",
     "passport-jwt": "^4.0.1",
+    "pg": "^8.21.0",
     "winston": "^3.18.3",
     "winston-daily-rotate-file": "^5.0.0"
   },
@@ -42,6 +42,7 @@
     "@types/node": "^20.10.6",
     "@types/passport": "^1.0.16",
     "@types/passport-jwt": "^4.0.0",
+    "@types/pg": "^8.20.0",
     "nodemon": "^3.0.2",
     "ts-node": "^10.9.2",
     "typescript": "^5.3.3"

@@ -2,8 +2,8 @@ import { Response } from 'express';
 import { AuthRequest } from '../middleware/auth';
 import { getSoftDeletedItems, restoreItem, permanentlyDeleteItem } from '../services/soft-delete.service';
 import { appLogger, errorLogger } from '../config/logger';
-import { UserRole, ItemType } from '@prisma/client';
-import prisma from '../config/database';
+import { UserRole, ItemType } from '../types/enums';
+import { queryOne } from '../config/database';
 
 /**
  * 휴지통 항목 조회 (권한별 필터링)
@@ -53,10 +53,10 @@ export const getTrashItems = async (req: AuthRequest, res: Response) => {
  * Check if user has permission to restore an item
  */
 async function canRestoreItem(userId: string, userRole: UserRole, itemId: string): Promise<{ allowed: boolean; reason?: string }> {
-  const item = await prisma.item.findUnique({
-    where: { id: itemId },
-    select: { id: true, type: true, createdById: true, assigneeId: true },
-  });
+  const item = await queryOne<{ id: string; type: string; createdById: string; assigneeId: string | null }>(
+    `SELECT "id", "type", "createdById", "assigneeId" FROM "Item" WHERE "id" = $1`,
+    [itemId]
+  );
 
   if (!item) {
     return { allowed: false, reason: '항목을 찾을 수 없습니다' };
@@ -139,10 +139,10 @@ export const restoreTrashItem = async (req: AuthRequest, res: Response) => {
  * Check if user has permission to permanently delete an item
  */
 async function canPermanentlyDeleteItem(userId: string, userRole: UserRole, itemId: string): Promise<{ allowed: boolean; reason?: string }> {
-  const item = await prisma.item.findUnique({
-    where: { id: itemId },
-    select: { id: true, type: true, createdById: true },
-  });
+  const item = await queryOne<{ id: string; type: string; createdById: string }>(
+    `SELECT "id", "type", "createdById" FROM "Item" WHERE "id" = $1`,
+    [itemId]
+  );
 
   if (!item) {
     return { allowed: false, reason: '항목을 찾을 수 없습니다' };

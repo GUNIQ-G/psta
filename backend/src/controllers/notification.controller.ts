@@ -1,6 +1,6 @@
 import { Response } from 'express';
 import { AuthRequest } from '../middleware/auth';
-import prisma from '../config/database';
+import { query, queryOne } from '../config/database';
 import { errorLogger } from '../config/logger';
 
 export const getMyNotifications = async (req: AuthRequest, res: Response): Promise<any> => {
@@ -12,34 +12,31 @@ export const getMyNotifications = async (req: AuthRequest, res: Response): Promi
     const sevenDaysAgo = new Date();
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
 
-    const notifications = await prisma.notification.findMany({
-      where: {
-        toUserId: userId,
-        ...(unreadOnly === 'true' ? { isRead: false } : {}),
-        OR: [
-          // 읽지 않은 알림은 날짜 제한 없음
-          { isRead: false },
-          // 읽은 알림은 7일 이내만
-          {
-            isRead: true,
-            createdAt: {
-              gte: sevenDaysAgo,
-            },
-          },
-        ],
-      },
-      include: {
-        FromUser: {
-          select: {
-            id: true,
-            displayName: true,
-            email: true,
-          },
-        },
-      },
-      orderBy: { createdAt: 'desc' },
-      take: 50,
-    });
+    let sql = `
+      SELECT
+        n.*,
+        json_build_object(
+          'id', fu."id",
+          'displayName', fu."displayName",
+          'email', fu."email"
+        ) AS "FromUser"
+      FROM "Notification" n
+      LEFT JOIN "User" fu ON fu."id" = n."fromUserId"
+      WHERE n."toUserId" = $1
+        AND (
+          n."isRead" = false
+          OR (n."isRead" = true AND n."createdAt" >= $2)
+        )
+    `;
+    const params: any[] = [userId, sevenDaysAgo];
+
+    if (unreadOnly === 'true') {
+      sql += ` AND n."isRead" = false`;
+    }
+
+    sql += ` ORDER BY n."createdAt" DESC LIMIT 50`;
+
+    const notifications = await query(sql, params);
 
     res.json(notifications);
   } catch (error) {
@@ -52,14 +49,12 @@ export const getUnreadCount = async (req: AuthRequest, res: Response): Promise<a
   try {
     const userId = req.user!.id;
 
-    const count = await prisma.notification.count({
-      where: {
-        toUserId: userId,
-        isRead: false,
-      },
-    });
+    const row = await queryOne<{ count: number }>(
+      `SELECT COUNT(*)::int AS count FROM "Notification" WHERE "toUserId" = $1 AND "isRead" = false`,
+      [userId]
+    );
 
-    res.json({ count });
+    res.json({ count: row?.count ?? 0 });
   } catch (error) {
     errorLogger.error('Get unread count error', { error });
     res.status(500).json({ error: 'Internal server error' });
@@ -71,7 +66,10 @@ export const markAsRead = async (req: AuthRequest, res: Response): Promise<any> 
     const { id } = req.params;
     const userId = req.user!.id;
 
-    const notification = await prisma.notification.findUnique({ where: { id } });
+    const notification = await queryOne<any>(
+      `SELECT * FROM "Notification" WHERE "id" = $1`,
+      [id]
+    );
 
     if (!notification) {
       return res.status(404).json({ error: 'Notification not found' });
@@ -81,10 +79,10 @@ export const markAsRead = async (req: AuthRequest, res: Response): Promise<any> 
       return res.status(403).json({ error: 'Not authorized' });
     }
 
-    await prisma.notification.update({
-      where: { id },
-      data: { isRead: true },
-    });
+    await query(
+      `UPDATE "Notification" SET "isRead" = true, "updatedAt" = $1 WHERE "id" = $2`,
+      [new Date(), id]
+    );
 
     res.json({ message: 'Marked as read' });
   } catch (error) {
@@ -97,13 +95,10 @@ export const markAllAsRead = async (req: AuthRequest, res: Response): Promise<an
   try {
     const userId = req.user!.id;
 
-    await prisma.notification.updateMany({
-      where: {
-        toUserId: userId,
-        isRead: false,
-      },
-      data: { isRead: true },
-    });
+    await query(
+      `UPDATE "Notification" SET "isRead" = true, "updatedAt" = $1 WHERE "toUserId" = $2 AND "isRead" = false`,
+      [new Date(), userId]
+    );
 
     res.json({ message: 'All marked as read' });
   } catch (error) {

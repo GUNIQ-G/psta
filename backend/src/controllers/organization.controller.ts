@@ -1,7 +1,7 @@
 import { Response } from 'express';
 import { AuthRequest } from '../middleware/auth';
-import prisma from '../config/database';
-import { OrgType } from '@prisma/client';
+import { query, queryOne } from '../config/database';
+import { OrgType } from '../types/enums';
 import { randomUUID } from 'crypto';
 import ldapService from '../config/ldap';
 import appLogger, { errorLogger, ldapLogger } from '../config/logger';
@@ -20,38 +20,54 @@ function getOrgTypeFromDnDepth(dn: string, baseDn: string): OrgType {
 // Get all organizations (tree structure)
 export const getOrganizationTree = async (req: AuthRequest, res: Response) => {
   try {
-    // Get all organizations
-    const allOrgs = await prisma.organization.findMany({
-      where: { isActive: true },
-      include: {
-        Members: {
-          select: {
-            id: true,
-            username: true,
-            displayName: true,
-            email: true,
-            role: true,
-          },
-        },
+    // Get all organizations with members and counts
+    const orgs = await query<any>(
+      `SELECT o.*,
+              COUNT(DISTINCT c.id) AS "childrenCount",
+              COUNT(DISTINCT u.id) AS "membersCount"
+       FROM "Organization" o
+       LEFT JOIN "Organization" c ON c."parentId" = o.id
+       LEFT JOIN "User" u ON u."organizationId" = o.id
+       WHERE o."isActive" = true
+       GROUP BY o.id
+       ORDER BY o.order ASC, o."createdAt" ASC`
+    );
+
+    // Fetch members for each org
+    const memberRows = await query<any>(
+      `SELECT u.id, u.username, u."displayName", u.email, u.role, u."organizationId"
+       FROM "User" u
+       WHERE u."organizationId" IS NOT NULL`
+    );
+
+    // Build org map with members and counts
+    const orgMap: Record<string, any> = {};
+    for (const org of orgs) {
+      orgMap[org.id] = {
+        ...org,
+        Members: memberRows.filter((m: any) => m.organizationId === org.id).map((m: any) => ({
+          id: m.id,
+          username: m.username,
+          displayName: m.displayName,
+          email: m.email,
+          role: m.role,
+        })),
         _count: {
-          select: {
-            Children: true,
-            Members: true,
-          },
+          Children: parseInt(org.childrenCount ?? '0'),
+          Members: parseInt(org.membersCount ?? '0'),
         },
-      },
-      orderBy: [
-        { order: 'asc' },
-        { createdAt: 'asc' },
-      ],
-    });
+        children: [],
+      };
+      delete orgMap[org.id].childrenCount;
+      delete orgMap[org.id].membersCount;
+    }
 
     // Build tree structure
     const buildTree = (parentId: string | null): any[] => {
-      return allOrgs
+      return orgs
         .filter((org: any) => org.parentId === parentId)
         .map((org: any) => ({
-          ...org,
+          ...orgMap[org.id],
           children: buildTree(org.id),
         }));
     };
@@ -69,41 +85,36 @@ export const getOrganizationById = async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params;
 
-    const org = await prisma.organization.findUnique({
-      where: { id },
-      include: {
-        Members: {
-          select: {
-            id: true,
-            username: true,
-            displayName: true,
-            email: true,
-            role: true,
-            phoneNumber: true,
-          },
-        },
-        Parent: {
-          select: {
-            id: true,
-            name: true,
-            type: true,
-          },
-        },
-        Children: {
-          select: {
-            id: true,
-            name: true,
-            type: true,
-          },
-        },
-      },
-    });
+    const org = await queryOne<any>(
+      `SELECT * FROM "Organization" WHERE id = $1`,
+      [id]
+    );
 
     if (!org) {
       return res.status(404).json({ error: 'Organization not found' });
     }
 
-    res.json(org);
+    const [members, parent, children] = await Promise.all([
+      query<any>(
+        `SELECT id, username, "displayName", email, role, "phoneNumber"
+         FROM "User" WHERE "organizationId" = $1`,
+        [id]
+      ),
+      org.parentId
+        ? queryOne<any>(`SELECT id, name, type FROM "Organization" WHERE id = $1`, [org.parentId])
+        : Promise.resolve(null),
+      query<any>(
+        `SELECT id, name, type FROM "Organization" WHERE "parentId" = $1`,
+        [id]
+      ),
+    ]);
+
+    res.json({
+      ...org,
+      Members: members,
+      Parent: parent,
+      Children: children,
+    });
   } catch (error: any) {
     errorLogger.error('Error fetching organization', { error });
     res.status(500).json({ error: 'Internal server error' });
@@ -133,9 +144,10 @@ export const createOrganization = async (req: AuthRequest, res: Response) => {
     // Determine parent DN for LDAP
     let parentDn = '';
     if (parentId) {
-      const parent = await prisma.organization.findUnique({
-        where: { id: parentId },
-      });
+      const parent = await queryOne<any>(
+        `SELECT * FROM "Organization" WHERE id = $1`,
+        [parentId]
+      );
 
       if (!parent) {
         return res.status(404).json({ error: 'Parent organization not found' });
@@ -146,9 +158,9 @@ export const createOrganization = async (req: AuthRequest, res: Response) => {
 
     // If no parent DN, get base DN from LDAP config
     if (!parentDn) {
-      const ldapConfig = await prisma.ldapConfig.findFirst({
-        where: { isActive: true },
-      });
+      const ldapConfig = await queryOne<any>(
+        `SELECT * FROM "LdapConfig" WHERE "isActive" = true LIMIT 1`
+      );
       if (ldapConfig) {
         parentDn = ldapConfig.searchBase;
       } else {
@@ -168,30 +180,33 @@ export const createOrganization = async (req: AuthRequest, res: Response) => {
       });
     }
 
-    // Create organization in database
-    const org = await prisma.organization.create({
-      data: {
-        id: randomUUID(),
-        name,
-        type,
-        description,
-        parentId,
-        ldapDn: createdLdapDn,
-        updatedAt: new Date(),
-      },
-      include: {
-        Members: true,
-        Parent: {
-          select: {
-            id: true,
-            name: true,
-            type: true,
-          },
-        },
-      },
-    });
+    const orgId = randomUUID();
+    const now = new Date();
 
-    res.status(201).json(org);
+    // Create organization in database
+    await query(
+      `INSERT INTO "Organization" (id, name, type, description, "parentId", "ldapDn", "isActive", "createdAt", "updatedAt")
+       VALUES ($1, $2, $3, $4, $5, $6, true, $7, $8)`,
+      [orgId, name, type, description ?? null, parentId ?? null, createdLdapDn, now, now]
+    );
+
+    const org = await queryOne<any>(
+      `SELECT * FROM "Organization" WHERE id = $1`,
+      [orgId]
+    );
+
+    const [members, parent] = await Promise.all([
+      query<any>(`SELECT * FROM "User" WHERE "organizationId" = $1`, [orgId]),
+      parentId
+        ? queryOne<any>(`SELECT id, name, type FROM "Organization" WHERE id = $1`, [parentId])
+        : Promise.resolve(null),
+    ]);
+
+    res.status(201).json({
+      ...org,
+      Members: members,
+      Parent: parent,
+    });
   } catch (error: any) {
     errorLogger.error('Error creating organization', { error });
     res.status(500).json({ error: 'Internal server error' });
@@ -204,9 +219,10 @@ export const updateOrganization = async (req: AuthRequest, res: Response) => {
     const { id } = req.params;
     const { name, type, description, parentId, ldapDn, isActive, order } = req.body;
 
-    const existing = await prisma.organization.findUnique({
-      where: { id },
-    });
+    const existing = await queryOne<any>(
+      `SELECT * FROM "Organization" WHERE id = $1`,
+      [id]
+    );
 
     if (!existing) {
       return res.status(404).json({ error: 'Organization not found' });
@@ -223,9 +239,10 @@ export const updateOrganization = async (req: AuthRequest, res: Response) => {
     // If parentId is being changed, verify parent exists and prevent circular reference
     if (parentId !== undefined && parentId !== existing.parentId) {
       if (parentId) {
-        const parent = await prisma.organization.findUnique({
-          where: { id: parentId },
-        });
+        const parent = await queryOne<any>(
+          `SELECT * FROM "Organization" WHERE id = $1`,
+          [parentId]
+        );
 
         if (!parent) {
           return res.status(404).json({ error: 'Parent organization not found' });
@@ -238,9 +255,10 @@ export const updateOrganization = async (req: AuthRequest, res: Response) => {
 
         // Check if parentId is a descendant
         const checkDescendant = async (orgId: string): Promise<boolean> => {
-          const children = await prisma.organization.findMany({
-            where: { parentId: orgId },
-          });
+          const children = await query<any>(
+            `SELECT id FROM "Organization" WHERE "parentId" = $1`,
+            [orgId]
+          );
 
           for (const child of children) {
             if (child.id === parentId) {
@@ -266,9 +284,16 @@ export const updateOrganization = async (req: AuthRequest, res: Response) => {
       try {
         // If name or parent changed, we need to move/rename the OU
         if (name !== undefined && name !== existing.name) {
-          const newParentDn = parentId !== undefined ?
-            (await prisma.organization.findUnique({ where: { id: parentId } }))?.ldapDn || '' :
-            existing.ldapDn.substring(existing.ldapDn.indexOf(',') + 1);
+          let newParentDn: string;
+          if (parentId !== undefined) {
+            const parentOrg = await queryOne<any>(
+              `SELECT "ldapDn" FROM "Organization" WHERE id = $1`,
+              [parentId]
+            );
+            newParentDn = parentOrg?.ldapDn || '';
+          } else {
+            newParentDn = existing.ldapDn.substring(existing.ldapDn.indexOf(',') + 1);
+          }
 
           if (newParentDn) {
             newLdapDn = await ldapService.moveOrganizationalUnit(existing.ldapDn, name, newParentDn);
@@ -276,7 +301,10 @@ export const updateOrganization = async (req: AuthRequest, res: Response) => {
           }
         } else if (parentId !== undefined && parentId !== existing.parentId) {
           // Only parent changed
-          const newParent = await prisma.organization.findUnique({ where: { id: parentId } });
+          const newParent = await queryOne<any>(
+            `SELECT "ldapDn" FROM "Organization" WHERE id = $1`,
+            [parentId]
+          );
           if (newParent?.ldapDn) {
             const currentName = existing.name;
             newLdapDn = await ldapService.moveOrganizationalUnit(existing.ldapDn, currentName, newParent.ldapDn);
@@ -297,42 +325,44 @@ export const updateOrganization = async (req: AuthRequest, res: Response) => {
       }
     }
 
-    const updateData: any = {
-      updatedAt: new Date(),
-    };
+    // Build SET clauses
+    const setClauses: string[] = ['"updatedAt" = $1'];
+    const params: any[] = [new Date()];
 
-    if (name !== undefined) updateData.name = name;
-    if (type !== undefined) updateData.type = type;
-    if (description !== undefined) updateData.description = description;
-    if (parentId !== undefined) updateData.parentId = parentId;
-    if (newLdapDn !== existing.ldapDn) updateData.ldapDn = newLdapDn;
-    if (isActive !== undefined) updateData.isActive = isActive;
-    if (order !== undefined) updateData.order = order;
+    if (name !== undefined) { params.push(name); setClauses.push(`name = $${params.length}`); }
+    if (type !== undefined) { params.push(type); setClauses.push(`type = $${params.length}`); }
+    if (description !== undefined) { params.push(description); setClauses.push(`description = $${params.length}`); }
+    if (parentId !== undefined) { params.push(parentId); setClauses.push(`"parentId" = $${params.length}`); }
+    if (newLdapDn !== existing.ldapDn) { params.push(newLdapDn); setClauses.push(`"ldapDn" = $${params.length}`); }
+    if (isActive !== undefined) { params.push(isActive); setClauses.push(`"isActive" = $${params.length}`); }
+    if (order !== undefined) { params.push(order); setClauses.push(`"order" = $${params.length}`); }
 
-    const org = await prisma.organization.update({
-      where: { id },
-      data: updateData,
-      include: {
-        Members: {
-          select: {
-            id: true,
-            username: true,
-            displayName: true,
-            email: true,
-            role: true,
-          },
-        },
-        Parent: {
-          select: {
-            id: true,
-            name: true,
-            type: true,
-          },
-        },
-      },
+    params.push(id);
+    await query(
+      `UPDATE "Organization" SET ${setClauses.join(', ')} WHERE id = $${params.length}`,
+      params
+    );
+
+    const org = await queryOne<any>(
+      `SELECT * FROM "Organization" WHERE id = $1`,
+      [id]
+    );
+
+    const [members, parent] = await Promise.all([
+      query<any>(
+        `SELECT id, username, "displayName", email, role FROM "User" WHERE "organizationId" = $1`,
+        [id]
+      ),
+      org.parentId
+        ? queryOne<any>(`SELECT id, name, type FROM "Organization" WHERE id = $1`, [org.parentId])
+        : Promise.resolve(null),
+    ]);
+
+    res.json({
+      ...org,
+      Members: members,
+      Parent: parent,
     });
-
-    res.json(org);
   } catch (error: any) {
     errorLogger.error('Error updating organization', { error });
     res.status(500).json({ error: 'Internal server error' });
@@ -344,27 +374,29 @@ export const deleteOrganization = async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params;
 
-    const existing = await prisma.organization.findUnique({
-      where: { id },
-      include: {
-        Children: true,
-        Members: true,
-      },
-    });
+    const existing = await queryOne<any>(
+      `SELECT * FROM "Organization" WHERE id = $1`,
+      [id]
+    );
 
     if (!existing) {
       return res.status(404).json({ error: 'Organization not found' });
     }
 
+    const [children, members] = await Promise.all([
+      query<any>(`SELECT id FROM "Organization" WHERE "parentId" = $1`, [id]),
+      query<any>(`SELECT id FROM "User" WHERE "organizationId" = $1`, [id]),
+    ]);
+
     // Check if has children
-    if (existing.Children.length > 0) {
+    if (children.length > 0) {
       return res.status(400).json({
         error: 'Cannot delete organization with child organizations. Delete children first.'
       });
     }
 
     // Check if has members
-    if (existing.Members.length > 0) {
+    if (members.length > 0) {
       return res.status(400).json({
         error: 'Cannot delete organization with members. Reassign members first.'
       });
@@ -383,9 +415,7 @@ export const deleteOrganization = async (req: AuthRequest, res: Response) => {
       }
     }
 
-    await prisma.organization.delete({
-      where: { id },
-    });
+    await query(`DELETE FROM "Organization" WHERE id = $1`, [id]);
 
     res.json({ message: 'Organization deleted successfully' });
   } catch (error: any) {
@@ -405,17 +435,19 @@ export const addMemberToOrganization = async (req: AuthRequest, res: Response) =
       });
     }
 
-    const org = await prisma.organization.findUnique({
-      where: { id: organizationId },
-    });
+    const org = await queryOne<any>(
+      `SELECT * FROM "Organization" WHERE id = $1`,
+      [organizationId]
+    );
 
     if (!org) {
       return res.status(404).json({ error: 'Organization not found' });
     }
 
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-    });
+    const user = await queryOne<any>(
+      `SELECT * FROM "User" WHERE id = $1`,
+      [userId]
+    );
 
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
@@ -434,13 +466,10 @@ export const addMemberToOrganization = async (req: AuthRequest, res: Response) =
       }
     }
 
-    await prisma.user.update({
-      where: { id: userId },
-      data: {
-        organizationId,
-        updatedAt: new Date(),
-      },
-    });
+    await query(
+      `UPDATE "User" SET "organizationId" = $1, "updatedAt" = $2 WHERE id = $3`,
+      [organizationId, new Date(), userId]
+    );
 
     res.json({ message: 'Member added to organization successfully' });
   } catch (error: any) {
@@ -460,9 +489,10 @@ export const removeMemberFromOrganization = async (req: AuthRequest, res: Respon
       });
     }
 
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-    });
+    const user = await queryOne<any>(
+      `SELECT * FROM "User" WHERE id = $1`,
+      [userId]
+    );
 
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
@@ -481,13 +511,10 @@ export const removeMemberFromOrganization = async (req: AuthRequest, res: Respon
       }
     }
 
-    await prisma.user.update({
-      where: { id: userId },
-      data: {
-        organizationId: null,
-        updatedAt: new Date(),
-      },
-    });
+    await query(
+      `UPDATE "User" SET "organizationId" = NULL, "updatedAt" = $1 WHERE id = $2`,
+      [new Date(), userId]
+    );
 
     res.json({ message: 'Member removed from organization successfully' });
   } catch (error: any) {
@@ -500,9 +527,9 @@ export const removeMemberFromOrganization = async (req: AuthRequest, res: Respon
 export const syncFromLdap = async (req: AuthRequest, res: Response) => {
   try {
     // Get LDAP config
-    const ldapConfig = await prisma.ldapConfig.findFirst({
-      where: { isActive: true },
-    });
+    const ldapConfig = await queryOne<any>(
+      `SELECT * FROM "LdapConfig" WHERE "isActive" = true LIMIT 1`
+    );
 
     if (!ldapConfig) {
       return res.status(500).json({ error: 'LDAP is not configured' });
@@ -522,19 +549,17 @@ export const syncFromLdap = async (req: AuthRequest, res: Response) => {
         continue;
       }
 
-      const existing = await prisma.organization.findFirst({
-        where: { ldapDn: ou.dn },
-      });
+      const existing = await queryOne<any>(
+        `SELECT * FROM "Organization" WHERE "ldapDn" = $1`,
+        [ou.dn]
+      );
 
       if (existing) {
         if (existing.description !== ou.description) {
-          await prisma.organization.update({
-            where: { id: existing.id },
-            data: {
-              description: ou.description,
-              updatedAt: new Date(),
-            },
-          });
+          await query(
+            `UPDATE "Organization" SET description = $1, "updatedAt" = $2 WHERE id = $3`,
+            [ou.description ?? null, new Date(), existing.id]
+          );
           updated++;
           ldapLogger.info('Updated OU from LDAP sync', { name: ou.name });
         } else {
@@ -547,25 +572,21 @@ export const syncFromLdap = async (req: AuthRequest, res: Response) => {
 
         let parentId: string | null = null;
         if (parentDn !== ldapConfig.searchBase) {
-          const parentOrg = await prisma.organization.findFirst({
-            where: { ldapDn: parentDn },
-          });
+          const parentOrg = await queryOne<any>(
+            `SELECT id FROM "Organization" WHERE "ldapDn" = $1`,
+            [parentDn]
+          );
           parentId = parentOrg?.id || null;
         }
 
         const orgType = getOrgTypeFromDnDepth(ou.dn, ldapConfig.searchBase);
+        const now = new Date();
 
-        await prisma.organization.create({
-          data: {
-            id: randomUUID(),
-            name: ou.name,
-            type: orgType,
-            description: ou.description,
-            parentId,
-            ldapDn: ou.dn,
-            updatedAt: new Date(),
-          },
-        });
+        await query(
+          `INSERT INTO "Organization" (id, name, type, description, "parentId", "ldapDn", "isActive", "createdAt", "updatedAt")
+           VALUES ($1, $2, $3, $4, $5, $6, true, $7, $8)`,
+          [randomUUID(), ou.name, orgType, ou.description ?? null, parentId, ou.dn, now, now]
+        );
         created++;
         ldapLogger.info('Created OU from LDAP sync', { name: ou.name, type: orgType });
       }
@@ -581,19 +602,17 @@ export const syncFromLdap = async (req: AuthRequest, res: Response) => {
         continue;
       }
 
-      const existing = await prisma.organization.findFirst({
-        where: { ldapDn: group.dn },
-      });
+      const existing = await queryOne<any>(
+        `SELECT * FROM "Organization" WHERE "ldapDn" = $1`,
+        [group.dn]
+      );
 
       if (existing) {
         if (existing.description !== group.description) {
-          await prisma.organization.update({
-            where: { id: existing.id },
-            data: {
-              description: group.description,
-              updatedAt: new Date(),
-            },
-          });
+          await query(
+            `UPDATE "Organization" SET description = $1, "updatedAt" = $2 WHERE id = $3`,
+            [group.description ?? null, new Date(), existing.id]
+          );
           updated++;
           ldapLogger.info('Updated Group from LDAP sync', { name: group.name });
         } else {
@@ -601,18 +620,12 @@ export const syncFromLdap = async (req: AuthRequest, res: Response) => {
         }
       } else {
         // For groups, we'll treat them as TEAM type by default
-        // They are typically under ou=groups, so no hierarchical parent
-        await prisma.organization.create({
-          data: {
-            id: randomUUID(),
-            name: group.name,
-            type: OrgType.TEAM, // Groups are treated as teams
-            description: group.description,
-            parentId: null, // Groups don't have hierarchical parents in this structure
-            ldapDn: group.dn,
-            updatedAt: new Date(),
-          },
-        });
+        const now = new Date();
+        await query(
+          `INSERT INTO "Organization" (id, name, type, description, "parentId", "ldapDn", "isActive", "createdAt", "updatedAt")
+           VALUES ($1, $2, $3, $4, NULL, $5, true, $6, $7)`,
+          [randomUUID(), group.name, OrgType.TEAM, group.description ?? null, group.dn, now, now]
+        );
         created++;
         ldapLogger.info('Created Group from LDAP sync', { name: group.name, type: 'TEAM' });
       }

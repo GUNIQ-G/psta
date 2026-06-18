@@ -5,8 +5,8 @@
  * Implements recursive soft delete for hierarchical items (PROJECT -> SERVICE -> TEAM -> ACTION).
  */
 
-import prisma from '../config/database';
-import { ItemType } from '@prisma/client';
+import { query, queryOne } from '../config/database';
+import { ItemType } from '../types/enums';
 import { appLogger } from '../config/logger';
 import { randomUUID } from 'crypto';
 
@@ -27,12 +27,15 @@ export async function softDeleteItem(
   let deletedCount = 0;
 
   try {
-    const item = await prisma.item.findUnique({
-      where: { id: itemId },
-      include: {
-        other_Item: true, // Children items
-      },
-    });
+    const item = await queryOne<{
+      id: string;
+      name: string;
+      type: string;
+      isDeleted: boolean;
+    }>(
+      `SELECT "id", "name", "type", "isDeleted" FROM "Item" WHERE id = $1`,
+      [itemId]
+    );
 
     if (!item) {
       throw new Error('Item not found');
@@ -43,8 +46,13 @@ export async function softDeleteItem(
     }
 
     // If recursive, soft delete all children first
-    if (recursive && item.other_Item.length > 0) {
-      for (const child of item.other_Item) {
+    if (recursive) {
+      const children = await query<{ id: string; isDeleted: boolean }>(
+        `SELECT "id", "isDeleted" FROM "Item" WHERE "parentId" = $1`,
+        [itemId]
+      );
+
+      for (const child of children) {
         if (!child.isDeleted) {
           const result = await softDeleteItem(child.id, { userId, recursive: true });
           deletedCount += result.deletedCount;
@@ -54,14 +62,10 @@ export async function softDeleteItem(
     }
 
     // Soft delete the item itself
-    await prisma.item.update({
-      where: { id: itemId },
-      data: {
-        isDeleted: true,
-        deletedAt: new Date(),
-        deletedById: userId,
-      },
-    });
+    await query(
+      `UPDATE "Item" SET "isDeleted" = true, "deletedAt" = $1, "deletedById" = $2 WHERE id = $3`,
+      [new Date(), userId, itemId]
+    );
 
     deletedItems.push(itemId);
     deletedCount++;
@@ -95,34 +99,25 @@ async function softDeleteRelatedData(itemId: string, userId: string): Promise<vo
   const now = new Date();
 
   // Soft delete Comments
-  await prisma.comment.updateMany({
-    where: { itemId, isDeleted: false },
-    data: {
-      isDeleted: true,
-      deletedAt: now,
-      deletedById: userId,
-    },
-  });
+  await query(
+    `UPDATE "Comment" SET "isDeleted" = true, "deletedAt" = $1, "deletedById" = $2
+     WHERE "itemId" = $3 AND "isDeleted" = false`,
+    [now, userId, itemId]
+  );
 
   // Soft delete Files
-  await prisma.file.updateMany({
-    where: { itemId, isDeleted: false },
-    data: {
-      isDeleted: true,
-      deletedAt: now,
-      deletedById: userId,
-    },
-  });
+  await query(
+    `UPDATE "File" SET "isDeleted" = true, "deletedAt" = $1, "deletedById" = $2
+     WHERE "itemId" = $3 AND "isDeleted" = false`,
+    [now, userId, itemId]
+  );
 
   // Soft delete Links
-  await prisma.link.updateMany({
-    where: { itemId, isDeleted: false },
-    data: {
-      isDeleted: true,
-      deletedAt: now,
-      deletedById: userId,
-    },
-  });
+  await query(
+    `UPDATE "Link" SET "isDeleted" = true, "deletedAt" = $1, "deletedById" = $2
+     WHERE "itemId" = $3 AND "isDeleted" = false`,
+    [now, userId, itemId]
+  );
 }
 
 /**
@@ -133,9 +128,10 @@ export async function softDeleteWorkRequest(
   userId: string
 ): Promise<void> {
   try {
-    const workRequest = await prisma.workRequest.findUnique({
-      where: { id: workRequestId },
-    });
+    const workRequest = await queryOne<{ id: string; title: string; isDeleted: boolean }>(
+      `SELECT "id", "title", "isDeleted" FROM "WorkRequest" WHERE id = $1`,
+      [workRequestId]
+    );
 
     if (!workRequest) {
       throw new Error('WorkRequest not found');
@@ -145,14 +141,10 @@ export async function softDeleteWorkRequest(
       throw new Error('WorkRequest is already deleted');
     }
 
-    await prisma.workRequest.update({
-      where: { id: workRequestId },
-      data: {
-        isDeleted: true,
-        deletedAt: new Date(),
-        deletedById: userId,
-      },
-    });
+    await query(
+      `UPDATE "WorkRequest" SET "isDeleted" = true, "deletedAt" = $1, "deletedById" = $2 WHERE id = $3`,
+      [new Date(), userId, workRequestId]
+    );
 
     appLogger.info('WorkRequest soft deleted', {
       workRequestId,
@@ -174,9 +166,10 @@ export async function softDeleteWorkRequest(
  */
 export async function restoreItem(itemId: string) {
   try {
-    const item = await prisma.item.findUnique({
-      where: { id: itemId },
-    });
+    const item = await queryOne<{ id: string; name: string; type: string; isDeleted: boolean }>(
+      `SELECT "id", "name", "type", "isDeleted" FROM "Item" WHERE id = $1`,
+      [itemId]
+    );
 
     if (!item) {
       throw new Error('Item not found');
@@ -186,14 +179,11 @@ export async function restoreItem(itemId: string) {
       throw new Error('Item is not deleted');
     }
 
-    const restoredItem = await prisma.item.update({
-      where: { id: itemId },
-      data: {
-        isDeleted: false,
-        deletedAt: null,
-        deletedById: null,
-      },
-    });
+    const restoredItem = await queryOne<any>(
+      `UPDATE "Item" SET "isDeleted" = false, "deletedAt" = NULL, "deletedById" = NULL
+       WHERE id = $1 RETURNING *`,
+      [itemId]
+    );
 
     appLogger.info('Item restored', {
       itemId,
@@ -216,9 +206,10 @@ export async function restoreItem(itemId: string) {
  */
 export async function permanentlyDeleteItem(itemId: string): Promise<void> {
   try {
-    const item = await prisma.item.findUnique({
-      where: { id: itemId },
-    });
+    const item = await queryOne<{ id: string; name: string; type: string; isDeleted: boolean }>(
+      `SELECT "id", "name", "type", "isDeleted" FROM "Item" WHERE id = $1`,
+      [itemId]
+    );
 
     if (!item) {
       throw new Error('Item not found');
@@ -229,12 +220,12 @@ export async function permanentlyDeleteItem(itemId: string): Promise<void> {
     }
 
     // First delete related data
-    await prisma.comment.deleteMany({ where: { itemId } });
-    await prisma.file.deleteMany({ where: { itemId } });
-    await prisma.link.deleteMany({ where: { itemId } });
+    await query(`DELETE FROM "Comment" WHERE "itemId" = $1`, [itemId]);
+    await query(`DELETE FROM "File" WHERE "itemId" = $1`, [itemId]);
+    await query(`DELETE FROM "Link" WHERE "itemId" = $1`, [itemId]);
 
     // Then delete the item
-    await prisma.item.delete({ where: { id: itemId } });
+    await query(`DELETE FROM "Item" WHERE id = $1`, [itemId]);
 
     appLogger.info('Item permanently deleted', {
       itemId,
@@ -262,53 +253,102 @@ export async function getSoftDeletedItems(options?: {
 }) {
   const { type, deletedAfter, limit = 100, userId, userRole } = options || {};
 
-  const where: any = { isDeleted: true };
-  if (type) where.type = type;
-  if (deletedAfter) where.deletedAt = { gte: deletedAfter };
+  const params: any[] = [];
+  let paramIndex = 1;
+
+  let whereClause = `i."isDeleted" = true`;
+
+  if (type) {
+    whereClause += ` AND i."type" = $${paramIndex++}`;
+    params.push(type);
+  }
+
+  if (deletedAfter) {
+    whereClause += ` AND i."deletedAt" >= $${paramIndex++}`;
+    params.push(deletedAfter);
+  }
 
   // Role-based filtering: non-admin users only see items they created or are assigned to
   if (userRole !== 'ADMIN' && userId) {
-    where.OR = [
-      { createdById: userId },    // Created by user
-      { assigneeId: userId },      // Assigned to user
-    ];
+    whereClause += ` AND (i."createdById" = $${paramIndex} OR i."assigneeId" = $${paramIndex + 1})`;
+    params.push(userId, userId);
+    paramIndex += 2;
   }
 
-  return prisma.item.findMany({
-    where,
-    include: {
-      User_Item_deletedByIdToUser: {
-        select: {
-          id: true,
-          username: true,
-          displayName: true,
-        },
-      },
-      User_Item_assigneeIdToUser: {
-        select: {
-          id: true,
-          username: true,
-          displayName: true,
-        },
-      },
-      User_Item_createdByIdToUser: {
-        select: {
-          id: true,
-          username: true,
-          displayName: true,
-        },
-      },
-      Client: true,
+  params.push(limit);
+  const limitParam = paramIndex;
+
+  const rows = await query<any>(
+    `SELECT
+       i.*,
+       del_user.id AS "deletedBy_id",
+       del_user.username AS "deletedBy_username",
+       del_user."displayName" AS "deletedBy_displayName",
+       asgn_user.id AS "assignee_id",
+       asgn_user.username AS "assignee_username",
+       asgn_user."displayName" AS "assignee_displayName",
+       cr_user.id AS "createdBy_id",
+       cr_user.username AS "createdBy_username",
+       cr_user."displayName" AS "createdBy_displayName",
+       c.id AS "client_id",
+       c.name AS "client_name",
+       c.code AS "client_code",
+       c.description AS "client_description",
+       c."logoUrl" AS "client_logoUrl",
+       c."isActive" AS "client_isActive",
+       c."createdAt" AS "client_createdAt",
+       c."updatedAt" AS "client_updatedAt",
+       (SELECT COUNT(*) FROM "Item" child WHERE child."parentId" = i.id AND child."isDeleted" = true)::int AS "deletedChildrenCount"
+     FROM "Item" i
+     LEFT JOIN "User" del_user ON del_user.id = i."deletedById"
+     LEFT JOIN "User" asgn_user ON asgn_user.id = i."assigneeId"
+     LEFT JOIN "User" cr_user ON cr_user.id = i."createdById"
+     LEFT JOIN "Client" c ON c.id = i."clientId"
+     WHERE ${whereClause}
+     ORDER BY i."deletedAt" DESC
+     LIMIT $${limitParam}`,
+    params
+  );
+
+  // Transform flat rows to nested structure matching original Prisma include shape
+  return rows.map((row) => {
+    const {
+      deletedBy_id, deletedBy_username, deletedBy_displayName,
+      assignee_id, assignee_username, assignee_displayName,
+      createdBy_id, createdBy_username, createdBy_displayName,
+      client_id, client_name, client_code, client_description,
+      client_logoUrl, client_isActive, client_createdAt, client_updatedAt,
+      deletedChildrenCount,
+      ...itemFields
+    } = row;
+
+    return {
+      ...itemFields,
+      User_Item_deletedByIdToUser: deletedBy_id
+        ? { id: deletedBy_id, username: deletedBy_username, displayName: deletedBy_displayName }
+        : null,
+      User_Item_assigneeIdToUser: assignee_id
+        ? { id: assignee_id, username: assignee_username, displayName: assignee_displayName }
+        : null,
+      User_Item_createdByIdToUser: createdBy_id
+        ? { id: createdBy_id, username: createdBy_username, displayName: createdBy_displayName }
+        : null,
+      Client: client_id
+        ? {
+            id: client_id,
+            name: client_name,
+            code: client_code,
+            description: client_description,
+            logoUrl: client_logoUrl,
+            isActive: client_isActive,
+            createdAt: client_createdAt,
+            updatedAt: client_updatedAt,
+          }
+        : null,
       _count: {
-        select: {
-          other_Item: {
-            where: { isDeleted: true }, // Count deleted children
-          },
-        },
+        other_Item: deletedChildrenCount ?? 0,
       },
-    },
-    orderBy: { deletedAt: 'desc' },
-    take: limit,
+    };
   });
 }
 
@@ -317,59 +357,60 @@ export async function getSoftDeletedItems(options?: {
  */
 async function findOrCreateUndecidedHierarchy(userId: string, projectId?: string) {
   // Find or create "미정 프로젝트"
-  let undecidedProject = await prisma.item.findFirst({
-    where: {
-      type: ItemType.PROJECT,
-      name: { contains: '미정' },
-      isDeleted: false,
-    },
-  });
+  let undecidedProject = await queryOne<any>(
+    `SELECT * FROM "Item" WHERE "type" = $1 AND "name" LIKE $2 AND "isDeleted" = false LIMIT 1`,
+    [ItemType.PROJECT, '%미정%']
+  );
 
   if (!undecidedProject) {
-    undecidedProject = await prisma.item.create({
-      data: {
-        id: randomUUID(),
-        name: '미정 프로젝트',
-        type: ItemType.PROJECT,
-        status: 'NOT_STARTED',
-        progress: 0,
-        description: '프로젝트가 미정인 항목들을 위한 임시 프로젝트',
-        createdById: userId,
-        updatedAt: new Date(),
-      },
-    });
+    undecidedProject = await queryOne<any>(
+      `INSERT INTO "Item" (
+         "id", "name", "type", "status", "progress", "description", "createdById", "updatedAt"
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+       RETURNING *`,
+      [
+        randomUUID(),
+        '미정 프로젝트',
+        ItemType.PROJECT,
+        'NOT_STARTED',
+        0,
+        '프로젝트가 미정인 항목들을 위한 임시 프로젝트',
+        userId,
+        new Date(),
+      ]
+    );
   }
 
   // Determine which project to use for the undecided service
-  const targetProjectId = projectId || undecidedProject.id;
+  const targetProjectId = projectId || undecidedProject!.id;
 
   // Find or create "미정 서비스" under the target project
-  let undecidedService = await prisma.item.findFirst({
-    where: {
-      type: ItemType.SERVICE,
-      name: { contains: '미정' },
-      parentId: targetProjectId,
-      isDeleted: false,
-    },
-  });
+  let undecidedService = await queryOne<any>(
+    `SELECT * FROM "Item" WHERE "type" = $1 AND "name" LIKE $2 AND "parentId" = $3 AND "isDeleted" = false LIMIT 1`,
+    [ItemType.SERVICE, '%미정%', targetProjectId]
+  );
 
   if (!undecidedService) {
-    undecidedService = await prisma.item.create({
-      data: {
-        id: randomUUID(),
-        name: '미정 서비스',
-        type: ItemType.SERVICE,
-        status: 'NOT_STARTED',
-        progress: 0,
-        parentId: targetProjectId,
-        description: '서비스가 미정인 항목들을 위한 임시 서비스',
-        createdById: userId,
-        updatedAt: new Date(),
-      },
-    });
+    undecidedService = await queryOne<any>(
+      `INSERT INTO "Item" (
+         "id", "name", "type", "status", "progress", "parentId", "description", "createdById", "updatedAt"
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+       RETURNING *`,
+      [
+        randomUUID(),
+        '미정 서비스',
+        ItemType.SERVICE,
+        'NOT_STARTED',
+        0,
+        targetProjectId,
+        '서비스가 미정인 항목들을 위한 임시 서비스',
+        userId,
+        new Date(),
+      ]
+    );
   }
 
-  return { undecidedProject, undecidedService };
+  return { undecidedProject: undecidedProject!, undecidedService: undecidedService! };
 }
 
 /**
@@ -385,10 +426,10 @@ export async function moveTeamsToUndecided(
   let movedCount = 0;
 
   for (const teamId of teamIds) {
-    await prisma.item.update({
-      where: { id: teamId },
-      data: { parentId: undecidedService.id },
-    });
+    await query(
+      `UPDATE "Item" SET "parentId" = $1 WHERE id = $2`,
+      [undecidedService.id, teamId]
+    );
     movedCount++;
   }
 
@@ -409,38 +450,30 @@ export async function softDeleteProjectWithTeamPreservation(
   userId: string
 ): Promise<{ deletedCount: number; movedTeamCount: number; actionCount: number }> {
   // Get all services under the project
-  const services = await prisma.item.findMany({
-    where: {
-      parentId: projectId,
-      type: ItemType.SERVICE,
-      isDeleted: false,
-    },
-  });
+  const services = await query<{ id: string }>(
+    `SELECT "id" FROM "Item" WHERE "parentId" = $1 AND "type" = $2 AND "isDeleted" = false`,
+    [projectId, ItemType.SERVICE]
+  );
 
   // Get all teams under all services
   const allTeamIds: string[] = [];
   let totalActionCount = 0;
 
   for (const service of services) {
-    const teams = await prisma.item.findMany({
-      where: {
-        parentId: service.id,
-        type: ItemType.TEAM,
-        isDeleted: false,
-      },
-      include: {
-        other_Item: {
-          where: {
-            type: ItemType.ACTION,
-            isDeleted: false,
-          },
-        },
-      },
-    });
+    const teams = await query<{ id: string }>(
+      `SELECT "id" FROM "Item" WHERE "parentId" = $1 AND "type" = $2 AND "isDeleted" = false`,
+      [service.id, ItemType.TEAM]
+    );
 
     for (const team of teams) {
       allTeamIds.push(team.id);
-      totalActionCount += team.other_Item.length;
+
+      const actionCountRow = await queryOne<{ count: string }>(
+        `SELECT COUNT(*) AS count FROM "Item"
+         WHERE "parentId" = $1 AND "type" = $2 AND "isDeleted" = false`,
+        [team.id, ItemType.ACTION]
+      );
+      totalActionCount += parseInt(actionCountRow?.count ?? '0', 10);
     }
   }
 
@@ -473,57 +506,52 @@ export async function softDeleteServiceWithTeamPreservation(
   userId: string
 ): Promise<{ deletedCount: number; movedTeamCount: number; actionCount: number }> {
   // Get the service to find its parent project
-  const service = await prisma.item.findUnique({
-    where: { id: serviceId },
-  });
+  const service = await queryOne<{ id: string; parentId: string | null }>(
+    `SELECT "id", "parentId" FROM "Item" WHERE id = $1`,
+    [serviceId]
+  );
 
   if (!service) {
     throw new Error('Service not found');
   }
 
-  // Get all teams under the service
-  const teams = await prisma.item.findMany({
-    where: {
-      parentId: serviceId,
-      type: ItemType.TEAM,
-      isDeleted: false,
-    },
-    include: {
-      other_Item: {
-        where: {
-          type: ItemType.ACTION,
-          isDeleted: false,
-        },
-      },
-    },
-  });
+  // Get all teams under the service (with their action counts)
+  const teams = await query<{ id: string }>(
+    `SELECT "id" FROM "Item" WHERE "parentId" = $1 AND "type" = $2 AND "isDeleted" = false`,
+    [serviceId, ItemType.TEAM]
+  );
 
   const teamIds = teams.map(t => t.id);
-  const totalActionCount = teams.reduce((sum, team) => sum + team.other_Item.length, 0);
+
+  let totalActionCount = 0;
+  for (const team of teams) {
+    const actionCountRow = await queryOne<{ count: string }>(
+      `SELECT COUNT(*) AS count FROM "Item"
+       WHERE "parentId" = $1 AND "type" = $2 AND "isDeleted" = false`,
+      [team.id, ItemType.ACTION]
+    );
+    totalActionCount += parseInt(actionCountRow?.count ?? '0', 10);
+  }
 
   // v1.1.18: Get all ServiceTeams linked to this service
-  const serviceTeams = await prisma.serviceTeam.findMany({
-    where: {
-      serviceId: serviceId,
-    },
-    select: {
-      id: true,
-    },
-  });
+  const serviceTeams = await query<{ id: string }>(
+    `SELECT "id" FROM "ServiceTeam" WHERE "serviceId" = $1`,
+    [serviceId]
+  );
 
   const serviceTeamIds = serviceTeams.map(st => st.id);
 
   // v1.1.18: Soft delete all actions linked to these ServiceTeams
   let deletedActionCount = 0;
   if (serviceTeamIds.length > 0) {
-    const actionsToDelete = await prisma.item.findMany({
-      where: {
-        serviceTeamId: { in: serviceTeamIds },
-        type: ItemType.ACTION,
-        isDeleted: false,
-      },
-      select: { id: true },
-    });
+    const placeholders = serviceTeamIds.map((_, i) => `$${i + 1}`).join(', ');
+    const actionsToDelete = await query<{ id: string }>(
+      `SELECT "id" FROM "Item"
+       WHERE "serviceTeamId" IN (${placeholders})
+         AND "type" = $${serviceTeamIds.length + 1}
+         AND "isDeleted" = false`,
+      [...serviceTeamIds, ItemType.ACTION]
+    );
 
     for (const action of actionsToDelete) {
       await softDeleteItem(action.id, { userId, recursive: false });

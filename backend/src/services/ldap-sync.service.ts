@@ -1,10 +1,9 @@
-import { PrismaClient } from '@prisma/client';
 import { LdapService } from '../config/ldap';
 import { appLogger, errorLogger, ldapLogger } from '../config/logger';
 import { randomUUID } from 'crypto';
 import { calculateRoleFromLdap, POSITION_DISPLAY_NAMES } from '../utils/role-mapper';
+import { query, queryOne, transaction } from '../config/database';
 
-const prisma = new PrismaClient();
 const ldapService = new LdapService();
 
 export interface SyncResult {
@@ -180,7 +179,7 @@ export class LdapSyncService {
       const dnToTeamId = new Map<string, string>();
 
       // Get all existing PSTA teams
-      const pstaTeams = await prisma.team.findMany();
+      const pstaTeams = await query<any>('SELECT * FROM "Team"');
 
       // Build existing DN mapping
       for (const pstaTeam of pstaTeams) {
@@ -199,10 +198,10 @@ export class LdapSyncService {
 
           // If not found in memory, try database
           if (!parentId) {
-            const parentTeam = await prisma.team.findUnique({
-              where: { ldapDn: teamInfo.parentDn },
-              select: { id: true },
-            });
+            const parentTeam = await queryOne<{ id: string }>(
+              'SELECT id FROM "Team" WHERE "ldapDn" = $1',
+              [teamInfo.parentDn]
+            );
             if (parentTeam) {
               parentId = parentTeam.id;
               dnToTeamId.set(teamInfo.parentDn, parentId);
@@ -213,18 +212,18 @@ export class LdapSyncService {
         // v1.1.19: Check if team exists (by departmentNumber first, then DN, then name)
         // departmentNumber is the most stable identifier across LDAP server changes
         let existingTeam = teamInfo.departmentNumber
-          ? pstaTeams.find(t => t.departmentNumber === teamInfo.departmentNumber)
+          ? pstaTeams.find((t: any) => t.departmentNumber === teamInfo.departmentNumber)
           : undefined;
 
         // Fallback to DN matching
         if (!existingTeam) {
-          existingTeam = pstaTeams.find(t => t.ldapDn === teamInfo.dn);
+          existingTeam = pstaTeams.find((t: any) => t.ldapDn === teamInfo.dn);
         }
 
         // v1.1.18: Also check by name for migrating from old LDAP server
         // If name matches but DN differs, it's a migration case (e.g., Group → OU, or different LDAP server)
         if (!existingTeam) {
-          existingTeam = pstaTeams.find(t => t.name === teamInfo.name);
+          existingTeam = pstaTeams.find((t: any) => t.name === teamInfo.name);
         }
 
         if (!existingTeam) {
@@ -232,23 +231,29 @@ export class LdapSyncService {
           ldapLogger.info(`Creating team: ${teamInfo.name} (level: ${teamInfo.level}, type: ${teamInfo.ldapType})`);
 
           if (!dryRun) {
-            const newTeam = await prisma.team.create({
-              data: {
-                id: randomUUID(),
-                name: teamInfo.name,
-                ldapDn: teamInfo.dn,
-                departmentNumber: teamInfo.departmentNumber || null,  // v1.1.19: Store departmentNumber
-                description: teamInfo.description || `LDAP ${teamInfo.ldapType}: ${teamInfo.name}`,
+            const newTeamId = randomUUID();
+            const newTeam = await queryOne<any>(
+              `INSERT INTO "Team" (id, name, "ldapDn", "departmentNumber", description, "parentId", level, "ldapType", "isActive", "updatedAt")
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+               RETURNING *`,
+              [
+                newTeamId,
+                teamInfo.name,
+                teamInfo.dn,
+                teamInfo.departmentNumber || null,
+                teamInfo.description || `LDAP ${teamInfo.ldapType}: ${teamInfo.name}`,
                 parentId,
-                level: teamInfo.level,
-                ldapType: teamInfo.ldapType,
-                isActive: true,
-                updatedAt: new Date(),
-              },
-            });
+                teamInfo.level,
+                teamInfo.ldapType,
+                true,
+                new Date(),
+              ]
+            );
 
             // Add to DN mapping
-            dnToTeamId.set(teamInfo.dn, newTeam.id);
+            if (newTeam) {
+              dnToTeamId.set(teamInfo.dn, newTeam.id);
+            }
           }
 
           result.created++;
@@ -258,20 +263,24 @@ export class LdapSyncService {
           ldapLogger.info(`Updating team: ${teamInfo.name} (level: ${teamInfo.level})`);
 
           if (!dryRun) {
-            await prisma.team.update({
-              where: { id: existingTeam.id },
-              data: {
-                isActive: true,
-                ldapDn: teamInfo.dn,
-                departmentNumber: teamInfo.departmentNumber || existingTeam.departmentNumber,  // v1.1.19: Update departmentNumber
-                name: teamInfo.name,  // v1.1.19: Update name in case it changed (name is no longer primary key)
+            await query(
+              `UPDATE "Team"
+               SET "isActive" = $1, "ldapDn" = $2, "departmentNumber" = $3, name = $4,
+                   "parentId" = $5, level = $6, "ldapType" = $7, description = $8, "updatedAt" = $9
+               WHERE id = $10`,
+              [
+                true,
+                teamInfo.dn,
+                teamInfo.departmentNumber || existingTeam.departmentNumber,
+                teamInfo.name,
                 parentId,
-                level: teamInfo.level,
-                ldapType: teamInfo.ldapType,
-                description: teamInfo.description || existingTeam.description,
-                updatedAt: new Date(),
-              },
-            });
+                teamInfo.level,
+                teamInfo.ldapType,
+                teamInfo.description || existingTeam.description,
+                new Date(),
+                existingTeam.id,
+              ]
+            );
           }
 
           // Ensure mapping is up to date
@@ -289,20 +298,17 @@ export class LdapSyncService {
       const ldapDns = teamsWithHierarchy.map(t => t.dn);
 
       // v1.1.18: Re-fetch teams after updates to get current ldapDn values
-      const updatedPstaTeams = await prisma.team.findMany();
+      const updatedPstaTeams = await query<any>('SELECT * FROM "Team"');
 
       for (const pstaTeam of updatedPstaTeams) {
         if (pstaTeam.ldapDn && !ldapDns.includes(pstaTeam.ldapDn) && pstaTeam.isActive) {
           ldapLogger.info(`Deactivating team: ${pstaTeam.name}`);
 
           if (!dryRun) {
-            await prisma.team.update({
-              where: { id: pstaTeam.id },
-              data: {
-                isActive: false,
-                updatedAt: new Date(),
-              },
-            });
+            await query(
+              'UPDATE "Team" SET "isActive" = $1, "updatedAt" = $2 WHERE id = $3',
+              [false, new Date(), pstaTeam.id]
+            );
           }
 
           result.deactivated++;
@@ -345,13 +351,10 @@ export class LdapSyncService {
       ldapLogger.info(`Found ${ldapUsers.length} LDAP users`);
 
       // Get all PSTA users (exclude admin and users without ldapDn)
-      const pstaUsers = await prisma.user.findMany({
-        where: {
-          isActive: true,
-          role: { not: 'ADMIN' },
-          ldapDn: { not: null },
-        },
-      });
+      const pstaUsers = await query<any>(
+        `SELECT * FROM "User"
+         WHERE "isActive" = true AND role != 'ADMIN' AND "ldapDn" IS NOT NULL`
+      );
 
       // Deactivate users not in LDAP
       for (const pstaUser of pstaUsers) {
@@ -359,13 +362,10 @@ export class LdapSyncService {
           ldapLogger.info(`Deactivating user: ${pstaUser.username} (${pstaUser.displayName})`);
 
           if (!dryRun) {
-            await prisma.user.update({
-              where: { id: pstaUser.id },
-              data: {
-                isActive: false,
-                updatedAt: new Date(),
-              },
-            });
+            await query(
+              'UPDATE "User" SET "isActive" = $1, "updatedAt" = $2 WHERE id = $3',
+              [false, new Date(), pstaUser.id]
+            );
           }
 
           result.deactivated++;
@@ -450,14 +450,14 @@ export class LdapSyncService {
       const ldapUsers = await ldapService.getAllUsers();
 
       // Get all active PSTA users
-      const pstaUsers = await prisma.user.findMany({
-        where: { isActive: true, ldapDn: { not: null } },
-      });
+      const pstaUsers = await query<any>(
+        'SELECT * FROM "User" WHERE "isActive" = true AND "ldapDn" IS NOT NULL'
+      );
 
       // Get all PSTA teams
-      const pstaTeams = await prisma.team.findMany({
-        where: { isActive: true },
-      });
+      const pstaTeams = await query<any>(
+        'SELECT * FROM "Team" WHERE "isActive" = true'
+      );
 
       for (const pstaUser of pstaUsers) {
         // Find LDAP user
@@ -468,7 +468,7 @@ export class LdapSyncService {
         let targetTeamId: string | null = null;
 
         if (ldapUser.departmentNumber) {
-          const deptTeam = pstaTeams.find(t => t.departmentNumber === ldapUser.departmentNumber);
+          const deptTeam = pstaTeams.find((t: any) => t.departmentNumber === ldapUser.departmentNumber);
           if (deptTeam) {
             targetTeamId = deptTeam.id;
             ldapLogger.debug(`Matched ${pstaUser.username} to team by departmentNumber: ${deptTeam.name} (${ldapUser.departmentNumber})`);
@@ -487,7 +487,7 @@ export class LdapSyncService {
             const closestOu = this.decodeLdapString(ouParts[0].split('=')[1]);
 
             // Find matching team by name (OU teams have ldapType='OU')
-            const ouTeam = pstaTeams.find(t =>
+            const ouTeam = pstaTeams.find((t: any) =>
               t.name === closestOu && t.ldapType === 'OU'
             );
 
@@ -510,7 +510,7 @@ export class LdapSyncService {
           }
 
           if (userGroups.length > 0) {
-            const matchingTeam = pstaTeams.find(t => userGroups.includes(t.name));
+            const matchingTeam = pstaTeams.find((t: any) => userGroups.includes(t.name));
             if (matchingTeam) {
               targetTeamId = matchingTeam.id;
               ldapLogger.debug(`Matched ${pstaUser.username} to Group team: ${matchingTeam.name}`);
@@ -544,18 +544,22 @@ export class LdapSyncService {
           });
 
           if (!dryRun) {
-            await prisma.user.update({
-              where: { id: pstaUser.id },
-              data: {
-                teamId: targetTeamId,
-                title: ldapUser.title || null,
-                position: ldapUser.employeeType || null,
-                positionType: positionType,
-                role: role,
-                departmentNumber: ldapUser.departmentNumber || null,
-                updatedAt: new Date(),
-              },
-            });
+            await query(
+              `UPDATE "User"
+               SET "teamId" = $1, title = $2, position = $3, "positionType" = $4,
+                   role = $5, "departmentNumber" = $6, "updatedAt" = $7
+               WHERE id = $8`,
+              [
+                targetTeamId,
+                ldapUser.title || null,
+                ldapUser.employeeType || null,
+                positionType,
+                role,
+                ldapUser.departmentNumber || null,
+                new Date(),
+                pstaUser.id,
+              ]
+            );
           }
 
           result.updated++;
@@ -577,21 +581,15 @@ export class LdapSyncService {
    */
   private async saveSyncHistory(result: SyncResult): Promise<void> {
     try {
-      await prisma.systemSetting.upsert({
-        where: { key: 'ldap_last_sync' },
-        create: {
-          id: randomUUID(),
-          key: 'ldap_last_sync',
-          value: JSON.stringify(result),
-          category: 'ldap',
-          isEncrypted: false,
-          updatedAt: new Date(),
-        },
-        update: {
-          value: JSON.stringify(result),
-          updatedAt: new Date(),
-        },
-      });
+      const now = new Date();
+      const valueJson = JSON.stringify(result);
+
+      await query(
+        `INSERT INTO "SystemSetting" (id, key, value, category, "isEncrypted", "updatedAt")
+         VALUES ($1, $2, $3, $4, $5, $6)
+         ON CONFLICT (key) DO UPDATE SET value = $3, "updatedAt" = $6`,
+        [randomUUID(), 'ldap_last_sync', valueJson, 'ldap', false, now]
+      );
 
       appLogger.info('LDAP sync history saved', {
         timestamp: result.timestamp,
@@ -610,9 +608,10 @@ export class LdapSyncService {
    */
   async getLastSyncResult(): Promise<SyncResult | null> {
     try {
-      const setting = await prisma.systemSetting.findUnique({
-        where: { key: 'ldap_last_sync' },
-      });
+      const setting = await queryOne<{ value: string }>(
+        'SELECT value FROM "SystemSetting" WHERE key = $1',
+        ['ldap_last_sync']
+      );
 
       if (!setting) return null;
 
@@ -642,12 +641,12 @@ export class LdapSyncService {
   }> {
     const lastSync = await this.getLastSyncResult();
 
-    const [ldapGroups, ldapUsers, pstaTeams, pstaActiveUsers, pstaInactiveUsers] = await Promise.all([
+    const [ldapGroups, ldapUsers, pstaTeamsRows, pstaActiveUsersRows, pstaInactiveUsersRows] = await Promise.all([
       ldapService.getGroups().then(g => g.length).catch(() => 0),
       ldapService.getAllUsers().then(u => u.length).catch(() => 0),
-      prisma.team.count({ where: { isActive: true } }),
-      prisma.user.count({ where: { isActive: true } }),
-      prisma.user.count({ where: { isActive: false } }),
+      queryOne<{ count: string }>('SELECT COUNT(*) as count FROM "Team" WHERE "isActive" = true'),
+      queryOne<{ count: string }>('SELECT COUNT(*) as count FROM "User" WHERE "isActive" = true'),
+      queryOne<{ count: string }>('SELECT COUNT(*) as count FROM "User" WHERE "isActive" = false'),
     ]);
 
     return {
@@ -655,9 +654,9 @@ export class LdapSyncService {
       lastSyncSuccess: lastSync?.success || false,
       ldapGroups,
       ldapUsers,
-      pstaTeams,
-      pstaActiveUsers,
-      pstaInactiveUsers,
+      pstaTeams: parseInt(pstaTeamsRows?.count || '0', 10),
+      pstaActiveUsers: parseInt(pstaActiveUsersRows?.count || '0', 10),
+      pstaInactiveUsers: parseInt(pstaInactiveUsersRows?.count || '0', 10),
     };
   }
 
@@ -684,18 +683,16 @@ export class LdapSyncService {
       const ldapUsers = await ldapService.getAllUsers();
       const ldapGroups = await ldapService.getGroups();
 
-      // Get all PSTA users
-      const pstaUsers = await prisma.user.findMany({
-        include: {
-          Team: true,
-        },
-      });
+      // Get all PSTA users with team info
+      const pstaUsers = await query<any>(
+        'SELECT u.*, t.name as "teamName" FROM "User" u LEFT JOIN "Team" t ON u."teamId" = t.id'
+      );
 
       // Build user preview list
       const userPreviews = await Promise.all(
         ldapUsers.map(async (ldapUser) => {
           // Find matching PSTA user
-          const pstaUser = pstaUsers.find(u => u.username === ldapUser.uid);
+          const pstaUser = pstaUsers.find((u: any) => u.username === ldapUser.uid);
 
           // Get user's LDAP groups
           let userGroups: string[] = [];
@@ -716,7 +713,7 @@ export class LdapSyncService {
             pstaStatus: pstaUser
               ? (pstaUser.isActive ? 'active' : 'inactive')
               : 'not_found' as 'active' | 'inactive' | 'not_found',
-            pstaTeam: pstaUser?.Team?.name || null,
+            pstaTeam: pstaUser?.teamName || null,
           };
         })
       );
@@ -792,26 +789,28 @@ export class LdapSyncService {
       const relevantGroups = ldapGroups.filter(g => userGroups.has(g.name));
 
       // Create missing teams
-      const pstaTeams = await prisma.team.findMany();
+      const pstaTeams = await query<any>('SELECT * FROM "Team"');
       for (const ldapGroup of relevantGroups) {
         if (!ldapGroup.name) continue;
 
-        const existingTeam = pstaTeams.find(t => t.name === ldapGroup.name);
+        const existingTeam = pstaTeams.find((t: any) => t.name === ldapGroup.name);
 
         if (!existingTeam) {
           ldapLogger.info(`Creating team: ${ldapGroup.name}`);
 
           if (!dryRun) {
-            await prisma.team.create({
-              data: {
-                id: randomUUID(),
-                name: ldapGroup.name,
-                ldapDn: ldapGroup.dn,
-                description: ldapGroup.description || `LDAP 그룹: ${ldapGroup.name}`,
-                isActive: true,
-                updatedAt: new Date(),
-              },
-            });
+            await query(
+              `INSERT INTO "Team" (id, name, "ldapDn", description, "isActive", "updatedAt")
+               VALUES ($1, $2, $3, $4, $5, $6)`,
+              [
+                randomUUID(),
+                ldapGroup.name,
+                ldapGroup.dn,
+                ldapGroup.description || `LDAP 그룹: ${ldapGroup.name}`,
+                true,
+                new Date(),
+              ]
+            );
           }
 
           result.teamsCreated++;
@@ -821,22 +820,18 @@ export class LdapSyncService {
           ldapLogger.info(`Reactivating team: ${ldapGroup.name}`);
 
           if (!dryRun) {
-            await prisma.team.update({
-              where: { id: existingTeam.id },
-              data: {
-                isActive: true,
-                ldapDn: ldapGroup.dn,
-                updatedAt: new Date(),
-              },
-            });
+            await query(
+              'UPDATE "Team" SET "isActive" = $1, "ldapDn" = $2, "updatedAt" = $3 WHERE id = $4',
+              [true, ldapGroup.dn, new Date(), existingTeam.id]
+            );
           }
         }
       }
 
       // Refresh team list after creation
-      const updatedPstaTeams = await prisma.team.findMany({
-        where: { isActive: true },
-      });
+      const updatedPstaTeams = await query<any>(
+        'SELECT * FROM "Team" WHERE "isActive" = true'
+      );
 
       // Step 3: Create or reactivate selected users and update team memberships
       for (const ldapUser of selectedUsers) {
@@ -844,9 +839,10 @@ export class LdapSyncService {
 
         try {
           // Find existing PSTA user
-          const existingUser = await prisma.user.findUnique({
-            where: { username: ldapUser.uid },
-          });
+          const existingUser = await queryOne<any>(
+            'SELECT * FROM "User" WHERE username = $1',
+            [ldapUser.uid]
+          );
 
           // Get user's groups and find matching team
           let userGroupNames: string[] = [];
@@ -858,7 +854,7 @@ export class LdapSyncService {
 
           let targetTeamId: string | null = null;
           if (userGroupNames.length > 0) {
-            const matchingTeam = updatedPstaTeams.find(t =>
+            const matchingTeam = updatedPstaTeams.find((t: any) =>
               userGroupNames.includes(t.name)
             );
             if (matchingTeam) {
@@ -871,21 +867,23 @@ export class LdapSyncService {
             ldapLogger.info(`Creating user: ${ldapUser.uid} (${ldapUser.displayName})`);
 
             if (!dryRun) {
-              await prisma.user.create({
-                data: {
-                  id: randomUUID(),
-                  username: ldapUser.uid,
-                  email: ldapUser.mail || `${ldapUser.uid}@example.com`,
-                  displayName: ldapUser.displayName || ldapUser.cn || ldapUser.uid,
-                  phoneNumber: ldapUser.telephoneNumber || null,
-                  ldapDn: ldapUser.dn,
-                  role: 'MEMBER',
-                  teamId: targetTeamId,
-                  isActive: true,
-                  isVerified: true,
-                  updatedAt: new Date(),
-                },
-              });
+              await query(
+                `INSERT INTO "User" (id, username, email, "displayName", "phoneNumber", "ldapDn", role, "teamId", "isActive", "isVerified", "updatedAt")
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+                [
+                  randomUUID(),
+                  ldapUser.uid,
+                  ldapUser.mail || `${ldapUser.uid}@example.com`,
+                  ldapUser.displayName || ldapUser.cn || ldapUser.uid,
+                  ldapUser.telephoneNumber || null,
+                  ldapUser.dn,
+                  'MEMBER',
+                  targetTeamId,
+                  true,
+                  true,
+                  new Date(),
+                ]
+              );
             }
 
             result.teamMembershipsUpdated++;
@@ -903,18 +901,22 @@ export class LdapSyncService {
               });
 
               if (!dryRun) {
-                await prisma.user.update({
-                  where: { id: existingUser.id },
-                  data: {
-                    isActive: true,
-                    teamId: targetTeamId,
-                    ldapDn: ldapUser.dn,
-                    displayName: ldapUser.displayName || ldapUser.cn || ldapUser.uid,
-                    email: ldapUser.mail || existingUser.email,
-                    phoneNumber: ldapUser.telephoneNumber || existingUser.phoneNumber,
-                    updatedAt: new Date(),
-                  },
-                });
+                await query(
+                  `UPDATE "User"
+                   SET "isActive" = $1, "teamId" = $2, "ldapDn" = $3, "displayName" = $4,
+                       email = $5, "phoneNumber" = $6, "updatedAt" = $7
+                   WHERE id = $8`,
+                  [
+                    true,
+                    targetTeamId,
+                    ldapUser.dn,
+                    ldapUser.displayName || ldapUser.cn || ldapUser.uid,
+                    ldapUser.mail || existingUser.email,
+                    ldapUser.telephoneNumber || existingUser.phoneNumber,
+                    new Date(),
+                    existingUser.id,
+                  ]
+                );
               }
 
               result.teamMembershipsUpdated++;
@@ -981,10 +983,9 @@ export class LdapSyncService {
       ldapLogger.info('Starting hierarchical LDAP preview');
 
       // Get active LDAP config
-      const ldapConfig = await prisma.ldapConfig.findFirst({
-        where: { isActive: true },
-        orderBy: { createdAt: 'desc' },
-      });
+      const ldapConfig = await queryOne<any>(
+        'SELECT * FROM "LdapConfig" WHERE "isActive" = true ORDER BY "createdAt" DESC LIMIT 1'
+      );
 
       if (!ldapConfig) {
         throw new Error('No active LDAP configuration found');
@@ -999,14 +1000,14 @@ export class LdapSyncService {
       ldapLogger.info(`Found ${ldapUsers.length} users`);
 
       // Get all PSTA users for status mapping
-      const pstaUsers = await prisma.user.findMany({
-        include: { Team: true },
-      });
+      const pstaUsers = await query<any>(
+        'SELECT u.*, t.name as "teamName" FROM "User" u LEFT JOIN "Team" t ON u."teamId" = t.id'
+      );
 
       // Build organization tree
       const orgBaseDn = ldapConfig.orgBaseDn || `ou=organization,${ldapConfig.searchBase}`;
       const hiddenOrgs = ldapConfig.hiddenOrgs
-        ? ldapConfig.hiddenOrgs.split(',').map(o => o.trim().toLowerCase())
+        ? ldapConfig.hiddenOrgs.split(',').map((o: string) => o.trim().toLowerCase())
         : [];
 
       // Filter and process OUs
@@ -1071,7 +1072,7 @@ export class LdapSyncService {
         if (!ldapUser.uid) continue;
 
         // Find PSTA user status
-        const pstaUser = pstaUsers.find(u => u.username === ldapUser.uid);
+        const pstaUser = pstaUsers.find((u: any) => u.username === ldapUser.uid);
 
         // Get user's department from DN structure or attributes
         let userDept = '';
@@ -1123,7 +1124,7 @@ export class LdapSyncService {
           pstaStatus: pstaUser
             ? (pstaUser.isActive ? 'active' : 'inactive')
             : 'not_found' as 'active' | 'inactive' | 'not_found',
-          pstaTeam: pstaUser?.Team?.name || null,
+          pstaTeam: pstaUser?.teamName || null,
         };
 
         // Find organization node to attach user to
@@ -1317,14 +1318,14 @@ export class LdapSyncService {
       // Step 1: Create/update teams from selected organizations
       if (orgDns.length > 0) {
         const ldapOUs = await ldapService.getAllOrganizationalUnits();
-        const pstaTeams = await prisma.team.findMany();
+        const pstaTeams = await query<any>('SELECT * FROM "Team"');
 
         for (const orgDn of orgDns) {
           const ldapOU = ldapOUs.find(ou => ou.dn === orgDn);
           if (!ldapOU || !ldapOU.name) continue;
 
           const decodedName = this.decodeLdapString(ldapOU.name);
-          const existingTeam = pstaTeams.find(t => t.ldapDn === orgDn || t.name === decodedName);
+          const existingTeam = pstaTeams.find((t: any) => t.ldapDn === orgDn || t.name === decodedName);
 
           if (!existingTeam) {
             ldapLogger.info(`Creating team: ${decodedName}`);
@@ -1334,26 +1335,29 @@ export class LdapSyncService {
               let parentId: string | null = null;
 
               if (parentDn) {
-                const parentTeam = await prisma.team.findFirst({
-                  where: { ldapDn: parentDn },
-                });
+                const parentTeam = await queryOne<{ id: string }>(
+                  'SELECT id FROM "Team" WHERE "ldapDn" = $1 LIMIT 1',
+                  [parentDn]
+                );
                 parentId = parentTeam?.id || null;
               }
 
-              await prisma.team.create({
-                data: {
-                  id: randomUUID(),
-                  name: decodedName,
-                  ldapDn: orgDn,
-                  departmentNumber: ldapOU.departmentNumber || null,  // v1.1.19: Store departmentNumber
-                  description: ldapOU.description || `LDAP OU: ${decodedName}`,
+              await query(
+                `INSERT INTO "Team" (id, name, "ldapDn", "departmentNumber", description, "parentId", level, "ldapType", "isActive", "updatedAt")
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+                [
+                  randomUUID(),
+                  decodedName,
+                  orgDn,
+                  ldapOU.departmentNumber || null,
+                  ldapOU.description || `LDAP OU: ${decodedName}`,
                   parentId,
                   level,
-                  ldapType: 'OU',
-                  isActive: true,
-                  updatedAt: new Date(),
-                },
-              });
+                  'OU',
+                  true,
+                  new Date(),
+                ]
+              );
             }
 
             result.teamsCreated++;
@@ -1362,14 +1366,10 @@ export class LdapSyncService {
             ldapLogger.info(`Reactivating team: ${decodedName}`);
 
             if (!dryRun) {
-              await prisma.team.update({
-                where: { id: existingTeam.id },
-                data: {
-                  isActive: true,
-                  ldapDn: orgDn,
-                  updatedAt: new Date(),
-                },
-              });
+              await query(
+                'UPDATE "Team" SET "isActive" = $1, "ldapDn" = $2, "updatedAt" = $3 WHERE id = $4',
+                [true, orgDn, new Date(), existingTeam.id]
+              );
             }
 
             result.teamsCreated++;
@@ -1384,28 +1384,29 @@ export class LdapSyncService {
         const selectedUsers = allLdapUsers.filter(u => userDns.includes(u.dn));
 
         // Refresh team list after creation
-        const updatedTeams = await prisma.team.findMany({
-          where: { isActive: true },
-        });
+        const updatedTeams = await query<any>(
+          'SELECT * FROM "Team" WHERE "isActive" = true'
+        );
 
         // Get LDAP config for attribute mapping
-        const ldapConfig = await prisma.ldapConfig.findFirst({
-          where: { isActive: true },
-        });
+        const ldapConfig = await queryOne<any>(
+          'SELECT * FROM "LdapConfig" WHERE "isActive" = true ORDER BY "createdAt" DESC LIMIT 1'
+        );
 
         for (const ldapUser of selectedUsers) {
           if (!ldapUser.uid) continue;
 
           try {
-            const existingUser = await prisma.user.findUnique({
-              where: { username: ldapUser.uid },
-            });
+            const existingUser = await queryOne<any>(
+              'SELECT * FROM "User" WHERE username = $1',
+              [ldapUser.uid]
+            );
 
             // v1.1.19: Find team based on user's departmentNumber first (most stable)
             let targetTeamId: string | null = null;
 
             if (ldapUser.departmentNumber) {
-              const matchingTeam = updatedTeams.find(t => t.departmentNumber === ldapUser.departmentNumber);
+              const matchingTeam = updatedTeams.find((t: any) => t.departmentNumber === ldapUser.departmentNumber);
               if (matchingTeam) {
                 targetTeamId = matchingTeam.id;
                 ldapLogger.debug(`Matched ${ldapUser.uid} to team by departmentNumber: ${matchingTeam.name}`);
@@ -1417,7 +1418,7 @@ export class LdapSyncService {
               const userDept = ldapUser.ou || '';
               if (userDept) {
                 const decodedDept = this.decodeLdapString(userDept);
-                const matchingTeam = updatedTeams.find(t =>
+                const matchingTeam = updatedTeams.find((t: any) =>
                   t.name === decodedDept || t.name.includes(decodedDept)
                 );
                 if (matchingTeam) {
@@ -1440,25 +1441,27 @@ export class LdapSyncService {
               });
 
               if (!dryRun) {
-                await prisma.user.create({
-                  data: {
-                    id: randomUUID(),
-                    username: ldapUser.uid,
-                    email: ldapUser.mail || `${ldapUser.uid}@example.com`,
-                    displayName: displayName,
-                    phoneNumber: ldapUser.telephoneNumber || null,
-                    ldapDn: ldapUser.dn,
-                    role: role,
-                    positionType: positionType,
-                    teamId: targetTeamId,
-                    title: ldapUser.title || null,
-                    position: ldapUser.employeeType || null,
-                    departmentNumber: ldapUser.departmentNumber || null,
-                    isActive: true,
-                    isVerified: true,
-                    updatedAt: new Date(),
-                  },
-                });
+                await query(
+                  `INSERT INTO "User" (id, username, email, "displayName", "phoneNumber", "ldapDn", role, "positionType", "teamId", title, position, "departmentNumber", "isActive", "isVerified", "updatedAt")
+                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
+                  [
+                    randomUUID(),
+                    ldapUser.uid,
+                    ldapUser.mail || `${ldapUser.uid}@example.com`,
+                    displayName,
+                    ldapUser.telephoneNumber || null,
+                    ldapUser.dn,
+                    role,
+                    positionType,
+                    targetTeamId,
+                    ldapUser.title || null,
+                    ldapUser.employeeType || null,
+                    ldapUser.departmentNumber || null,
+                    true,
+                    true,
+                    new Date(),
+                  ]
+                );
               }
 
               result.teamMembershipsUpdated++;
@@ -1487,23 +1490,28 @@ export class LdapSyncService {
                 });
 
                 if (!dryRun) {
-                  await prisma.user.update({
-                    where: { id: existingUser.id },
-                    data: {
-                      isActive: true,
-                      teamId: targetTeamId,
-                      ldapDn: ldapUser.dn,
-                      displayName: displayName,
-                      email: ldapUser.mail || existingUser.email,
-                      phoneNumber: ldapUser.telephoneNumber || existingUser.phoneNumber,
-                      title: ldapUser.title || existingUser.title,
-                      position: ldapUser.employeeType || existingUser.position,
-                      positionType: positionType,
-                      role: role,
-                      departmentNumber: ldapUser.departmentNumber || existingUser.departmentNumber,
-                      updatedAt: new Date(),
-                    },
-                  });
+                  await query(
+                    `UPDATE "User"
+                     SET "isActive" = $1, "teamId" = $2, "ldapDn" = $3, "displayName" = $4,
+                         email = $5, "phoneNumber" = $6, title = $7, position = $8,
+                         "positionType" = $9, role = $10, "departmentNumber" = $11, "updatedAt" = $12
+                     WHERE id = $13`,
+                    [
+                      true,
+                      targetTeamId,
+                      ldapUser.dn,
+                      displayName,
+                      ldapUser.mail || existingUser.email,
+                      ldapUser.telephoneNumber || existingUser.phoneNumber,
+                      ldapUser.title || existingUser.title,
+                      ldapUser.employeeType || existingUser.position,
+                      positionType,
+                      role,
+                      ldapUser.departmentNumber || existingUser.departmentNumber,
+                      new Date(),
+                      existingUser.id,
+                    ]
+                  );
                 }
 
                 result.teamMembershipsUpdated++;

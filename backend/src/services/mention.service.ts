@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto';
-import prisma from '../config/database';
+import { query, queryOne } from '../config/database';
 import { NotificationService } from './notification.service';
 
 export const extractDescriptionMentionIds = (html: string | null | undefined): string[] => {
@@ -24,10 +24,10 @@ export const sendDescriptionMentionNotifications = async (
     PROJECT: '프로젝트', SERVICE: '서비스', TEAM: '팀', ACTION: '액션',
   };
 
-  const item = await prisma.item.findUnique({
-    where: { id: itemId },
-    select: { type: true },
-  });
+  const item = await queryOne<{ type: string }>(
+    `SELECT "type" FROM "Item" WHERE "id" = $1`,
+    [itemId]
+  );
   const typeLabel = item?.type ? typeLabels[item.type] : '항목';
 
   const link = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/psta?itemId=${itemId}`;
@@ -42,15 +42,17 @@ export const sendDescriptionMentionNotifications = async (
       fromUserId,
       toUserId,
     });
-    await prisma.message.create({
-      data: {
-        id: randomUUID(),
-        subject: `[멘션 알림] (${typeLabel}) ${itemName}`,
-        content: `설명에서 회원님을 멘션했습니다.\n\n${messageBase}`,
+    await query(
+      `INSERT INTO "Message" ("id", "subject", "content", "fromUserId", "toUserId", "createdAt", "updatedAt")
+       VALUES ($1, $2, $3, $4, $5, NOW(), NOW())`,
+      [
+        randomUUID(),
+        `[멘션 알림] (${typeLabel}) ${itemName}`,
+        `설명에서 회원님을 멘션했습니다.\n\n${messageBase}`,
         fromUserId,
         toUserId,
-      },
-    });
+      ]
+    );
   }
 
   for (const toUserId of updatedMentionIds) {
@@ -62,14 +64,16 @@ export const sendDescriptionMentionNotifications = async (
       fromUserId,
       toUserId,
     });
-    await prisma.message.create({
-      data: {
-        id: randomUUID(),
-        subject: `[설명 수정 알림] (${typeLabel}) ${itemName}`,
-        content: `멘션된 설명이 수정되었습니다.\n\n${messageBase}`,
+    await query(
+      `INSERT INTO "Message" ("id", "subject", "content", "fromUserId", "toUserId", "createdAt", "updatedAt")
+       VALUES ($1, $2, $3, $4, $5, NOW(), NOW())`,
+      [
+        randomUUID(),
+        `[설명 수정 알림] (${typeLabel}) ${itemName}`,
+        `멘션된 설명이 수정되었습니다.\n\n${messageBase}`,
         fromUserId,
         toUserId,
-      },
-    });
+      ]
+    );
   }
 };

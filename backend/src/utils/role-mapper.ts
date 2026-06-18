@@ -8,7 +8,7 @@
  * - roleOverride가 설정된 경우 override 값 사용
  */
 
-import { UserRole, PositionType } from '@prisma/client';
+import { UserRole, PositionType } from '../types/enums';
 
 // 직책 → 역할 매핑 테이블
 export const POSITION_TO_ROLE: Record<PositionType, UserRole> = {

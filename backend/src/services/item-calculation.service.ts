@@ -1,5 +1,5 @@
-import prisma from '../config/database';
-import { ItemStatus, ItemType } from '@prisma/client';
+import { query, queryOne } from '../config/database';
+import { ItemStatus, ItemType } from '../types/enums';
 
 /**
  * Calculate the status for a parent item based on its children
@@ -8,13 +8,10 @@ import { ItemStatus, ItemType } from '@prisma/client';
  */
 export async function calculateItemStatus(itemId: string): Promise<ItemStatus> {
   // Get the item
-  const item = await prisma.item.findUnique({
-    where: { id: itemId },
-    select: {
-      type: true,
-      isOnHold: true,
-    },
-  });
+  const item = await queryOne<{ type: string; isOnHold: boolean }>(
+    `SELECT "type", "isOnHold" FROM "Item" WHERE id = $1`,
+    [itemId]
+  );
 
   if (!item) {
     throw new Error(`Item ${itemId} not found`);
@@ -23,10 +20,10 @@ export async function calculateItemStatus(itemId: string): Promise<ItemStatus> {
   // ACTION items are always manually set, no calculation
   if (item.type === ItemType.ACTION) {
     // Return current status from DB
-    const currentItem = await prisma.item.findUnique({
-      where: { id: itemId },
-      select: { status: true },
-    });
+    const currentItem = await queryOne<{ status: ItemStatus }>(
+      `SELECT "status" FROM "Item" WHERE id = $1`,
+      [itemId]
+    );
     return currentItem!.status;
   }
 
@@ -36,10 +33,10 @@ export async function calculateItemStatus(itemId: string): Promise<ItemStatus> {
   }
 
   // Get all direct children
-  const children = await prisma.item.findMany({
-    where: { parentId: itemId },
-    select: { status: true, isOnHold: true },
-  });
+  const children = await query<{ status: string; isOnHold: boolean }>(
+    `SELECT "status", "isOnHold" FROM "Item" WHERE "parentId" = $1`,
+    [itemId]
+  );
 
   if (children.length === 0) {
     return ItemStatus.NOT_STARTED;
@@ -72,10 +69,10 @@ export async function calculateItemStatus(itemId: string): Promise<ItemStatus> {
  */
 export async function calculateItemProgress(itemId: string): Promise<number> {
   // Get the item
-  const item = await prisma.item.findUnique({
-    where: { id: itemId },
-    select: { type: true },
-  });
+  const item = await queryOne<{ type: string }>(
+    `SELECT "type" FROM "Item" WHERE id = $1`,
+    [itemId]
+  );
 
   if (!item) {
     throw new Error(`Item ${itemId} not found`);
@@ -83,18 +80,18 @@ export async function calculateItemProgress(itemId: string): Promise<number> {
 
   // ACTION items are always manually set, no calculation
   if (item.type === ItemType.ACTION) {
-    const currentItem = await prisma.item.findUnique({
-      where: { id: itemId },
-      select: { progress: true },
-    });
+    const currentItem = await queryOne<{ progress: number }>(
+      `SELECT "progress" FROM "Item" WHERE id = $1`,
+      [itemId]
+    );
     return currentItem!.progress;
   }
 
   // Get all direct children
-  const children = await prisma.item.findMany({
-    where: { parentId: itemId },
-    select: { progress: true },
-  });
+  const children = await query<{ progress: number }>(
+    `SELECT "progress" FROM "Item" WHERE "parentId" = $1`,
+    [itemId]
+  );
 
   if (children.length === 0) {
     return 0;
@@ -114,16 +111,16 @@ export async function calculateItemProgress(itemId: string): Promise<number> {
  */
 export async function updateItemAndParents(itemId: string): Promise<void> {
   // Get the item with current status and progress
-  const item = await prisma.item.findUnique({
-    where: { id: itemId },
-    select: {
-      id: true,
-      type: true,
-      parentId: true,
-      status: true,
-      progress: true,
-    },
-  });
+  const item = await queryOne<{
+    id: string;
+    type: string;
+    parentId: string | null;
+    status: string;
+    progress: number;
+  }>(
+    `SELECT "id", "type", "parentId", "status", "progress" FROM "Item" WHERE id = $1`,
+    [itemId]
+  );
 
   if (!item) {
     return;
@@ -141,14 +138,10 @@ export async function updateItemAndParents(itemId: string): Promise<void> {
     const progressChanged = Math.abs(calculatedProgress - item.progress) > 0.01; // Account for floating point precision
 
     if (statusChanged || progressChanged) {
-      await prisma.item.update({
-        where: { id: item.id },
-        data: {
-          status: calculatedStatus,
-          progress: calculatedProgress,
-          updatedAt: new Date(),
-        },
-      });
+      await query(
+        `UPDATE "Item" SET "status" = $1, "progress" = $2, "updatedAt" = $3 WHERE id = $4`,
+        [calculatedStatus, calculatedProgress, new Date(), item.id]
+      );
 
       console.log(`✓ Updated ${item.type} ${item.id}: status=${calculatedStatus}, progress=${calculatedProgress}`);
     } else {

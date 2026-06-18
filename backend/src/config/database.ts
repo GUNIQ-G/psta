@@ -1,41 +1,58 @@
-import { PrismaClient } from '@prisma/client';
+import { Pool, PoolClient } from 'pg';
 import { databaseLogger } from './logger';
 
-const prisma = new PrismaClient({
-  log: [
-    { emit: 'event', level: 'query' },
-    { emit: 'event', level: 'error' },
-    { emit: 'event', level: 'warn' },
-  ],
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  max: 20,
+  idleTimeoutMillis: 30000,
+  connectionTimeoutMillis: 2000,
 });
 
-// Log queries to database logger
-prisma.$on('query' as never, (e: any) => {
-  if (process.env.NODE_ENV === 'development') {
-    databaseLogger.debug('Query executed', {
-      query: e.query,
-      params: e.params,
-      duration: `${e.duration}ms`,
-      timestamp: new Date().toISOString(),
+pool.on('error', (err) => {
+  databaseLogger.error('Unexpected database pool error', {
+    message: err.message,
+    stack: err.stack,
+  });
+});
+
+export async function query<T = any>(sql: string, params?: any[]): Promise<T[]> {
+  const start = Date.now();
+  try {
+    const result = await pool.query(sql, params);
+    if (process.env.NODE_ENV === 'development') {
+      databaseLogger.debug('Query executed', {
+        query: sql,
+        duration: `${Date.now() - start}ms`,
+      });
+    }
+    return result.rows as T[];
+  } catch (err: any) {
+    databaseLogger.error('Database query error', {
+      query: sql,
+      message: err.message,
     });
+    throw err;
   }
-});
+}
 
-// Log errors to database logger
-prisma.$on('error' as never, (e: any) => {
-  databaseLogger.error('Database error', {
-    message: e.message,
-    target: e.target,
-    timestamp: new Date().toISOString(),
-  });
-});
+export async function queryOne<T = any>(sql: string, params?: any[]): Promise<T | null> {
+  const rows = await query<T>(sql, params);
+  return rows[0] ?? null;
+}
 
-// Log warnings to database logger
-prisma.$on('warn' as never, (e: any) => {
-  databaseLogger.warn('Database warning', {
-    message: e.message,
-    timestamp: new Date().toISOString(),
-  });
-});
+export async function transaction<T>(fn: (client: PoolClient) => Promise<T>): Promise<T> {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const result = await fn(client);
+    await client.query('COMMIT');
+    return result;
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+}
 
-export default prisma;
+export default pool;

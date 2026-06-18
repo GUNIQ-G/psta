@@ -1,5 +1,5 @@
 import { WebClient } from '@slack/web-api';
-import prisma from '../config/database';
+import { query, queryOne } from '../config/database';
 
 interface SlackConfig {
   botToken: string;
@@ -32,12 +32,9 @@ export class NotificationSlackService {
    */
   private static async getActiveSlackConfig(): Promise<SlackConfig | null> {
     try {
-      const app = await prisma.notificationApp.findFirst({
-        where: {
-          type: 'SLACK',
-          isActive: true,
-        },
-      });
+      const app = await queryOne<{ config: string }>(
+        `SELECT "config" FROM "NotificationApp" WHERE "type" = 'SLACK' AND "isActive" = true LIMIT 1`
+      );
 
       if (!app) {
         console.log('No active Slack app found');
@@ -60,9 +57,10 @@ export class NotificationSlackService {
     let baseUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
 
     try {
-      const frontendUrlSetting = await prisma.systemSetting.findUnique({
-        where: { key: 'frontendUrl' },
-      });
+      const frontendUrlSetting = await queryOne<{ value: string }>(
+        `SELECT "value" FROM "SystemSetting" WHERE "key" = $1`,
+        ['frontendUrl']
+      );
 
       if (frontendUrlSetting?.value) {
         baseUrl = frontendUrlSetting.value;

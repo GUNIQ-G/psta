@@ -1,26 +1,28 @@
 import { Response } from 'express';
 import { AuthRequest } from '../middleware/auth';
-import prisma from '../config/database';
+import { query, queryOne } from '../config/database';
 import { randomUUID } from 'crypto';
 import { errorLogger } from '../config/logger';
 
 export const getClients = async (req: AuthRequest, res: Response) => {
   try {
-    const clients = await prisma.client.findMany({
-      where: { isActive: true },
-      include: {
-        Item: {
-          where: {
-            type: 'PROJECT',
-            parentId: null,
-          },
-          orderBy: { name: 'asc' },
-        },
-      },
-      orderBy: { name: 'asc' },
-    });
+    const clients = await query<any>(
+      `SELECT c.*,
+              json_agg(i ORDER BY i."name" ASC) FILTER (WHERE i."id" IS NOT NULL) AS "Item"
+       FROM "Client" c
+       LEFT JOIN "Item" i ON i."clientId" = c."id" AND i."type" = 'PROJECT' AND i."parentId" IS NULL
+       WHERE c."isActive" = true
+       GROUP BY c."id"
+       ORDER BY c."name" ASC`
+    );
 
-    res.json(clients);
+    // normalize Item: null -> []
+    const result = clients.map((c: any) => ({
+      ...c,
+      Item: c.Item ?? [],
+    }));
+
+    res.json(result);
   } catch (error) {
     errorLogger.error('Get clients error', { error });
     res.status(500).json({ error: 'Internal server error' });
@@ -35,27 +37,34 @@ export const createClient = async (req: AuthRequest, res: Response) => {
       return res.status(400).json({ error: 'Name and code are required' });
     }
 
-    const client = await prisma.client.create({
-      data: {
-        id: randomUUID(),
-        name,
-        code,
-        phone,
-        email,
-        businessNumber,
-        representative,
-        address,
-        description,
-        logoUrl,
-        updatedAt: new Date(),
-      },
-    });
+    try {
+      const client = await queryOne<any>(
+        `INSERT INTO "Client" ("id", "name", "code", "phone", "email", "businessNumber", "representative", "address", "description", "logoUrl", "updatedAt")
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+         RETURNING *`,
+        [
+          randomUUID(),
+          name,
+          code,
+          phone ?? null,
+          email ?? null,
+          businessNumber ?? null,
+          representative ?? null,
+          address ?? null,
+          description ?? null,
+          logoUrl ?? null,
+          new Date(),
+        ]
+      );
 
-    res.status(201).json(client);
-  } catch (error) {
-    if ((error as any).code === 'P2002') {
-      return res.status(409).json({ error: 'Already exists' });
+      res.status(201).json(client);
+    } catch (dbError: any) {
+      if (dbError.code === '23505') {
+        return res.status(409).json({ error: 'Already exists' });
+      }
+      throw dbError;
     }
+  } catch (error) {
     errorLogger.error('Create client error', { error });
     res.status(500).json({ error: 'Internal server error' });
   }
@@ -66,28 +75,36 @@ export const updateClient = async (req: AuthRequest, res: Response) => {
     const { id } = req.params;
     const { name, code, phone, email, businessNumber, representative, address, description, logoUrl, isActive } = req.body;
 
-    const client = await prisma.client.update({
-      where: { id },
-      data: {
-        name,
-        code,
-        phone,
-        email,
-        businessNumber,
-        representative,
-        address,
-        description,
-        logoUrl,
-        isActive,
-        updatedAt: new Date()
-      },
-    });
+    const existing = await queryOne<any>(`SELECT * FROM "Client" WHERE "id" = $1`, [id]);
+    if (!existing) {
+      return res.status(404).json({ error: 'Not found' });
+    }
+
+    const client = await queryOne<any>(
+      `UPDATE "Client"
+       SET "name" = $1, "code" = $2, "phone" = $3, "email" = $4,
+           "businessNumber" = $5, "representative" = $6, "address" = $7,
+           "description" = $8, "logoUrl" = $9, "isActive" = $10, "updatedAt" = $11
+       WHERE "id" = $12
+       RETURNING *`,
+      [
+        name !== undefined ? name : existing.name,
+        code !== undefined ? code : existing.code,
+        phone !== undefined ? phone : existing.phone,
+        email !== undefined ? email : existing.email,
+        businessNumber !== undefined ? businessNumber : existing.businessNumber,
+        representative !== undefined ? representative : existing.representative,
+        address !== undefined ? address : existing.address,
+        description !== undefined ? description : existing.description,
+        logoUrl !== undefined ? logoUrl : existing.logoUrl,
+        isActive !== undefined ? isActive : existing.isActive,
+        new Date(),
+        id,
+      ]
+    );
 
     res.json(client);
   } catch (error) {
-    if ((error as any).code === 'P2025') {
-      return res.status(404).json({ error: 'Not found' });
-    }
     errorLogger.error('Update client error', { error });
     res.status(500).json({ error: 'Internal server error' });
   }
@@ -97,16 +114,18 @@ export const deleteClient = async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params;
 
-    await prisma.client.update({
-      where: { id },
-      data: { isActive: false, updatedAt: new Date() },
-    });
+    const existing = await queryOne<any>(`SELECT "id" FROM "Client" WHERE "id" = $1`, [id]);
+    if (!existing) {
+      return res.status(404).json({ error: 'Not found' });
+    }
+
+    await query(
+      `UPDATE "Client" SET "isActive" = false, "updatedAt" = $1 WHERE "id" = $2`,
+      [new Date(), id]
+    );
 
     res.status(204).send();
   } catch (error) {
-    if ((error as any).code === 'P2025') {
-      return res.status(404).json({ error: 'Not found' });
-    }
     errorLogger.error('Delete client error', { error });
     res.status(500).json({ error: 'Internal server error' });
   }

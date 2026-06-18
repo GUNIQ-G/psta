@@ -1,7 +1,7 @@
 import { Response } from 'express';
 import { AuthRequest } from '../middleware/auth';
-import prisma from '../config/database';
-import { ItemType, ItemStatus } from '@prisma/client';
+import { query, queryOne, transaction } from '../config/database';
+import { ItemType, ItemStatus } from '../types/enums';
 import { randomUUID } from 'crypto';
 import fs from 'fs';
 import path from 'path';
@@ -13,7 +13,6 @@ import {
   softDeleteServiceWithTeamPreservation,
 } from '../services/soft-delete.service';
 import { NotificationService } from '../services/notification.service';
-import { USER_SELECT, CREATOR_SELECT } from '../utils/prisma-selects';
 import { extractDescriptionMentionIds, sendDescriptionMentionNotifications } from '../services/mention.service';
 import { UPLOADS_DIR } from '../config/paths';
 
@@ -21,107 +20,121 @@ export const getItems = async (req: AuthRequest, res: Response) => {
   try {
     const { clientId, type, parentId, assigneeId } = req.query;
 
-    const where: any = { isDeleted: false };
-    if (clientId) where.clientId = clientId as string;
-    if (type) where.type = type as ItemType;
-    if (assigneeId) where.assigneeId = assigneeId as string;
+    const conditions: string[] = ['"Item"."isDeleted" = false'];
+    const params: any[] = [];
+    let paramIdx = 1;
+
+    if (clientId) {
+      conditions.push(`"Item"."clientId" = $${paramIdx++}`);
+      params.push(clientId as string);
+    }
+    if (type) {
+      conditions.push(`"Item"."type" = $${paramIdx++}`);
+      params.push(type as string);
+    }
+    if (assigneeId) {
+      conditions.push(`"Item"."assigneeId" = $${paramIdx++}`);
+      params.push(assigneeId as string);
+    }
     if (parentId === 'null' || parentId === '') {
-      where.parentId = null;
+      conditions.push(`"Item"."parentId" IS NULL`);
     } else if (parentId) {
-      where.parentId = parentId as string;
+      conditions.push(`"Item"."parentId" = $${paramIdx++}`);
+      params.push(parentId as string);
     }
 
-    // Base include configuration
-    const includeConfig: any = {
-      Client: true,
-      Item: true,
-      User_Item_assigneeIdToUser: {
-        select: USER_SELECT,
-      },
-      other_Item: {
-        where: { isDeleted: false },
-        include: {
-          User_Item_assigneeIdToUser: {
-            select: CREATOR_SELECT,
-          },
-        },
-      },
-    };
+    const whereClause = conditions.join(' AND ');
 
-    // If fetching services, include child actions with creator team info (3단계 구조)
-    if (type === ItemType.SERVICE) {
-      includeConfig.other_Item = {
-        where: { isDeleted: false, type: ItemType.ACTION },
-        include: {
-          User_Item_assigneeIdToUser: {
-            select: CREATOR_SELECT,
-          },
-          User_Item_createdByIdToUser: {
-            select: {
-              id: true,
-              username: true,
-              displayName: true,
-              teamId: true,
-              Team: {
-                select: {
-                  id: true,
-                  name: true,
-                  level: true,
-                },
-              },
-            },
-          },
-        },
-      };
+    const items = await query<any>(
+      `SELECT "Item".*,
+        row_to_json("C".*) AS "Client",
+        row_to_json("PA".*) AS "Item",
+        json_build_object('id', "AU"."id", 'username', "AU"."username", 'displayName', "AU"."displayName", 'email', "AU"."email") AS "User_Item_assigneeIdToUser"
+       FROM "Item"
+       LEFT JOIN "Client" "C" ON "C"."id" = "Item"."clientId"
+       LEFT JOIN "Item" "PA" ON "PA"."id" = "Item"."parentId"
+       LEFT JOIN "User" "AU" ON "AU"."id" = "Item"."assigneeId"
+       WHERE ${whereClause}
+       ORDER BY "Item"."order" ASC`,
+      params
+    );
+
+    // Fetch children (other_Item) for each item
+    for (const item of items) {
+      let childrenQuery: string;
+      let childrenParams: any[];
+
+      if (type === ItemType.SERVICE) {
+        // For SERVICE: include child ACTIONs with creator team info
+        childrenQuery = `
+          SELECT ci.*,
+            json_build_object('id', "AU"."id", 'username', "AU"."username", 'displayName', "AU"."displayName") AS "User_Item_assigneeIdToUser",
+            json_build_object(
+              'id', "CU"."id", 'username', "CU"."username", 'displayName', "CU"."displayName",
+              'teamId', "CU"."teamId",
+              'Team', CASE WHEN "T"."id" IS NOT NULL THEN json_build_object('id', "T"."id", 'name', "T"."name", 'level', "T"."level") ELSE NULL END
+            ) AS "User_Item_createdByIdToUser"
+          FROM "Item" ci
+          LEFT JOIN "User" "AU" ON "AU"."id" = ci."assigneeId"
+          LEFT JOIN "User" "CU" ON "CU"."id" = ci."createdById"
+          LEFT JOIN "Team" "T" ON "T"."id" = "CU"."teamId"
+          WHERE ci."parentId" = $1 AND ci."isDeleted" = false AND ci."type" = $2
+          ORDER BY ci."order" ASC`;
+        childrenParams = [item.id, ItemType.ACTION];
+      } else {
+        childrenQuery = `
+          SELECT ci.*,
+            json_build_object('id', "AU"."id", 'username', "AU"."username", 'displayName', "AU"."displayName") AS "User_Item_assigneeIdToUser"
+          FROM "Item" ci
+          LEFT JOIN "User" "AU" ON "AU"."id" = ci."assigneeId"
+          WHERE ci."parentId" = $1 AND ci."isDeleted" = false
+          ORDER BY ci."order" ASC`;
+        childrenParams = [item.id];
+      }
+
+      item.other_Item = await query<any>(childrenQuery, childrenParams);
+
+      // For ACTION type: also include parent item hierarchy and creator team info and _count
+      if (type === ItemType.ACTION) {
+        // Parent service with its parent (project)
+        if (item.parentId) {
+          const parentService = await queryOne<any>(
+            `SELECT s."id", s."name", s."parentId",
+               CASE WHEN p."id" IS NOT NULL THEN json_build_object('id', p."id", 'name', p."name") ELSE NULL END AS "Item"
+             FROM "Item" s
+             LEFT JOIN "Item" p ON p."id" = s."parentId"
+             WHERE s."id" = $1`,
+            [item.parentId]
+          );
+          item.Item = parentService;
+        }
+
+        // Creator with team info
+        if (item.createdById) {
+          const creator = await queryOne<any>(
+            `SELECT u."id", u."username", u."displayName", u."teamId",
+               CASE WHEN t."id" IS NOT NULL THEN json_build_object('id', t."id", 'name', t."name") ELSE NULL END AS "Team"
+             FROM "User" u
+             LEFT JOIN "Team" t ON t."id" = u."teamId"
+             WHERE u."id" = $1`,
+            [item.createdById]
+          );
+          item.User_Item_createdByIdToUser = creator;
+        }
+
+        // Counts
+        const [commentCount, fileCount, linkCount] = await Promise.all([
+          queryOne<any>(`SELECT COUNT(*) as count FROM "Comment" WHERE "itemId" = $1`, [item.id]),
+          queryOne<any>(`SELECT COUNT(*) as count FROM "File" WHERE "itemId" = $1`, [item.id]),
+          queryOne<any>(`SELECT COUNT(*) as count FROM "Link" WHERE "itemId" = $1`, [item.id]),
+        ]);
+        item._count = {
+          Comment: parseInt(commentCount?.count ?? '0'),
+          File: parseInt(fileCount?.count ?? '0'),
+          Link: parseInt(linkCount?.count ?? '0'),
+        };
+      }
     }
-
-    // If fetching actions, include hierarchy info via parentId (3단계 구조)
-    if (type === ItemType.ACTION) {
-      // 3단계 구조: parentId → 서비스 → 프로젝트
-      includeConfig.Item = {
-        select: {
-          id: true,
-          name: true,
-          parentId: true,
-          // 서비스의 부모(프로젝트)
-          Item: {
-            select: {
-              id: true,
-              name: true,
-            },
-          },
-        },
-      };
-      // 생성자의 팀 정보
-      includeConfig.User_Item_createdByIdToUser = {
-        select: {
-          id: true,
-          username: true,
-          displayName: true,
-          teamId: true,
-          Team: {
-            select: {
-              id: true,
-              name: true,
-            },
-          },
-        },
-      };
-      // Include counts for dashboard kanban cards
-      includeConfig._count = {
-        select: {
-          Comment: true,
-          File: true,
-          Link: true,
-        },
-      };
-    }
-
-    const items = await prisma.item.findMany({
-      where,
-      include: includeConfig,
-      orderBy: { order: 'asc' },
-    });
 
     res.json(items);
   } catch (error: any) {
@@ -134,89 +147,84 @@ export const getItemById = async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params;
 
-    const item = await prisma.item.findUnique({
-      where: { id },
-      include: {
-        Client: true,
-        User_Item_assigneeIdToUser: {
-          select: USER_SELECT,
-        },
-        Item: true,
-        other_Item: {
-          where: { isDeleted: false },
-          include: {
-            User_Item_assigneeIdToUser: {
-              select: CREATOR_SELECT,
-            },
-            User_Item_createdByIdToUser: {
-              select: {
-                id: true,
-                username: true,
-                displayName: true,
-                teamId: true,
-                Team: {
-                  select: {
-                    id: true,
-                    name: true,
-                  },
-                },
-              },
-            },
-          },
-        },
-        User_Item_createdByIdToUser: {
-          select: {
-            id: true,
-            username: true,
-            displayName: true,
-            teamId: true,
-            Team: {
-              select: {
-                id: true,
-                name: true,
-              },
-            },
-          },
-        },
-        ServiceTeamsAsService: {
-          include: {
-            Team: true,
-          },
-        },
-        ServiceTeam: {
-          include: {
-            Team: true,
-            Service: {
-              select: {
-                id: true,
-                name: true,
-                parentId: true,
-                Item: {
-                  select: {
-                    id: true,
-                    name: true,
-                  },
-                },
-              },
-            },
-          },
-        },
-        WorkRequest: {
-          include: {
-            Requester: {
-              select: USER_SELECT,
-            },
-            Assignee: {
-              select: USER_SELECT,
-            },
-          },
-        },
-      },
-    });
+    const item = await queryOne<any>(
+      `SELECT "Item".*,
+        row_to_json("C".*) AS "Client",
+        row_to_json("PA".*) AS "Item",
+        json_build_object('id', "AU"."id", 'username', "AU"."username", 'displayName', "AU"."displayName", 'email', "AU"."email") AS "User_Item_assigneeIdToUser",
+        json_build_object(
+          'id', "CU"."id", 'username', "CU"."username", 'displayName', "CU"."displayName",
+          'teamId', "CU"."teamId",
+          'Team', CASE WHEN "CT"."id" IS NOT NULL THEN json_build_object('id', "CT"."id", 'name', "CT"."name") ELSE NULL END
+        ) AS "User_Item_createdByIdToUser"
+       FROM "Item"
+       LEFT JOIN "Client" "C" ON "C"."id" = "Item"."clientId"
+       LEFT JOIN "Item" "PA" ON "PA"."id" = "Item"."parentId"
+       LEFT JOIN "User" "AU" ON "AU"."id" = "Item"."assigneeId"
+       LEFT JOIN "User" "CU" ON "CU"."id" = "Item"."createdById"
+       LEFT JOIN "Team" "CT" ON "CT"."id" = "CU"."teamId"
+       WHERE "Item"."id" = $1`,
+      [id]
+    );
 
     if (!item) {
       return res.status(404).json({ error: 'Item not found' });
     }
+
+    // other_Item: children with assignee and creator team info
+    item.other_Item = await query<any>(
+      `SELECT ci.*,
+         json_build_object('id', "AU"."id", 'username', "AU"."username", 'displayName', "AU"."displayName") AS "User_Item_assigneeIdToUser",
+         json_build_object(
+           'id', "CU"."id", 'username', "CU"."username", 'displayName', "CU"."displayName",
+           'teamId', "CU"."teamId",
+           'Team', CASE WHEN "T"."id" IS NOT NULL THEN json_build_object('id', "T"."id", 'name', "T"."name") ELSE NULL END
+         ) AS "User_Item_createdByIdToUser"
+       FROM "Item" ci
+       LEFT JOIN "User" "AU" ON "AU"."id" = ci."assigneeId"
+       LEFT JOIN "User" "CU" ON "CU"."id" = ci."createdById"
+       LEFT JOIN "Team" "T" ON "T"."id" = "CU"."teamId"
+       WHERE ci."parentId" = $1 AND ci."isDeleted" = false
+       ORDER BY ci."order" ASC`,
+      [id]
+    );
+
+    // ServiceTeamsAsService: ServiceTeam rows where serviceId = item.id
+    item.ServiceTeamsAsService = await query<any>(
+      `SELECT st.*, row_to_json("T".*) AS "Team"
+       FROM "ServiceTeam" st
+       LEFT JOIN "Team" "T" ON "T"."id" = st."teamId"
+       WHERE st."serviceId" = $1`,
+      [id]
+    );
+
+    // ServiceTeam: ServiceTeam rows where this item is an ACTION (via serviceTeamId)
+    item.ServiceTeam = await query<any>(
+      `SELECT st.*,
+         row_to_json("T".*) AS "Team",
+         json_build_object(
+           'id', s."id", 'name', s."name", 'parentId', s."parentId",
+           'Item', CASE WHEN p."id" IS NOT NULL THEN json_build_object('id', p."id", 'name', p."name") ELSE NULL END
+         ) AS "Service"
+       FROM "ServiceTeam" st
+       LEFT JOIN "Team" "T" ON "T"."id" = st."teamId"
+       LEFT JOIN "Item" s ON s."id" = st."serviceId"
+       LEFT JOIN "Item" p ON p."id" = s."parentId"
+       WHERE st."id" = $1`,
+      [item.serviceTeamId]
+    );
+
+    // WorkRequest: work requests for this item
+    item.WorkRequest = await query<any>(
+      `SELECT wr.*,
+         json_build_object('id', "RQ"."id", 'username', "RQ"."username", 'displayName', "RQ"."displayName", 'email', "RQ"."email") AS "Requester",
+         json_build_object('id', "AQ"."id", 'username', "AQ"."username", 'displayName', "AQ"."displayName", 'email', "AQ"."email") AS "Assignee"
+       FROM "WorkRequest" wr
+       LEFT JOIN "User" "RQ" ON "RQ"."id" = wr."requesterId"
+       LEFT JOIN "User" "AQ" ON "AQ"."id" = wr."assigneeId"
+       WHERE wr."itemId" = $1`,
+      [id]
+    );
 
     res.json(item);
   } catch (error: any) {
@@ -261,16 +269,13 @@ export const createItem = async (req: AuthRequest, res: Response) => {
     }
 
     // 3단계 구조: 프로젝트 → 서비스 → 액션
-    // ACTION의 parentId는 서비스를 직접 가리킴, 팀 정보는 생성자의 팀에서 가져옴
     let finalParentId = parentId;
     if (type === ItemType.ACTION) {
-      // parentId가 있으면 서비스 ID로 직접 사용 (3단계 구조)
       if (parentId) {
-        // 서비스가 존재하는지 확인
-        const service = await prisma.item.findUnique({
-          where: { id: parentId },
-          select: { id: true, name: true, type: true },
-        });
+        const service = await queryOne<any>(
+          `SELECT "id", "name", "type" FROM "Item" WHERE "id" = $1`,
+          [parentId]
+        );
 
         if (!service || service.type !== ItemType.SERVICE) {
           return res.status(400).json({ error: 'parentId must be a valid SERVICE for ACTION type' });
@@ -282,16 +287,15 @@ export const createItem = async (req: AuthRequest, res: Response) => {
           serviceId: parentId,
           serviceName: service.name,
         });
-      }
-      // serviceTeamId가 있으면 하위 호환성을 위해 처리
-      else if (serviceTeamId) {
-        const serviceTeam = await prisma.serviceTeam.findUnique({
-          where: { id: serviceTeamId },
-          include: {
-            Team: true,
-            Service: true,
-          },
-        });
+      } else if (serviceTeamId) {
+        const serviceTeam = await queryOne<any>(
+          `SELECT st.*, row_to_json("T".*) AS "Team", row_to_json(s.*) AS "Service"
+           FROM "ServiceTeam" st
+           LEFT JOIN "Team" "T" ON "T"."id" = st."teamId"
+           LEFT JOIN "Item" s ON s."id" = st."serviceId"
+           WHERE st."id" = $1`,
+          [serviceTeamId]
+        );
 
         if (!serviceTeam) {
           return res.status(400).json({ error: 'Invalid serviceTeamId' });
@@ -305,9 +309,7 @@ export const createItem = async (req: AuthRequest, res: Response) => {
           teamName: serviceTeam.Team?.name,
           serviceTeamId,
         });
-      }
-      // 둘 다 없으면 에러
-      else {
+      } else {
         return res.status(400).json({ error: 'parentId (serviceId) is required for ACTION type' });
       }
     }
@@ -316,14 +318,11 @@ export const createItem = async (req: AuthRequest, res: Response) => {
     let finalStatus = status || ItemStatus.NOT_STARTED;
     let finalProgress = progress ?? 0;
 
-    // 상태 → 진행률 연동 (상태가 명시적으로 지정된 경우)
     if (status === ItemStatus.NOT_STARTED && (progress === undefined || progress === null)) {
       finalProgress = 0;
     } else if (status === ItemStatus.COMPLETED && (progress === undefined || progress === null)) {
       finalProgress = 100;
-    }
-    // 진행률 → 상태 연동 (진행률이 명시적으로 지정된 경우)
-    else if (progress === 0 && !status) {
+    } else if (progress === 0 && !status) {
       finalStatus = ItemStatus.NOT_STARTED;
     } else if (progress === 100 && !status) {
       finalStatus = ItemStatus.COMPLETED;
@@ -331,30 +330,47 @@ export const createItem = async (req: AuthRequest, res: Response) => {
       finalStatus = ItemStatus.IN_PROGRESS;
     }
 
-    const item = await prisma.item.create({
-      data: {
-        id: randomUUID(),
+    const newId = randomUUID();
+    const now = new Date();
+
+    const item = await queryOne<any>(
+      `INSERT INTO "Item" ("id", "type", "name", "status", "progress", "startDate", "endDate", "clientId", "parentId", "serviceTeamId", "assigneeId", "description", "createdById", "updatedAt")
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+       RETURNING *`,
+      [
+        newId,
         type,
         name,
-        status: finalStatus,
-        progress: finalProgress,
-        startDate: startDate ? new Date(startDate) : null,
-        endDate: endDate ? new Date(endDate) : null,
-        clientId,
-        parentId: finalParentId,
-        serviceTeamId,
-        assigneeId,
-        description,
-        createdById: req.user!.id,
-        updatedAt: new Date(),
-      },
-      include: {
-        Client: true,
-        User_Item_assigneeIdToUser: {
-          select: CREATOR_SELECT,
-        },
-      },
-    });
+        finalStatus,
+        finalProgress,
+        startDate ? new Date(startDate) : null,
+        endDate ? new Date(endDate) : null,
+        clientId ?? null,
+        finalParentId ?? null,
+        serviceTeamId ?? null,
+        assigneeId ?? null,
+        description ?? null,
+        req.user!.id,
+        now,
+      ]
+    );
+
+    // Attach Client and assignee info to response
+    if (item) {
+      if (item.clientId) {
+        item.Client = await queryOne<any>(`SELECT * FROM "Client" WHERE "id" = $1`, [item.clientId]);
+      } else {
+        item.Client = null;
+      }
+      if (item.assigneeId) {
+        item.User_Item_assigneeIdToUser = await queryOne<any>(
+          `SELECT "id", "username", "displayName" FROM "User" WHERE "id" = $1`,
+          [item.assigneeId]
+        );
+      } else {
+        item.User_Item_assigneeIdToUser = null;
+      }
+    }
 
     // 🔔 업무 할당 알림: 담당자가 지정된 경우 (본인 제외)
     if (assigneeId && assigneeId !== req.user!.id) {
@@ -392,19 +408,21 @@ export const createItem = async (req: AuthRequest, res: Response) => {
 
     // If creating a PROJECT, automatically create "미정 서비스" under it
     if (type === ItemType.PROJECT) {
-      await prisma.item.create({
-        data: {
-          id: randomUUID(),
-          name: '미정 서비스',
-          type: ItemType.SERVICE,
-          status: ItemStatus.NOT_STARTED,
-          progress: 0,
-          parentId: item.id,
-          description: '서비스가 미정인 항목들을 위한 임시 서비스',
-          createdById: req.user!.id,
-          updatedAt: new Date(),
-        },
-      });
+      await queryOne<any>(
+        `INSERT INTO "Item" ("id", "name", "type", "status", "progress", "parentId", "description", "createdById", "updatedAt")
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+        [
+          randomUUID(),
+          '미정 서비스',
+          ItemType.SERVICE,
+          ItemStatus.NOT_STARTED,
+          0,
+          item.id,
+          '서비스가 미정인 항목들을 위한 임시 서비스',
+          req.user!.id,
+          new Date(),
+        ]
+      );
       appLogger.info('Auto-created "미정 서비스" for new project', {
         projectId: item.id,
         projectName: item.name,
@@ -422,30 +440,26 @@ export const createItem = async (req: AuthRequest, res: Response) => {
         clientId: item.clientId,
       });
 
-      // 🔔 미정 액션 알림: 프로젝트 또는 서비스가 미정인 경우 팀장에게 알림
+      // 🔔 미정 액션 알림
       if (serviceTeamId) {
         try {
-          // ServiceTeam에서 Service 조회
-          const serviceTeamForNotify = await prisma.serviceTeam.findUnique({
-            where: { id: serviceTeamId },
-            include: {
-              Service: true,
-              Team: true,
-            },
-          });
+          const serviceTeamForNotify = await queryOne<any>(
+            `SELECT st.*, row_to_json(s.*) AS "Service", row_to_json("T".*) AS "Team"
+             FROM "ServiceTeam" st
+             LEFT JOIN "Item" s ON s."id" = st."serviceId"
+             LEFT JOIN "Team" "T" ON "T"."id" = st."teamId"
+             WHERE st."id" = $1`,
+            [serviceTeamId]
+          );
 
           if (serviceTeamForNotify?.Service) {
-            // Service의 부모(Project) 조회
             const projectItem = serviceTeamForNotify.Service.parentId
-              ? await prisma.item.findUnique({
-                  where: { id: serviceTeamForNotify.Service.parentId },
-                })
+              ? await queryOne<any>(`SELECT * FROM "Item" WHERE "id" = $1`, [serviceTeamForNotify.Service.parentId])
               : null;
 
             const isProjectUndecided = projectItem?.name.includes('미정') || false;
             const isServiceUndecided = serviceTeamForNotify.Service.name.includes('미정');
 
-            // 미정인 경우 팀장에게 알림
             if (isProjectUndecided || isServiceUndecided) {
               await NotificationService.notifyUndecidedActionCreated({
                 actionId: item.id,
@@ -466,7 +480,6 @@ export const createItem = async (req: AuthRequest, res: Response) => {
             }
           }
         } catch (notifyError: any) {
-          // 알림 실패해도 액션 생성은 성공으로 처리
           appLogger.warn('⚠️ Failed to send undecided action notification', {
             actionId: item.id,
             error: notifyError.message,
@@ -489,9 +502,9 @@ export const createItem = async (req: AuthRequest, res: Response) => {
 export const updateItem = async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params;
-    const updateData = req.body;
+    const updateData = { ...req.body };
 
-    const existingItem = await prisma.item.findUnique({ where: { id } });
+    const existingItem = await queryOne<any>(`SELECT * FROM "Item" WHERE "id" = $1`, [id]);
     if (!existingItem) {
       return res.status(404).json({ error: 'Item not found' });
     }
@@ -504,7 +517,6 @@ export const updateItem = async (req: AuthRequest, res: Response) => {
 
     if (updateData.startDate) updateData.startDate = new Date(updateData.startDate);
     if (updateData.endDate) updateData.endDate = new Date(updateData.endDate);
-
     updateData.updatedAt = new Date();
 
     // 상태-진행률 자동 연동 (ACTION 타입에만 적용)
@@ -512,23 +524,18 @@ export const updateItem = async (req: AuthRequest, res: Response) => {
       const statusChanged = updateData.status !== undefined && updateData.status !== existingItem.status;
       const progressChanged = updateData.progress !== undefined && updateData.progress !== existingItem.progress;
 
-      // 상태만 변경된 경우 → 진행률 자동 조정
       if (statusChanged && !progressChanged) {
         if (updateData.status === ItemStatus.NOT_STARTED) {
           updateData.progress = 0;
         } else if (updateData.status === ItemStatus.COMPLETED) {
           updateData.progress = 100;
         }
-        // 진행중/보류는 기존 진행률 유지
-      }
-      // 진행률만 변경된 경우 → 상태 자동 조정
-      else if (progressChanged && !statusChanged) {
+      } else if (progressChanged && !statusChanged) {
         if (updateData.progress === 0) {
           updateData.status = ItemStatus.NOT_STARTED;
         } else if (updateData.progress === 100) {
           updateData.status = ItemStatus.COMPLETED;
         } else if (updateData.progress > 0 && updateData.progress < 100) {
-          // 보류 상태가 아닐 때만 진행중으로 변경
           if (existingItem.status !== ItemStatus.ON_HOLD) {
             updateData.status = ItemStatus.IN_PROGRESS;
           }
@@ -538,13 +545,11 @@ export const updateItem = async (req: AuthRequest, res: Response) => {
 
     // ACTION: parentId 또는 serviceTeamId 변경 시 처리
     if (existingItem.type === ItemType.ACTION) {
-      // parentId가 직접 변경된 경우 (3단계 구조)
       if (updateData.parentId && updateData.parentId !== existingItem.parentId) {
-        // 서비스가 존재하는지 확인
-        const service = await prisma.item.findUnique({
-          where: { id: updateData.parentId },
-          select: { id: true, name: true, type: true },
-        });
+        const service = await queryOne<any>(
+          `SELECT "id", "name", "type" FROM "Item" WHERE "id" = $1`,
+          [updateData.parentId]
+        );
 
         if (service && service.type === ItemType.SERVICE) {
           appLogger.info('✅ ACTION parentId updated directly', {
@@ -553,13 +558,11 @@ export const updateItem = async (req: AuthRequest, res: Response) => {
             serviceName: service.name,
           });
         }
-      }
-      // serviceTeamId가 변경된 경우 (하위 호환성)
-      else if (updateData.serviceTeamId && updateData.serviceTeamId !== existingItem.serviceTeamId) {
-        const newServiceTeam = await prisma.serviceTeam.findUnique({
-          where: { id: updateData.serviceTeamId },
-          select: { serviceId: true },
-        });
+      } else if (updateData.serviceTeamId && updateData.serviceTeamId !== existingItem.serviceTeamId) {
+        const newServiceTeam = await queryOne<any>(
+          `SELECT "serviceId" FROM "ServiceTeam" WHERE "id" = $1`,
+          [updateData.serviceTeamId]
+        );
 
         if (newServiceTeam) {
           updateData.parentId = newServiceTeam.serviceId;
@@ -572,21 +575,53 @@ export const updateItem = async (req: AuthRequest, res: Response) => {
       }
     }
 
-    const item = await prisma.item.update({
-      where: { id },
-      data: updateData,
-      include: {
-        Client: true,
-        User_Item_assigneeIdToUser: {
-          select: CREATOR_SELECT,
-        },
-      },
-    });
+    // Build dynamic SET clause
+    const allowedFields = [
+      'type', 'name', 'status', 'progress', 'startDate', 'endDate',
+      'clientId', 'parentId', 'serviceTeamId', 'assigneeId', 'description',
+      'order', 'isOnHold', 'updatedAt',
+    ];
+    const setClauses: string[] = [];
+    const setParams: any[] = [];
+    let paramIdx = 1;
+
+    for (const field of allowedFields) {
+      if (updateData[field] !== undefined) {
+        setClauses.push(`"${field}" = $${paramIdx++}`);
+        setParams.push(updateData[field]);
+      }
+    }
+
+    if (setClauses.length === 0) {
+      return res.json(existingItem);
+    }
+
+    setParams.push(id);
+    const item = await queryOne<any>(
+      `UPDATE "Item" SET ${setClauses.join(', ')} WHERE "id" = $${paramIdx} RETURNING *`,
+      setParams
+    );
+
+    // Attach Client and assignee info
+    if (item) {
+      if (item.clientId) {
+        item.Client = await queryOne<any>(`SELECT * FROM "Client" WHERE "id" = $1`, [item.clientId]);
+      } else {
+        item.Client = null;
+      }
+      if (item.assigneeId) {
+        item.User_Item_assigneeIdToUser = await queryOne<any>(
+          `SELECT "id", "username", "displayName" FROM "User" WHERE "id" = $1`,
+          [item.assigneeId]
+        );
+      } else {
+        item.User_Item_assigneeIdToUser = null;
+      }
+    }
 
     // 🔔 상태 변경/완료 알림
     if (updateData.status && updateData.status !== existingItem.status) {
       try {
-        // 상태 변경 알림 (담당자에게, 본인이 변경한 경우 제외)
         if (existingItem.assigneeId && existingItem.assigneeId !== req.user!.id) {
           await NotificationService.notifyStatusChanged({
             itemId: item.id,
@@ -598,7 +633,6 @@ export const updateItem = async (req: AuthRequest, res: Response) => {
           });
         }
 
-        // 완료 알림 (생성자에게, 본인이 완료한 경우 제외)
         if (updateData.status === ItemStatus.COMPLETED && existingItem.createdById !== req.user!.id) {
           await NotificationService.notifyItemCompleted({
             itemId: item.id,
@@ -620,8 +654,8 @@ export const updateItem = async (req: AuthRequest, res: Response) => {
       try {
         const oldMentionIds = extractDescriptionMentionIds(existingItem.description);
         const newMentionIds = extractDescriptionMentionIds(updateData.description);
-        const addedIds = newMentionIds.filter(id => !oldMentionIds.includes(id));
-        const keptIds = newMentionIds.filter(id => oldMentionIds.includes(id));
+        const addedIds = newMentionIds.filter((mid: string) => !oldMentionIds.includes(mid));
+        const keptIds = newMentionIds.filter((mid: string) => oldMentionIds.includes(mid));
         if (addedIds.length > 0 || keptIds.length > 0) {
           await sendDescriptionMentionNotifications(item.id, item.name, req.user!.id, addedIds, keptIds);
         }
@@ -630,8 +664,6 @@ export const updateItem = async (req: AuthRequest, res: Response) => {
       }
     }
 
-    // If item has a parent, update parent chain
-    // Also update if status, progress, or isOnHold changed
     if (existingItem.parentId && (
       updateData.status !== undefined ||
       updateData.progress !== undefined ||
@@ -651,7 +683,7 @@ export const deleteItem = async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params;
 
-    const existingItem = await prisma.item.findUnique({ where: { id } });
+    const existingItem = await queryOne<any>(`SELECT * FROM "Item" WHERE "id" = $1`, [id]);
     if (!existingItem) {
       return res.status(404).json({ error: 'Item not found' });
     }
@@ -660,13 +692,11 @@ export const deleteItem = async (req: AuthRequest, res: Response) => {
       return res.status(400).json({ error: 'Item is already deleted' });
     }
 
-    // Check permissions: only creator or ADMIN can delete
     const currentUser = req.user!;
     if (currentUser.role !== 'ADMIN' && existingItem.createdById !== currentUser.id) {
       return res.status(403).json({ error: '생성자 또는 최고관리자만 삭제할 수 있습니다' });
     }
 
-    // Use special deletion logic for PROJECT and SERVICE to preserve teams
     let result;
     if (existingItem.type === ItemType.PROJECT) {
       result = await softDeleteProjectWithTeamPreservation(id, currentUser.id);
@@ -705,7 +735,6 @@ export const deleteItem = async (req: AuthRequest, res: Response) => {
         actionCount: result.actionCount,
       });
     } else {
-      // For TEAM and ACTION, use regular soft delete
       result = await softDeleteItem(id, {
         userId: currentUser.id,
         recursive: true,
@@ -739,82 +768,53 @@ export const getItemTree = async (req: AuthRequest, res: Response) => {
     const buildTree = async (items: any[], parentClient?: any): Promise<any[]> => {
       return Promise.all(
         items.map(async (item) => {
-          // Get comment count for this item
-          const commentCount = await prisma.comment.count({
-            where: { itemId: item.id },
-          });
-
-          // Get file count for this item
-          const fileCount = await prisma.file.count({
-            where: { itemId: item.id },
-          });
-
-          // Get link count for this item
-          const linkCount = await prisma.link.count({
-            where: { itemId: item.id },
-          });
+          const [commentRow, fileRow, linkRow] = await Promise.all([
+            queryOne<any>(`SELECT COUNT(*) as count FROM "Comment" WHERE "itemId" = $1`, [item.id]),
+            queryOne<any>(`SELECT COUNT(*) as count FROM "File" WHERE "itemId" = $1`, [item.id]),
+            queryOne<any>(`SELECT COUNT(*) as count FROM "Link" WHERE "itemId" = $1`, [item.id]),
+          ]);
+          const commentCount = parseInt(commentRow?.count ?? '0');
+          const fileCount = parseInt(fileRow?.count ?? '0');
+          const linkCount = parseInt(linkRow?.count ?? '0');
 
           let children: any[] = [];
 
-          // For TEAM type items, get ACTIONs via ServiceTeam
           if (item.type === ItemType.TEAM) {
             // Find ServiceTeam matching this TEAM item
-            const serviceTeam = await prisma.serviceTeam.findFirst({
-              where: {
-                serviceId: item.parentId, // TEAM's parent is SERVICE
-                Team: {
-                  name: item.name, // Match by team name
-                },
-              },
-            });
+            const serviceTeam = await queryOne<any>(
+              `SELECT st.* FROM "ServiceTeam" st
+               INNER JOIN "Team" "T" ON "T"."id" = st."teamId"
+               WHERE st."serviceId" = $1 AND "T"."name" = $2
+               LIMIT 1`,
+              [item.parentId, item.name]
+            );
 
             if (serviceTeam) {
-              // Get ACTIONs via ServiceTeam
-              children = await prisma.item.findMany({
-                where: {
-                  type: ItemType.ACTION,
-                  serviceTeamId: serviceTeam.id,
-                  isDeleted: false,
-                },
-                include: {
-                  Client: true,
-                  User_Item_assigneeIdToUser: {
-                    select: CREATOR_SELECT,
-                  },
-                  // 3단계 구조: 액션 생성자의 팀 정보 포함
-                  User_Item_createdByIdToUser: {
-                    select: {
-                      id: true,
-                      username: true,
-                      displayName: true,
-                      teamId: true,
-                      Team: {
-                        select: {
-                          id: true,
-                          name: true,
-                        },
-                      },
-                    },
-                  },
-                  // 3단계 구조: 부모 서비스 및 프로젝트 정보 포함 (액션 수정 시 필요)
-                  Item: {
-                    select: {
-                      id: true,
-                      name: true,
-                      parentId: true,
-                      Item: {
-                        select: {
-                          id: true,
-                          name: true,
-                        },
-                      },
-                    },
-                  },
-                },
-                orderBy: { order: 'asc' },
-              });
+              children = await query<any>(
+                `SELECT ci.*,
+                   json_build_object('id', "AU"."id", 'username', "AU"."username", 'displayName', "AU"."displayName") AS "User_Item_assigneeIdToUser",
+                   json_build_object(
+                     'id', "CU"."id", 'username', "CU"."username", 'displayName', "CU"."displayName",
+                     'teamId', "CU"."teamId",
+                     'Team', CASE WHEN "T"."id" IS NOT NULL THEN json_build_object('id', "T"."id", 'name', "T"."name") ELSE NULL END
+                   ) AS "User_Item_createdByIdToUser",
+                   json_build_object(
+                     'id', ps."id", 'name', ps."name", 'parentId', ps."parentId",
+                     'Item', CASE WHEN pp."id" IS NOT NULL THEN json_build_object('id', pp."id", 'name', pp."name") ELSE NULL END
+                   ) AS "Item",
+                   row_to_json("C".*) AS "Client"
+                 FROM "Item" ci
+                 LEFT JOIN "User" "AU" ON "AU"."id" = ci."assigneeId"
+                 LEFT JOIN "User" "CU" ON "CU"."id" = ci."createdById"
+                 LEFT JOIN "Team" "T" ON "T"."id" = "CU"."teamId"
+                 LEFT JOIN "Item" ps ON ps."id" = ci."parentId"
+                 LEFT JOIN "Item" pp ON pp."id" = ps."parentId"
+                 LEFT JOIN "Client" "C" ON "C"."id" = ci."clientId"
+                 WHERE ci."type" = $1 AND ci."serviceTeamId" = $2 AND ci."isDeleted" = false
+                 ORDER BY ci."order" ASC`,
+                [ItemType.ACTION, serviceTeam.id]
+              );
 
-              // 로그: TEAM의 자식 ACTION 조회
               if (children.length > 0) {
                 appLogger.info('📋 Found ACTIONs for TEAM', {
                   teamId: item.id,
@@ -822,7 +822,7 @@ export const getItemTree = async (req: AuthRequest, res: Response) => {
                   serviceId: item.parentId,
                   serviceTeamId: serviceTeam.id,
                   actionCount: children.length,
-                  actionDates: children.map(c => ({
+                  actionDates: children.map((c: any) => ({
                     name: c.name,
                     startDate: c.startDate,
                     endDate: c.endDate,
@@ -831,76 +831,50 @@ export const getItemTree = async (req: AuthRequest, res: Response) => {
               }
             }
           } else {
-            // For other types, use parentId-based children
-            children = await prisma.item.findMany({
-              where: {
-                parentId: item.id,
-                isDeleted: false,
-              },
-              include: {
-                Client: true,
-                User_Item_assigneeIdToUser: {
-                  select: CREATOR_SELECT,
-                },
-                // 3단계 구조: 액션 생성자의 팀 정보 포함
-                User_Item_createdByIdToUser: {
-                  select: {
-                    id: true,
-                    username: true,
-                    displayName: true,
-                    teamId: true,
-                    Team: {
-                      select: {
-                        id: true,
-                        name: true,
-                      },
-                    },
-                  },
-                },
-                // 3단계 구조: 부모 서비스 및 프로젝트 정보 포함 (액션 수정 시 필요)
-                Item: {
-                  select: {
-                    id: true,
-                    name: true,
-                    parentId: true,
-                    Item: {
-                      select: {
-                        id: true,
-                        name: true,
-                      },
-                    },
-                  },
-                },
-              },
-              orderBy: { order: 'asc' },
-            });
+            children = await query<any>(
+              `SELECT ci.*,
+                 json_build_object('id', "AU"."id", 'username', "AU"."username", 'displayName', "AU"."displayName") AS "User_Item_assigneeIdToUser",
+                 json_build_object(
+                   'id', "CU"."id", 'username', "CU"."username", 'displayName', "CU"."displayName",
+                   'teamId', "CU"."teamId",
+                   'Team', CASE WHEN "T"."id" IS NOT NULL THEN json_build_object('id', "T"."id", 'name', "T"."name") ELSE NULL END
+                 ) AS "User_Item_createdByIdToUser",
+                 json_build_object(
+                   'id', ps."id", 'name', ps."name", 'parentId', ps."parentId",
+                   'Item', CASE WHEN pp."id" IS NOT NULL THEN json_build_object('id', pp."id", 'name', pp."name") ELSE NULL END
+                 ) AS "Item",
+                 row_to_json("C".*) AS "Client"
+               FROM "Item" ci
+               LEFT JOIN "User" "AU" ON "AU"."id" = ci."assigneeId"
+               LEFT JOIN "User" "CU" ON "CU"."id" = ci."createdById"
+               LEFT JOIN "Team" "T" ON "T"."id" = "CU"."teamId"
+               LEFT JOIN "Item" ps ON ps."id" = ci."parentId"
+               LEFT JOIN "Item" pp ON pp."id" = ps."parentId"
+               LEFT JOIN "Client" "C" ON "C"."id" = ci."clientId"
+               WHERE ci."parentId" = $1 AND ci."isDeleted" = false
+               ORDER BY ci."order" ASC`,
+              [item.id]
+            );
           }
 
           // ACTION 타입 자식들을 팀 이름 기준 가나다순으로 정렬
           if (children.length > 0 && children.some((c: any) => c.type === ItemType.ACTION)) {
             children.sort((a: any, b: any) => {
-              // ACTION 타입만 팀 이름으로 정렬
               if (a.type === ItemType.ACTION && b.type === ItemType.ACTION) {
                 const teamA = a.User_Item_createdByIdToUser?.Team?.name || '';
                 const teamB = b.User_Item_createdByIdToUser?.Team?.name || '';
                 return teamA.localeCompare(teamB, 'ko');
               }
-              // ACTION이 아닌 타입은 기존 order 유지
               return (a.order || 0) - (b.order || 0);
             });
           }
 
-          // Use parent's Client if child doesn't have one
           const effectiveClient = item.Client || parentClient;
-
-          // Process children first (recursive call)
           const processedChildren = children.length > 0 ? await buildTree(children, effectiveClient) : [];
 
-          // Auto-calculate TEAM dates based on processed children ACTIONs
           let calculatedStartDate = item.startDate;
           let calculatedEndDate = item.endDate;
 
-          // Debug log for TEAM items
           if (item.type === ItemType.TEAM) {
             appLogger.info('🔍 Processing TEAM item', {
               teamId: item.id,
@@ -911,31 +885,28 @@ export const getItemTree = async (req: AuthRequest, res: Response) => {
           }
 
           if (item.type === ItemType.TEAM && processedChildren.length > 0) {
-            // Filter children with valid dates
             const datesFromChildren = processedChildren
-              .filter(child => child.startDate || child.endDate)
-              .map(child => ({
+              .filter((child: any) => child.startDate || child.endDate)
+              .map((child: any) => ({
                 startDate: child.startDate ? new Date(child.startDate) : null,
                 endDate: child.endDate ? new Date(child.endDate) : null,
               }));
 
             if (datesFromChildren.length > 0) {
-              // Find earliest start date
               const startDates = datesFromChildren
-                .map(d => d.startDate)
-                .filter((d): d is Date => d !== null);
+                .map((d: any) => d.startDate)
+                .filter((d: Date | null): d is Date => d !== null);
 
               if (startDates.length > 0) {
-                calculatedStartDate = new Date(Math.min(...startDates.map(d => d.getTime())));
+                calculatedStartDate = new Date(Math.min(...startDates.map((d: Date) => d.getTime())));
               }
 
-              // Find latest end date
               const endDates = datesFromChildren
-                .map(d => d.endDate)
-                .filter((d): d is Date => d !== null);
+                .map((d: any) => d.endDate)
+                .filter((d: Date | null): d is Date => d !== null);
 
               if (endDates.length > 0) {
-                calculatedEndDate = new Date(Math.max(...endDates.map(d => d.getTime())));
+                calculatedEndDate = new Date(Math.max(...endDates.map((d: Date) => d.getTime())));
               }
 
               appLogger.info('📅 Auto-calculated TEAM dates', {
@@ -967,92 +938,69 @@ export const getItemTree = async (req: AuthRequest, res: Response) => {
 
     // If userTeamId is provided, filter to show only items related to user's team
     if (userTeamId) {
-      // Find the user's team
-      const userTeam = await prisma.team.findUnique({
-        where: { id: userTeamId as string },
-      });
+      const userTeam = await queryOne<any>(`SELECT * FROM "Team" WHERE "id" = $1`, [userTeamId as string]);
 
       if (!userTeam) {
         return res.json([]);
       }
 
-      // Get ServiceTeams for this team
-      const serviceTeams = await prisma.serviceTeam.findMany({
-        where: {
-          teamId: userTeam.id,
-          Service: {
-            isDeleted: false,
-          },
-        },
-        include: {
-          Service: {
-            select: {
-              id: true,
-              parentId: true,
-              isDeleted: true,
-            },
-          },
-        },
-      });
+      const serviceTeams = await query<any>(
+        `SELECT st.*, json_build_object('id', s."id", 'parentId', s."parentId", 'isDeleted', s."isDeleted") AS "Service"
+         FROM "ServiceTeam" st
+         INNER JOIN "Item" s ON s."id" = st."serviceId"
+         WHERE st."teamId" = $1 AND s."isDeleted" = false`,
+        [userTeam.id]
+      );
 
-      // Collect unique project IDs
       const projectIds = new Set<string>();
-      serviceTeams.forEach((st) => {
+      serviceTeams.forEach((st: any) => {
         if (st.Service.parentId) {
           projectIds.add(st.Service.parentId);
         }
       });
 
-      // Get all projects related to user's team
-      const projects = await prisma.item.findMany({
-        where: {
-          id: { in: Array.from(projectIds) },
-          type: ItemType.PROJECT,  // 🔧 Fix: Ensure only PROJECTs
-          parentId: null,
-          isDeleted: false,
-        },
-        include: {
-          Client: true,
-          User_Item_assigneeIdToUser: {
-            select: CREATOR_SELECT,
-          },
-          _count: {
-            select: { Comment: true },
-          },
-        },
-        orderBy: { order: 'asc' },
-      });
+      const projectIdsArray = Array.from(projectIds);
+      if (projectIdsArray.length === 0) {
+        return res.json([]);
+      }
 
-      // Build tree but filter to only include services with user's team
-      const serviceIdsWithUserTeam = new Set(serviceTeams.map(st => st.serviceId));
+      const placeholders = projectIdsArray.map((_: any, i: number) => `$${i + 1}`).join(', ');
+      const projects = await query<any>(
+        `SELECT i.*,
+           row_to_json("C".*) AS "Client",
+           json_build_object('id', "AU"."id", 'username', "AU"."username", 'displayName', "AU"."displayName") AS "User_Item_assigneeIdToUser",
+           json_build_object('Comment', (SELECT COUNT(*) FROM "Comment" WHERE "itemId" = i."id")) AS "_count"
+         FROM "Item" i
+         LEFT JOIN "Client" "C" ON "C"."id" = i."clientId"
+         LEFT JOIN "User" "AU" ON "AU"."id" = i."assigneeId"
+         WHERE i."id" IN (${placeholders}) AND i."type" = $${projectIdsArray.length + 1} AND i."parentId" IS NULL AND i."isDeleted" = false
+         ORDER BY i."order" ASC`,
+        [...projectIdsArray, ItemType.PROJECT]
+      );
+
+      const serviceIdsWithUserTeam = new Set(serviceTeams.map((st: any) => st.serviceId));
       const filteredTree = await Promise.all(
-        projects.map(async (project) => {
-          const allServices = await prisma.item.findMany({
-            where: {
-              parentId: project.id,
-              isDeleted: false,
-            },
-            include: {
-              Client: true,
-              User_Item_assigneeIdToUser: {
-                select: CREATOR_SELECT,
-              },
-              _count: {
-                select: { Comment: true },
-              },
-            },
-            orderBy: { order: 'asc' },
-          });
+        projects.map(async (project: any) => {
+          const allServices = await query<any>(
+            `SELECT i.*,
+               row_to_json("C".*) AS "Client",
+               json_build_object('id', "AU"."id", 'username', "AU"."username", 'displayName', "AU"."displayName") AS "User_Item_assigneeIdToUser",
+               json_build_object('Comment', (SELECT COUNT(*) FROM "Comment" WHERE "itemId" = i."id")) AS "_count"
+             FROM "Item" i
+             LEFT JOIN "Client" "C" ON "C"."id" = i."clientId"
+             LEFT JOIN "User" "AU" ON "AU"."id" = i."assigneeId"
+             WHERE i."parentId" = $1 AND i."isDeleted" = false
+             ORDER BY i."order" ASC`,
+            [project.id]
+          );
 
-          // Filter services that have the user's team
           const servicesWithUserTeam = [];
           for (const service of allServices) {
             if (serviceIdsWithUserTeam.has(service.id)) {
-              // Build tree for this service, passing project's Client
               const serviceWithTree = {
                 ...service,
                 Client: service.Client || project.Client,
-                children: await buildTree([service], project.Client).then(built => built[0]?.children || []),
+                children: await buildTree([service], project.Client).then((built: any[]) => built[0]?.children || []),
               };
               servicesWithUserTeam.push(serviceWithTree);
             }
@@ -1069,29 +1017,33 @@ export const getItemTree = async (req: AuthRequest, res: Response) => {
     }
 
     // Default behavior: show all items (only PROJECT at root level)
-    const where: any = {
-      parentId: null,
-      type: ItemType.PROJECT,  // 🔧 Fix: Only get PROJECTs at root level
-      isDeleted: false
-    };
-    if (clientId) where.clientId = clientId as string;
+    const rootConditions = [
+      `"parentId" IS NULL`,
+      `"type" = $1`,
+      `"isDeleted" = false`,
+    ];
+    const rootParams: any[] = [ItemType.PROJECT];
+    let rootParamIdx = 2;
 
-    const rootItems = await prisma.item.findMany({
-      where,
-      include: {
-        Client: true,
-        User_Item_assigneeIdToUser: {
-          select: CREATOR_SELECT,
-        },
-        _count: {
-          select: { Comment: true },
-        },
-      },
-      orderBy: { order: 'asc' },
-    });
+    if (clientId) {
+      rootConditions.push(`"clientId" = $${rootParamIdx++}`);
+      rootParams.push(clientId as string);
+    }
+
+    const rootItems = await query<any>(
+      `SELECT i.*,
+         row_to_json("C".*) AS "Client",
+         json_build_object('id', "AU"."id", 'username', "AU"."username", 'displayName', "AU"."displayName") AS "User_Item_assigneeIdToUser",
+         json_build_object('Comment', (SELECT COUNT(*) FROM "Comment" WHERE "itemId" = i."id")) AS "_count"
+       FROM "Item" i
+       LEFT JOIN "Client" "C" ON "C"."id" = i."clientId"
+       LEFT JOIN "User" "AU" ON "AU"."id" = i."assigneeId"
+       WHERE ${rootConditions.join(' AND ')}
+       ORDER BY i."order" ASC`,
+      rootParams
+    );
 
     const tree = await buildTree(rootItems);
-
     res.json(tree);
   } catch (error: any) {
     errorLogger.error('Failed to get item tree', { error });
@@ -1104,14 +1056,16 @@ export const moveItem = async (req: AuthRequest, res: Response) => {
     const { id } = req.params;
     const { parentId, serviceTeamId } = req.body;
 
-    // 아이템 존재 확인
-    const item = await prisma.item.findUnique({
-      where: { id },
-      include: {
-        Item: true, // 현재 부모
-        ServiceTeam: true, // 현재 ServiceTeam (ACTION용)
-      },
-    });
+    const item = await queryOne<any>(
+      `SELECT i.*,
+         row_to_json(pi.*) AS "Item",
+         row_to_json(st.*) AS "ServiceTeam"
+       FROM "Item" i
+       LEFT JOIN "Item" pi ON pi."id" = i."parentId"
+       LEFT JOIN "ServiceTeam" st ON st."id" = i."serviceTeamId"
+       WHERE i."id" = $1`,
+      [id]
+    );
 
     if (!item) {
       return res.status(404).json({ error: 'Item not found' });
@@ -1123,40 +1077,39 @@ export const moveItem = async (req: AuthRequest, res: Response) => {
         return res.status(400).json({ error: 'serviceTeamId is required for ACTION type' });
       }
 
-      // ServiceTeam 존재 및 유효성 확인
-      const newServiceTeam = await prisma.serviceTeam.findUnique({
-        where: { id: serviceTeamId },
-        include: {
-          Service: true,
-          Team: true,
-        },
-      });
+      const newServiceTeam = await queryOne<any>(
+        `SELECT st.*, row_to_json(s.*) AS "Service", row_to_json("T".*) AS "Team"
+         FROM "ServiceTeam" st
+         LEFT JOIN "Item" s ON s."id" = st."serviceId"
+         LEFT JOIN "Team" "T" ON "T"."id" = st."teamId"
+         WHERE st."id" = $1`,
+        [serviceTeamId]
+      );
 
       if (!newServiceTeam) {
         return res.status(404).json({ error: 'ServiceTeam not found' });
       }
 
-      // 이동 실행 (ACTION은 serviceTeamId만 업데이트)
-      const updatedItem = await prisma.item.update({
-        where: { id },
-        data: {
-          serviceTeamId: serviceTeamId,
-          updatedAt: new Date(),
-        },
-        include: {
-          Client: true,
-          Item: true,
-          ServiceTeam: {
-            include: {
-              Service: true,
-              Team: true,
-            },
-          },
-          User_Item_assigneeIdToUser: {
-            select: USER_SELECT,
-          },
-        },
-      });
+      const updatedItem = await queryOne<any>(
+        `UPDATE "Item" SET "serviceTeamId" = $1, "updatedAt" = $2 WHERE "id" = $3 RETURNING *`,
+        [serviceTeamId, new Date(), id]
+      );
+
+      if (updatedItem) {
+        updatedItem.Client = updatedItem.clientId
+          ? await queryOne<any>(`SELECT * FROM "Client" WHERE "id" = $1`, [updatedItem.clientId])
+          : null;
+        updatedItem.Item = updatedItem.parentId
+          ? await queryOne<any>(`SELECT * FROM "Item" WHERE "id" = $1`, [updatedItem.parentId])
+          : null;
+        updatedItem.ServiceTeam = newServiceTeam;
+        updatedItem.User_Item_assigneeIdToUser = updatedItem.assigneeId
+          ? await queryOne<any>(
+              `SELECT "id", "username", "displayName", "email" FROM "User" WHERE "id" = $1`,
+              [updatedItem.assigneeId]
+            )
+          : null;
+      }
 
       res.json(updatedItem);
       return;
@@ -1167,16 +1120,11 @@ export const moveItem = async (req: AuthRequest, res: Response) => {
       return res.status(400).json({ error: 'parentId is required' });
     }
 
-    // 새 부모 존재 확인
-    const newParent = await prisma.item.findUnique({
-      where: { id: parentId },
-    });
-
+    const newParent = await queryOne<any>(`SELECT * FROM "Item" WHERE "id" = $1`, [parentId]);
     if (!newParent) {
       return res.status(404).json({ error: 'New parent not found' });
     }
 
-    // 타입 검증: 계층 구조가 올바른지 확인
     const validMoves: { [key: string]: ItemType } = {
       [ItemType.TEAM]: ItemType.SERVICE,
       [ItemType.SERVICE]: ItemType.PROJECT,
@@ -1188,23 +1136,24 @@ export const moveItem = async (req: AuthRequest, res: Response) => {
       });
     }
 
-    // 이동 실행
-    const updatedItem = await prisma.item.update({
-      where: { id },
-      data: {
-        parentId: parentId,
-        updatedAt: new Date(),
-      },
-      include: {
-        Client: true,
-        Item: true,
-        User_Item_assigneeIdToUser: {
-          select: USER_SELECT,
-        },
-      },
-    });
+    const updatedItem = await queryOne<any>(
+      `UPDATE "Item" SET "parentId" = $1, "updatedAt" = $2 WHERE "id" = $3 RETURNING *`,
+      [parentId, new Date(), id]
+    );
 
-    // 이전 부모와 새 부모의 진행률 재계산
+    if (updatedItem) {
+      updatedItem.Client = updatedItem.clientId
+        ? await queryOne<any>(`SELECT * FROM "Client" WHERE "id" = $1`, [updatedItem.clientId])
+        : null;
+      updatedItem.Item = await queryOne<any>(`SELECT * FROM "Item" WHERE "id" = $1`, [parentId]);
+      updatedItem.User_Item_assigneeIdToUser = updatedItem.assigneeId
+        ? await queryOne<any>(
+            `SELECT "id", "username", "displayName", "email" FROM "User" WHERE "id" = $1`,
+            [updatedItem.assigneeId]
+          )
+        : null;
+    }
+
     if (item.parentId) {
       await updateItemAndParents(item.parentId);
     }
@@ -1216,6 +1165,7 @@ export const moveItem = async (req: AuthRequest, res: Response) => {
     res.status(500).json({ error: 'Internal server error' });
   }
 };
+
 export const uploadItemImage = async (req: AuthRequest, res: Response): Promise<any> => {
   try {
     if (!req.user?.id) return res.status(401).json({ message: 'Unauthorized' });

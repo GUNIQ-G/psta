@@ -1,12 +1,11 @@
 import { Response } from 'express';
 import { AuthRequest } from '../middleware/auth';
-import prisma from '../config/database';
+import { query, queryOne } from '../config/database';
 import { randomUUID } from 'crypto';
-import { UserRole } from '@prisma/client';
+import { UserRole } from '../types/enums';
 import https from 'https';
 import http from 'http';
 import appLogger, { errorLogger } from '../config/logger';
-import { CREATOR_SELECT } from '../utils/prisma-selects';
 
 /**
  * Create link for item (action, team, service, or project)
@@ -25,20 +24,16 @@ export const createLink = async (req: AuthRequest, res: Response) => {
     }
 
     // Get item with full hierarchy
-    const item = await prisma.item.findUnique({
-      where: { id: itemId },
-      include: {
-        Item: {
-          include: {
-            Item: {
-              include: {
-                Item: true, // Project level
-              },
-            },
-          },
-        },
-      },
-    });
+    const item = await queryOne<any>(
+      `SELECT i1.id, i1.type, i1."parentId",
+              i2.id AS "parent_id", i2."parentId" AS "parent_parentId",
+              i3.id AS "gp_id", i3."parentId" AS "gp_parentId"
+       FROM "Item" i1
+       LEFT JOIN "Item" i2 ON i2.id = i1."parentId"
+       LEFT JOIN "Item" i3 ON i3.id = i2."parentId"
+       WHERE i1.id = $1`,
+      [itemId]
+    );
 
     if (!item) {
       return res.status(404).json({ error: 'Item not found' });
@@ -53,21 +48,18 @@ export const createLink = async (req: AuthRequest, res: Response) => {
     switch (item.type) {
       case 'ACTION':
         teamId = item.parentId;
-        const team = item.Item;
-        if (team) {
-          serviceId = team.parentId;
-          const service = team.Item;
-          if (service) {
-            projectId = service.parentId;
+        if (item.parent_id) {
+          serviceId = item.parent_parentId;
+          if (item.gp_id) {
+            projectId = item.gp_parentId;
           }
         }
         break;
       case 'TEAM':
         teamId = item.id;
         serviceId = item.parentId;
-        const teamService = item.Item;
-        if (teamService) {
-          projectId = teamService.parentId;
+        if (item.parent_id) {
+          projectId = item.parent_parentId;
         }
         break;
       case 'SERVICE':
@@ -79,27 +71,38 @@ export const createLink = async (req: AuthRequest, res: Response) => {
         break;
     }
 
-    // Create link record
-    const link = await prisma.link.create({
-      data: {
-        id: randomUUID(),
-        url,
-        displayName,
-        itemId,
-        projectId,
-        serviceId,
-        teamId,
-        createdById: userId,
-        updatedAt: new Date(),
-      },
-      include: {
-        CreatedBy: {
-          select: CREATOR_SELECT,
-        },
-      },
-    });
+    const linkId = randomUUID();
+    const now = new Date();
 
-    res.json(link);
+    // Create link record
+    await query(
+      `INSERT INTO "Link" (id, url, "displayName", "itemId", "projectId", "serviceId", "teamId", "createdById", "createdAt", "updatedAt")
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+      [linkId, url, displayName, itemId, projectId, serviceId, teamId, userId, now, now]
+    );
+
+    const link = await queryOne<any>(
+      `SELECT l.*,
+              u.id AS "cb_id", u.username AS "cb_username", u."displayName" AS "cb_displayName"
+       FROM "Link" l
+       LEFT JOIN "User" u ON u.id = l."createdById"
+       WHERE l.id = $1`,
+      [linkId]
+    );
+
+    const response = {
+      ...link,
+      CreatedBy: link.cb_id ? {
+        id: link.cb_id,
+        username: link.cb_username,
+        displayName: link.cb_displayName,
+      } : null,
+    };
+    delete response.cb_id;
+    delete response.cb_username;
+    delete response.cb_displayName;
+
+    res.json(response);
   } catch (error) {
     errorLogger.error('Error creating link:', { error });
     res.status(500).json({ error: 'Internal server error' });
@@ -113,16 +116,29 @@ export const getItemLinks = async (req: AuthRequest, res: Response) => {
   try {
     const { itemId } = req.params;
 
-    const links = await prisma.link.findMany({
-      where: { itemId },
-      include: {
-        CreatedBy: {
-          select: CREATOR_SELECT,
-        },
-      },
-      orderBy: {
-        createdAt: 'desc',
-      },
+    const rows = await query<any>(
+      `SELECT l.*,
+              u.id AS "cb_id", u.username AS "cb_username", u."displayName" AS "cb_displayName"
+       FROM "Link" l
+       LEFT JOIN "User" u ON u.id = l."createdById"
+       WHERE l."itemId" = $1
+       ORDER BY l."createdAt" DESC`,
+      [itemId]
+    );
+
+    const links = rows.map((l: any) => {
+      const link = {
+        ...l,
+        CreatedBy: l.cb_id ? {
+          id: l.cb_id,
+          username: l.cb_username,
+          displayName: l.cb_displayName,
+        } : null,
+      };
+      delete link.cb_id;
+      delete link.cb_username;
+      delete link.cb_displayName;
+      return link;
     });
 
     res.json(links);
@@ -137,45 +153,58 @@ export const getItemLinks = async (req: AuthRequest, res: Response) => {
  */
 export const getAllLinks = async (req: AuthRequest, res: Response) => {
   try {
-    const links = await prisma.link.findMany({
-      include: {
-        CreatedBy: {
-          select: {
-            id: true,
-            username: true,
-            displayName: true,
-            Team: {
-              select: {
-                id: true,
-                name: true,
-              },
-            },
-          },
-        },
-        Item: {
-          include: {
-            Client: true,
-            Item: {
-              include: {
-                Client: true,
-                Item: {
-                  include: {
-                    Client: true,
-                    Item: {
-                      include: {
-                        Client: true,
-                      },
-                    },
-                  },
-                },
-              },
-            },
-          },
-        },
-      },
-      orderBy: {
-        createdAt: 'desc',
-      },
+    const rows = await query<any>(
+      `SELECT l.*,
+              u.id AS "cb_id", u.username AS "cb_username", u."displayName" AS "cb_displayName",
+              ut.id AS "cb_team_id", ut.name AS "cb_team_name",
+              i1.id AS "item_id", i1.name AS "item_name", i1.type AS "item_type",
+              c1.id AS "item_client_id", c1.name AS "item_client_name", c1."logoUrl" AS "item_client_logoUrl",
+              i2.id AS "item_p_id", i2.name AS "item_p_name", i2.type AS "item_p_type",
+              c2.id AS "item_p_client_id", c2.name AS "item_p_client_name", c2."logoUrl" AS "item_p_client_logoUrl",
+              i3.id AS "item_pp_id", i3.name AS "item_pp_name", i3.type AS "item_pp_type",
+              c3.id AS "item_pp_client_id", c3.name AS "item_pp_client_name", c3."logoUrl" AS "item_pp_client_logoUrl",
+              i4.id AS "item_ppp_id", i4.name AS "item_ppp_name", i4.type AS "item_ppp_type",
+              c4.id AS "item_ppp_client_id", c4.name AS "item_ppp_client_name", c4."logoUrl" AS "item_ppp_client_logoUrl"
+       FROM "Link" l
+       LEFT JOIN "User" u ON u.id = l."createdById"
+       LEFT JOIN "Team" ut ON ut.id = u."teamId"
+       LEFT JOIN "Item" i1 ON i1.id = l."itemId"
+       LEFT JOIN "Client" c1 ON c1.id = i1."clientId"
+       LEFT JOIN "Item" i2 ON i2.id = i1."parentId"
+       LEFT JOIN "Client" c2 ON c2.id = i2."clientId"
+       LEFT JOIN "Item" i3 ON i3.id = i2."parentId"
+       LEFT JOIN "Client" c3 ON c3.id = i3."clientId"
+       LEFT JOIN "Item" i4 ON i4.id = i3."parentId"
+       LEFT JOIN "Client" c4 ON c4.id = i4."clientId"
+       ORDER BY l."createdAt" DESC`
+    );
+
+    const links = rows.map((l: any) => {
+      const buildClient = (id: string | null, name: string | null, logoUrl: string | null) =>
+        id ? { id, name, logoUrl } : null;
+
+      const buildItem = (id: string | null, name: string | null, type: string | null, client: any, parent: any) =>
+        id ? { id, name, type, Client: client, Item: parent } : null;
+
+      const item_ppp = buildItem(l.item_ppp_id, l.item_ppp_name, l.item_ppp_type, buildClient(l.item_ppp_client_id, l.item_ppp_client_name, l.item_ppp_client_logoUrl), null);
+      const item_pp = buildItem(l.item_pp_id, l.item_pp_name, l.item_pp_type, buildClient(l.item_pp_client_id, l.item_pp_client_name, l.item_pp_client_logoUrl), item_ppp);
+      const item_p = buildItem(l.item_p_id, l.item_p_name, l.item_p_type, buildClient(l.item_p_client_id, l.item_p_client_name, l.item_p_client_logoUrl), item_pp);
+      const item = buildItem(l.item_id, l.item_name, l.item_type, buildClient(l.item_client_id, l.item_client_name, l.item_client_logoUrl), item_p);
+
+      const result: any = {};
+      for (const key of Object.keys(l)) {
+        if (!key.startsWith('cb_') && !key.startsWith('item_')) {
+          result[key] = l[key];
+        }
+      }
+      result.CreatedBy = l.cb_id ? {
+        id: l.cb_id,
+        username: l.cb_username,
+        displayName: l.cb_displayName,
+        Team: l.cb_team_id ? { id: l.cb_team_id, name: l.cb_team_name } : null,
+      } : null;
+      result.Item = item;
+      return result;
     });
 
     res.json(links);
@@ -200,9 +229,10 @@ export const deleteLink = async (req: AuthRequest, res: Response) => {
     }
 
     // Get link
-    const link = await prisma.link.findUnique({
-      where: { id },
-    });
+    const link = await queryOne<any>(
+      `SELECT * FROM "Link" WHERE id = $1`,
+      [id]
+    );
 
     if (!link) {
       return res.status(404).json({ error: 'Link not found' });
@@ -214,9 +244,7 @@ export const deleteLink = async (req: AuthRequest, res: Response) => {
     }
 
     // Delete link record
-    await prisma.link.delete({
-      where: { id },
-    });
+    await query(`DELETE FROM "Link" WHERE id = $1`, [id]);
 
     res.json({ message: 'Link deleted successfully' });
   } catch (error) {
@@ -230,12 +258,12 @@ export const deleteLink = async (req: AuthRequest, res: Response) => {
  */
 async function getNextcloudSettings(): Promise<{ url: string; username: string; password: string } | null> {
   try {
-    const settings = await prisma.systemSetting.findMany({
-      where: { category: 'nextcloud' },
-    });
+    const settings = await query<any>(
+      `SELECT key, value FROM "SystemSetting" WHERE category = 'nextcloud'`
+    );
 
     const settingsMap: Record<string, string> = {};
-    settings.forEach((s) => {
+    settings.forEach((s: any) => {
       settingsMap[s.key] = s.value;
     });
 

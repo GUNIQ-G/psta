@@ -1,5 +1,5 @@
 import ldap from 'ldapjs';
-import prisma from './database';
+import { queryOne } from './database';
 import crypto from 'crypto';
 
 const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY ?? (() => {
@@ -34,10 +34,9 @@ export class LdapService {
   private config: LdapConfig | null = null;
 
   private async getActiveConfig(): Promise<LdapConfig | null> {
-    const dbConfig = await prisma.ldapConfig.findFirst({
-      where: { isActive: true },
-      orderBy: { createdAt: 'desc' },
-    });
+    const dbConfig = await queryOne<any>(
+      `SELECT * FROM "LdapConfig" WHERE "isActive" = true ORDER BY "createdAt" DESC LIMIT 1`
+    );
 
     if (!dbConfig) {
       return null;
@@ -56,7 +55,7 @@ export class LdapService {
       attributeLoginId: dbConfig.attributeLoginId,
       attributeName: dbConfig.attributeName,
       attributeEmail: dbConfig.attributeEmail,
-      orgBaseDn: (dbConfig as any).orgBaseDn || null,
+      orgBaseDn: dbConfig.orgBaseDn || null,
     };
   }
 

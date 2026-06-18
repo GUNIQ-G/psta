@@ -1,6 +1,6 @@
 import { Response } from 'express';
 import { AuthRequest } from '../middleware/auth';
-import prisma from '../config/database';
+import { query, queryOne } from '../config/database';
 import crypto from 'crypto';
 import { NotificationService } from '../services/notification.service';
 import appLogger, { errorLogger } from '../config/logger';
@@ -9,23 +9,34 @@ export const getCommentsByItem = async (req: AuthRequest, res: Response): Promis
   try {
     const { itemId } = req.params;
 
-    const comments = await prisma.comment.findMany({
-      where: { itemId },
-      include: {
-        User: {
-          select: {
-            id: true,
-            displayName: true,
-            email: true,
-          },
-        },
+    const comments = await query<any>(
+      `SELECT c.*, u.id AS "user_id", u."displayName" AS "user_displayName", u.email AS "user_email"
+       FROM "Comment" c
+       LEFT JOIN "User" u ON u.id = c."userId"
+       WHERE c."itemId" = $1
+       ORDER BY c."createdAt" DESC`,
+      [itemId]
+    );
+
+    // Reshape to match Prisma include structure
+    const shapedComments = comments.map((row: any) => ({
+      id: row.id,
+      content: row.content,
+      itemId: row.itemId,
+      userId: row.userId,
+      reactions: row.reactions,
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
+      User: {
+        id: row.user_id,
+        displayName: row.user_displayName,
+        email: row.user_email,
       },
-      orderBy: { createdAt: 'desc' },
-    });
+    }));
 
     // Enrich reactions with user information
     const enrichedComments = await Promise.all(
-      comments.map(async (comment) => {
+      shapedComments.map(async (comment: any) => {
         let reactionsWithUsers = {};
         try {
           if (comment.reactions) {
@@ -37,25 +48,25 @@ export const getCommentsByItem = async (req: AuthRequest, res: Response): Promis
               userIds.forEach((id: string) => allUserIds.add(id));
             });
 
-            // Fetch user info for all users who reacted
-            const users = await prisma.user.findMany({
-              where: { id: { in: Array.from(allUserIds) } },
-              select: {
-                id: true,
-                displayName: true,
-              },
-            });
+            if (allUserIds.size > 0) {
+              const idList = Array.from(allUserIds);
+              const placeholders = idList.map((_: any, i: number) => `$${i + 1}`).join(', ');
+              const users = await query<{ id: string; displayName: string }>(
+                `SELECT id, "displayName" FROM "User" WHERE id IN (${placeholders})`,
+                idList
+              );
 
-            const userMap = new Map(users.map(u => [u.id, u.displayName]));
+              const userMap = new Map(users.map(u => [u.id, u.displayName]));
 
-            // Map reactions to include user names
-            reactionsWithUsers = Object.entries(reactions).reduce((acc, [emoji, userIds]) => {
-              acc[emoji] = (userIds as string[]).map(userId => ({
-                userId,
-                displayName: userMap.get(userId) || '알 수 없음',
-              }));
-              return acc;
-            }, {} as any);
+              // Map reactions to include user names
+              reactionsWithUsers = Object.entries(reactions).reduce((acc, [emoji, userIds]) => {
+                (acc as any)[emoji] = (userIds as string[]).map(userId => ({
+                  userId,
+                  displayName: userMap.get(userId) || '알 수 없음',
+                }));
+                return acc;
+              }, {} as any);
+            }
           }
         } catch (error) {
           errorLogger.error('Error enriching reactions:', { error });
@@ -81,24 +92,28 @@ export const createComment = async (req: AuthRequest, res: Response): Promise<an
     const { content } = req.body;
     const userId = req.user!.id;
 
-    const comment = await prisma.comment.create({
-      data: {
-        id: crypto.randomUUID(),
-        content,
-        itemId,
-        userId,
-        updatedAt: new Date(),
-      },
-      include: {
-        User: {
-          select: {
-            id: true,
-            displayName: true,
-            email: true,
-          },
-        },
-      },
-    });
+    const newId = crypto.randomUUID();
+    const now = new Date();
+
+    const commentRow = await queryOne<any>(
+      `INSERT INTO "Comment" (id, content, "itemId", "userId", "updatedAt", "createdAt")
+       VALUES ($1, $2, $3, $4, $5, $5)
+       RETURNING *`,
+      [newId, content, itemId, userId, now]
+    );
+
+    // Fetch user info for the comment
+    const userRow = await queryOne<any>(
+      `SELECT id, "displayName", email FROM "User" WHERE id = $1`,
+      [userId]
+    );
+
+    const comment = {
+      ...commentRow,
+      User: userRow
+        ? { id: userRow.id, displayName: userRow.displayName, email: userRow.email }
+        : null,
+    };
 
     // Extract mentions from content and create notifications (format: @[displayName](userId))
     const mentionRegex = /@\[([^\]]+)\]\(([^)]+)\)/g;
@@ -113,16 +128,13 @@ export const createComment = async (req: AuthRequest, res: Response): Promise<an
     }
 
     // Get item info for notification and message
-    const item = await prisma.item.findUnique({
-      where: { id: itemId },
-      include: {
-        User_Item_assigneeIdToUser: {
-          select: {
-            displayName: true,
-          },
-        },
-      },
-    });
+    const item = await queryOne<any>(
+      `SELECT i.*, u."displayName" AS "assignee_displayName"
+       FROM "Item" i
+       LEFT JOIN "User" u ON u.id = i."assigneeId"
+       WHERE i.id = $1`,
+      [itemId]
+    );
 
     const typeLabels: { [key: string]: string } = {
       PROJECT: '프로젝트',
@@ -154,7 +166,7 @@ export const createComment = async (req: AuthRequest, res: Response): Promise<an
       // Create message with comment content and structured info
       const typeLabel = item?.type ? typeLabels[item.type] : '항목';
       const statusLabel = item?.status ? statusLabels[item.status] : '-';
-      const assigneeName = item?.User_Item_assigneeIdToUser?.displayName || '미배정';
+      const assigneeName = item?.assignee_displayName || '미배정';
       const progress = item?.progress || 0;
 
       // Format dates
@@ -170,15 +182,19 @@ export const createComment = async (req: AuthRequest, res: Response): Promise<an
 
       const messageContent = `${content}\n\n━━━━━━━━━━━━━━━━━━━━\n[ITEM_INFO]${typeLabel}|${statusLabel}|${item?.name || '항목'}|${assigneeName}|${dateRange}|${progress}[/ITEM_INFO]\n[LINK]${process.env.FRONTEND_URL || 'http://localhost:3000'}/psta?itemId=${itemId}[/LINK]`;
 
-      await prisma.message.create({
-        data: {
-          id: crypto.randomUUID(),
-          subject: `[멘션 알림] (${typeLabel}) ${item?.name || '항목'}`,
-          content: messageContent,
-          fromUserId: userId,
+      await queryOne<any>(
+        `INSERT INTO "Message" (id, subject, content, "fromUserId", "toUserId", "createdAt", "updatedAt")
+         VALUES ($1, $2, $3, $4, $5, $6, $6)
+         RETURNING *`,
+        [
+          crypto.randomUUID(),
+          `[멘션 알림] (${typeLabel}) ${item?.name || '항목'}`,
+          messageContent,
+          userId,
           toUserId,
-        },
-      });
+          new Date(),
+        ]
+      );
     }
 
     res.json(comment);
@@ -194,7 +210,10 @@ export const deleteComment = async (req: AuthRequest, res: Response): Promise<an
     const userId = req.user!.id;
 
     // Check if comment belongs to user
-    const comment = await prisma.comment.findUnique({ where: { id } });
+    const comment = await queryOne<any>(
+      `SELECT * FROM "Comment" WHERE id = $1`,
+      [id]
+    );
 
     if (!comment) {
       return res.status(404).json({ error: 'Comment not found' });
@@ -204,7 +223,7 @@ export const deleteComment = async (req: AuthRequest, res: Response): Promise<an
       return res.status(403).json({ error: 'Not authorized to delete this comment' });
     }
 
-    await prisma.comment.delete({ where: { id } });
+    await query(`DELETE FROM "Comment" WHERE id = $1`, [id]);
 
     res.json({ message: 'Comment deleted successfully' });
   } catch (error: any) {
@@ -223,7 +242,10 @@ export const toggleReaction = async (req: AuthRequest, res: Response): Promise<a
       return res.status(400).json({ error: 'Emoji is required' });
     }
 
-    const comment = await prisma.comment.findUnique({ where: { id } });
+    const comment = await queryOne<any>(
+      `SELECT * FROM "Comment" WHERE id = $1`,
+      [id]
+    );
 
     if (!comment) {
       return res.status(404).json({ error: 'Comment not found' });
@@ -256,22 +278,26 @@ export const toggleReaction = async (req: AuthRequest, res: Response): Promise<a
     }
 
     // Update comment with new reactions
-    const updatedComment = await prisma.comment.update({
-      where: { id },
-      data: {
-        reactions: JSON.stringify(reactions),
-        updatedAt: new Date(),
-      },
-      include: {
-        User: {
-          select: {
-            id: true,
-            displayName: true,
-            email: true,
-          },
-        },
-      },
-    });
+    const updatedRow = await queryOne<any>(
+      `UPDATE "Comment"
+       SET reactions = $1, "updatedAt" = $2
+       WHERE id = $3
+       RETURNING *`,
+      [JSON.stringify(reactions), new Date(), id]
+    );
+
+    // Fetch user info
+    const userRow = await queryOne<any>(
+      `SELECT id, "displayName", email FROM "User" WHERE id = $1`,
+      [updatedRow.userId]
+    );
+
+    const updatedComment = {
+      ...updatedRow,
+      User: userRow
+        ? { id: userRow.id, displayName: userRow.displayName, email: userRow.email }
+        : null,
+    };
 
     res.json(updatedComment);
   } catch (error: any) {

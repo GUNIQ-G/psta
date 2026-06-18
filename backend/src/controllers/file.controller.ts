@@ -1,11 +1,10 @@
 import { Response } from 'express';
 import { AuthRequest } from '../middleware/auth';
-import prisma from '../config/database';
+import { query, queryOne } from '../config/database';
 import { randomUUID } from 'crypto';
 import fs from 'fs';
-import { UserRole } from '@prisma/client';
+import { UserRole } from '../types/enums';
 import appLogger, { errorLogger } from '../config/logger';
-import { CREATOR_SELECT } from '../utils/prisma-selects';
 
 /**
  * Upload file to item (action, team, service, or project)
@@ -27,21 +26,19 @@ export const uploadFile = async (req: AuthRequest, res: Response) => {
       return res.status(400).json({ error: 'No file uploaded' });
     }
 
-    // Get item with full hierarchy
-    const item = await prisma.item.findUnique({
-      where: { id: itemId },
-      include: {
-        Item: {
-          include: {
-            Item: {
-              include: {
-                Item: true, // Project level
-              },
-            },
-          },
-        },
-      },
-    });
+    // Get item with full hierarchy (up to 4 levels)
+    const item = await queryOne<any>(
+      `SELECT i1.id, i1.type, i1."parentId",
+              i2.id AS "parent_id", i2.type AS "parent_type", i2."parentId" AS "parent_parentId",
+              i3.id AS "gp_id", i3.type AS "gp_type", i3."parentId" AS "gp_parentId",
+              i4.id AS "ggp_id", i4.type AS "ggp_type"
+       FROM "Item" i1
+       LEFT JOIN "Item" i2 ON i2.id = i1."parentId"
+       LEFT JOIN "Item" i3 ON i3.id = i2."parentId"
+       LEFT JOIN "Item" i4 ON i4.id = i3."parentId"
+       WHERE i1.id = $1`,
+      [itemId]
+    );
 
     if (!item) {
       // Delete uploaded file if item doesn't exist
@@ -58,21 +55,18 @@ export const uploadFile = async (req: AuthRequest, res: Response) => {
     switch (item.type) {
       case 'ACTION':
         teamId = item.parentId;
-        const team = item.Item;
-        if (team) {
-          serviceId = team.parentId;
-          const service = team.Item;
-          if (service) {
-            projectId = service.parentId;
+        if (item.parent_id) {
+          serviceId = item.parent_parentId;
+          if (item.gp_id) {
+            projectId = item.gp_parentId;
           }
         }
         break;
       case 'TEAM':
         teamId = item.id;
         serviceId = item.parentId;
-        const teamService = item.Item;
-        if (teamService) {
-          projectId = teamService.parentId;
+        if (item.parent_id) {
+          projectId = item.parent_parentId;
         }
         break;
       case 'SERVICE':
@@ -88,30 +82,38 @@ export const uploadFile = async (req: AuthRequest, res: Response) => {
     // multer receives filename in latin1 encoding, need to convert to UTF-8
     const originalName = Buffer.from(req.file.originalname, 'latin1').toString('utf8');
 
-    // Create file record
-    const file = await prisma.file.create({
-      data: {
-        id: randomUUID(),
-        filename: req.file.filename,
-        originalName: originalName,
-        filepath: req.file.path,
-        filesize: req.file.size,
-        mimetype: req.file.mimetype,
-        itemId,
-        projectId,
-        serviceId,
-        teamId,
-        uploadedById: userId,
-        updatedAt: new Date(),
-      },
-      include: {
-        UploadedBy: {
-          select: CREATOR_SELECT,
-        },
-      },
-    });
+    const fileId = randomUUID();
+    const now = new Date();
 
-    res.json(file);
+    // Create file record
+    await query(
+      `INSERT INTO "File" (id, filename, "originalName", filepath, filesize, mimetype, "itemId", "projectId", "serviceId", "teamId", "uploadedById", "createdAt", "updatedAt")
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+      [fileId, req.file.filename, originalName, req.file.path, req.file.size, req.file.mimetype, itemId, projectId, serviceId, teamId, userId, now, now]
+    );
+
+    const file = await queryOne<any>(
+      `SELECT f.*,
+              u.id AS "ub_id", u.username AS "ub_username", u."displayName" AS "ub_displayName"
+       FROM "File" f
+       LEFT JOIN "User" u ON u.id = f."uploadedById"
+       WHERE f.id = $1`,
+      [fileId]
+    );
+
+    const response = {
+      ...file,
+      UploadedBy: file.ub_id ? {
+        id: file.ub_id,
+        username: file.ub_username,
+        displayName: file.ub_displayName,
+      } : null,
+    };
+    delete response.ub_id;
+    delete response.ub_username;
+    delete response.ub_displayName;
+
+    res.json(response);
   } catch (error) {
     errorLogger.error('Error uploading file:', { error });
     // Clean up uploaded file on error
@@ -129,16 +131,29 @@ export const getItemFiles = async (req: AuthRequest, res: Response) => {
   try {
     const { itemId } = req.params;
 
-    const files = await prisma.file.findMany({
-      where: { itemId },
-      include: {
-        UploadedBy: {
-          select: CREATOR_SELECT,
-        },
-      },
-      orderBy: {
-        createdAt: 'desc',
-      },
+    const rows = await query<any>(
+      `SELECT f.*,
+              u.id AS "ub_id", u.username AS "ub_username", u."displayName" AS "ub_displayName"
+       FROM "File" f
+       LEFT JOIN "User" u ON u.id = f."uploadedById"
+       WHERE f."itemId" = $1
+       ORDER BY f."createdAt" DESC`,
+      [itemId]
+    );
+
+    const files = rows.map((f: any) => {
+      const file = {
+        ...f,
+        UploadedBy: f.ub_id ? {
+          id: f.ub_id,
+          username: f.ub_username,
+          displayName: f.ub_displayName,
+        } : null,
+      };
+      delete file.ub_id;
+      delete file.ub_username;
+      delete file.ub_displayName;
+      return file;
     });
 
     res.json(files);
@@ -153,45 +168,58 @@ export const getItemFiles = async (req: AuthRequest, res: Response) => {
  */
 export const getAllFiles = async (req: AuthRequest, res: Response) => {
   try {
-    const files = await prisma.file.findMany({
-      include: {
-        UploadedBy: {
-          select: {
-            id: true,
-            username: true,
-            displayName: true,
-            Team: {
-              select: {
-                id: true,
-                name: true,
-              },
-            },
-          },
-        },
-        Item: {
-          include: {
-            Client: true,
-            Item: {
-              include: {
-                Client: true,
-                Item: {
-                  include: {
-                    Client: true,
-                    Item: {
-                      include: {
-                        Client: true,
-                      },
-                    },
-                  },
-                },
-              },
-            },
-          },
-        },
-      },
-      orderBy: {
-        createdAt: 'desc',
-      },
+    const rows = await query<any>(
+      `SELECT f.*,
+              u.id AS "ub_id", u.username AS "ub_username", u."displayName" AS "ub_displayName",
+              ut.id AS "ub_team_id", ut.name AS "ub_team_name",
+              i1.id AS "item_id", i1.name AS "item_name", i1.type AS "item_type",
+              c1.id AS "item_client_id", c1.name AS "item_client_name", c1."logoUrl" AS "item_client_logoUrl",
+              i2.id AS "item_p_id", i2.name AS "item_p_name", i2.type AS "item_p_type",
+              c2.id AS "item_p_client_id", c2.name AS "item_p_client_name", c2."logoUrl" AS "item_p_client_logoUrl",
+              i3.id AS "item_pp_id", i3.name AS "item_pp_name", i3.type AS "item_pp_type",
+              c3.id AS "item_pp_client_id", c3.name AS "item_pp_client_name", c3."logoUrl" AS "item_pp_client_logoUrl",
+              i4.id AS "item_ppp_id", i4.name AS "item_ppp_name", i4.type AS "item_ppp_type",
+              c4.id AS "item_ppp_client_id", c4.name AS "item_ppp_client_name", c4."logoUrl" AS "item_ppp_client_logoUrl"
+       FROM "File" f
+       LEFT JOIN "User" u ON u.id = f."uploadedById"
+       LEFT JOIN "Team" ut ON ut.id = u."teamId"
+       LEFT JOIN "Item" i1 ON i1.id = f."itemId"
+       LEFT JOIN "Client" c1 ON c1.id = i1."clientId"
+       LEFT JOIN "Item" i2 ON i2.id = i1."parentId"
+       LEFT JOIN "Client" c2 ON c2.id = i2."clientId"
+       LEFT JOIN "Item" i3 ON i3.id = i2."parentId"
+       LEFT JOIN "Client" c3 ON c3.id = i3."clientId"
+       LEFT JOIN "Item" i4 ON i4.id = i3."parentId"
+       LEFT JOIN "Client" c4 ON c4.id = i4."clientId"
+       ORDER BY f."createdAt" DESC`
+    );
+
+    const files = rows.map((f: any) => {
+      const buildClient = (id: string | null, name: string | null, logoUrl: string | null) =>
+        id ? { id, name, logoUrl } : null;
+
+      const buildItem = (id: string | null, name: string | null, type: string | null, client: any, parent: any) =>
+        id ? { id, name, type, Client: client, Item: parent } : null;
+
+      const item_ppp = buildItem(f.item_ppp_id, f.item_ppp_name, f.item_ppp_type, buildClient(f.item_ppp_client_id, f.item_ppp_client_name, f.item_ppp_client_logoUrl), null);
+      const item_pp = buildItem(f.item_pp_id, f.item_pp_name, f.item_pp_type, buildClient(f.item_pp_client_id, f.item_pp_client_name, f.item_pp_client_logoUrl), item_ppp);
+      const item_p = buildItem(f.item_p_id, f.item_p_name, f.item_p_type, buildClient(f.item_p_client_id, f.item_p_client_name, f.item_p_client_logoUrl), item_pp);
+      const item = buildItem(f.item_id, f.item_name, f.item_type, buildClient(f.item_client_id, f.item_client_name, f.item_client_logoUrl), item_p);
+
+      const result: any = {};
+      for (const key of Object.keys(f)) {
+        if (!key.startsWith('ub_') && !key.startsWith('item_')) {
+          result[key] = f[key];
+        }
+      }
+      result.UploadedBy = f.ub_id ? {
+        id: f.ub_id,
+        username: f.ub_username,
+        displayName: f.ub_displayName,
+        Team: f.ub_team_id ? { id: f.ub_team_id, name: f.ub_team_name } : null,
+      } : null;
+      result.Item = item;
+      return result;
     });
 
     res.json(files);
@@ -209,10 +237,10 @@ export const getHierarchicalDocuments = async (req: AuthRequest, res: Response) 
     const { itemId } = req.params;
 
     // Get the item with its type
-    const item = await prisma.item.findUnique({
-      where: { id: itemId },
-      select: { id: true, type: true },
-    });
+    const item = await queryOne<any>(
+      `SELECT id, type FROM "Item" WHERE id = $1`,
+      [itemId]
+    );
 
     if (!item) {
       return res.status(404).json({ error: 'Item not found' });
@@ -220,128 +248,118 @@ export const getHierarchicalDocuments = async (req: AuthRequest, res: Response) 
 
     let itemIds: string[] = [itemId];
 
-    // 3단계 구조: PROJECT → SERVICE → ACTION
     // Collect all descendant item IDs based on hierarchy
     switch (item.type) {
-      case 'PROJECT':
-        // Get all services under this project
-        const services = await prisma.item.findMany({
-          where: { parentId: itemId, type: 'SERVICE' },
-          select: { id: true },
-        });
-        const serviceIds = services.map(s => s.id);
+      case 'PROJECT': {
+        const services = await query<any>(
+          `SELECT id FROM "Item" WHERE "parentId" = $1 AND type = 'SERVICE'`,
+          [itemId]
+        );
+        const serviceIds = services.map((s: any) => s.id);
         itemIds = [...itemIds, ...serviceIds];
 
-        // Get all actions under these services (3단계 구조)
-        const actions = await prisma.item.findMany({
-          where: { parentId: { in: serviceIds }, type: 'ACTION' },
-          select: { id: true },
-        });
-        const actionIds = actions.map(a => a.id);
-        itemIds = [...itemIds, ...actionIds];
+        if (serviceIds.length > 0) {
+          const placeholders = serviceIds.map((_: any, i: number) => `$${i + 1}`).join(', ');
+          const actions = await query<any>(
+            `SELECT id FROM "Item" WHERE "parentId" IN (${placeholders}) AND type = 'ACTION'`,
+            serviceIds
+          );
+          itemIds = [...itemIds, ...actions.map((a: any) => a.id)];
+        }
         break;
-
-      case 'SERVICE':
-        // Get all actions under this service (3단계 구조)
-        const serviceActions = await prisma.item.findMany({
-          where: { parentId: itemId, type: 'ACTION' },
-          select: { id: true },
-        });
-        const serviceActionIds = serviceActions.map(a => a.id);
-        itemIds = [...itemIds, ...serviceActionIds];
+      }
+      case 'SERVICE': {
+        const serviceActions = await query<any>(
+          `SELECT id FROM "Item" WHERE "parentId" = $1 AND type = 'ACTION'`,
+          [itemId]
+        );
+        itemIds = [...itemIds, ...serviceActions.map((a: any) => a.id)];
         break;
-
+      }
       case 'ACTION':
-        // Only this action
         break;
     }
 
-    // Get all files for these items (with hierarchy info)
-    const files = await prisma.file.findMany({
-      where: { itemId: { in: itemIds } },
-      include: {
-        UploadedBy: {
-          select: {
-            id: true,
-            username: true,
-            displayName: true,
-            Team: {
-              select: {
-                id: true,
-                name: true,
-              },
-            },
-          },
-        },
-        Item: {
-          select: {
-            id: true,
-            name: true,
-            type: true,
-            Item: {
-              select: {
-                id: true,
-                name: true,
-                type: true,
-                Item: {
-                  select: {
-                    id: true,
-                    name: true,
-                    type: true,
-                  },
-                },
-              },
-            },
-          },
-        },
-      },
-      orderBy: {
-        createdAt: 'desc',
-      },
+    const placeholders = itemIds.map((_: any, i: number) => `$${i + 1}`).join(', ');
+
+    // Get all files for these items
+    const fileRows = await query<any>(
+      `SELECT f.*,
+              u.id AS "ub_id", u.username AS "ub_username", u."displayName" AS "ub_displayName",
+              ut.id AS "ub_team_id", ut.name AS "ub_team_name",
+              i1.id AS "item_id", i1.name AS "item_name", i1.type AS "item_type",
+              i2.id AS "item_p_id", i2.name AS "item_p_name", i2.type AS "item_p_type",
+              i3.id AS "item_pp_id", i3.name AS "item_pp_name", i3.type AS "item_pp_type"
+       FROM "File" f
+       LEFT JOIN "User" u ON u.id = f."uploadedById"
+       LEFT JOIN "Team" ut ON ut.id = u."teamId"
+       LEFT JOIN "Item" i1 ON i1.id = f."itemId"
+       LEFT JOIN "Item" i2 ON i2.id = i1."parentId"
+       LEFT JOIN "Item" i3 ON i3.id = i2."parentId"
+       WHERE f."itemId" IN (${placeholders})
+       ORDER BY f."createdAt" DESC`,
+      itemIds
+    );
+
+    const files = fileRows.map((f: any) => {
+      const item_pp = f.item_pp_id ? { id: f.item_pp_id, name: f.item_pp_name, type: f.item_pp_type } : null;
+      const item_p = f.item_p_id ? { id: f.item_p_id, name: f.item_p_name, type: f.item_p_type, Item: item_pp } : null;
+      const itemObj = f.item_id ? { id: f.item_id, name: f.item_name, type: f.item_type, Item: item_p } : null;
+
+      const result: any = {};
+      for (const key of Object.keys(f)) {
+        if (!key.startsWith('ub_') && !key.startsWith('item_')) {
+          result[key] = f[key];
+        }
+      }
+      result.UploadedBy = f.ub_id ? {
+        id: f.ub_id,
+        username: f.ub_username,
+        displayName: f.ub_displayName,
+        Team: f.ub_team_id ? { id: f.ub_team_id, name: f.ub_team_name } : null,
+      } : null;
+      result.Item = itemObj;
+      return result;
     });
 
-    // Get all links for these items (with hierarchy info)
-    const links = await prisma.link.findMany({
-      where: { itemId: { in: itemIds } },
-      include: {
-        CreatedBy: {
-          select: {
-            id: true,
-            username: true,
-            displayName: true,
-            Team: {
-              select: {
-                id: true,
-                name: true,
-              },
-            },
-          },
-        },
-        Item: {
-          select: {
-            id: true,
-            name: true,
-            type: true,
-            Item: {
-              select: {
-                id: true,
-                name: true,
-                type: true,
-                Item: {
-                  select: {
-                    id: true,
-                    name: true,
-                    type: true,
-                  },
-                },
-              },
-            },
-          },
-        },
-      },
-      orderBy: {
-        createdAt: 'desc',
-      },
+    // Get all links for these items
+    const linkRows = await query<any>(
+      `SELECT l.*,
+              u.id AS "cb_id", u.username AS "cb_username", u."displayName" AS "cb_displayName",
+              ut.id AS "cb_team_id", ut.name AS "cb_team_name",
+              i1.id AS "item_id", i1.name AS "item_name", i1.type AS "item_type",
+              i2.id AS "item_p_id", i2.name AS "item_p_name", i2.type AS "item_p_type",
+              i3.id AS "item_pp_id", i3.name AS "item_pp_name", i3.type AS "item_pp_type"
+       FROM "Link" l
+       LEFT JOIN "User" u ON u.id = l."createdById"
+       LEFT JOIN "Team" ut ON ut.id = u."teamId"
+       LEFT JOIN "Item" i1 ON i1.id = l."itemId"
+       LEFT JOIN "Item" i2 ON i2.id = i1."parentId"
+       LEFT JOIN "Item" i3 ON i3.id = i2."parentId"
+       WHERE l."itemId" IN (${placeholders})
+       ORDER BY l."createdAt" DESC`,
+      itemIds
+    );
+
+    const links = linkRows.map((l: any) => {
+      const item_pp = l.item_pp_id ? { id: l.item_pp_id, name: l.item_pp_name, type: l.item_pp_type } : null;
+      const item_p = l.item_p_id ? { id: l.item_p_id, name: l.item_p_name, type: l.item_p_type, Item: item_pp } : null;
+      const itemObj = l.item_id ? { id: l.item_id, name: l.item_name, type: l.item_type, Item: item_p } : null;
+
+      const result: any = {};
+      for (const key of Object.keys(l)) {
+        if (!key.startsWith('cb_') && !key.startsWith('item_')) {
+          result[key] = l[key];
+        }
+      }
+      result.CreatedBy = l.cb_id ? {
+        id: l.cb_id,
+        username: l.cb_username,
+        displayName: l.cb_displayName,
+        Team: l.cb_team_id ? { id: l.cb_team_id, name: l.cb_team_name } : null,
+      } : null;
+      result.Item = itemObj;
+      return result;
     });
 
     res.json({ files, links });
@@ -366,9 +384,10 @@ export const deleteFile = async (req: AuthRequest, res: Response) => {
     }
 
     // Get file
-    const file = await prisma.file.findUnique({
-      where: { id },
-    });
+    const file = await queryOne<any>(
+      `SELECT * FROM "File" WHERE id = $1`,
+      [id]
+    );
 
     if (!file) {
       return res.status(404).json({ error: 'File not found' });
@@ -385,9 +404,7 @@ export const deleteFile = async (req: AuthRequest, res: Response) => {
     }
 
     // Delete file record
-    await prisma.file.delete({
-      where: { id },
-    });
+    await query(`DELETE FROM "File" WHERE id = $1`, [id]);
 
     res.json({ message: 'File deleted successfully' });
   } catch (error) {

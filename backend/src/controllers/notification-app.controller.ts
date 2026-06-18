@@ -1,6 +1,6 @@
 import { Response } from 'express';
 import { AuthRequest } from '../middleware/auth';
-import prisma from '../config/database';
+import { query, queryOne } from '../config/database';
 import { randomUUID } from 'crypto';
 import { WebClient } from '@slack/web-api';
 import appLogger, { errorLogger, notificationLogger } from '../config/logger';
@@ -40,9 +40,9 @@ interface KakaoTalkConfig {
 // Get all notification apps
 export const getAllNotificationApps = async (req: AuthRequest, res: Response) => {
   try {
-    const apps = await prisma.notificationApp.findMany({
-      orderBy: { createdAt: 'desc' },
-    });
+    const apps = await query<any>(
+      `SELECT * FROM "NotificationApp" ORDER BY "createdAt" DESC`
+    );
 
     // Sanitize sensitive data
     const sanitizedApps = apps.map(app => {
@@ -106,9 +106,10 @@ export const getNotificationAppById = async (req: AuthRequest, res: Response) =>
   try {
     const { id } = req.params;
 
-    const app = await prisma.notificationApp.findUnique({
-      where: { id },
-    });
+    const app = await queryOne<any>(
+      `SELECT * FROM "NotificationApp" WHERE id = $1`,
+      [id]
+    );
 
     if (!app) {
       return res.status(404).json({ error: 'Notification app not found' });
@@ -138,32 +139,32 @@ export const createNotificationApp = async (req: AuthRequest, res: Response) => 
     }
 
     // Check if name already exists
-    const existing = await prisma.notificationApp.findFirst({
-      where: { name },
-    });
+    const existing = await queryOne<any>(
+      `SELECT id FROM "NotificationApp" WHERE name = $1`,
+      [name]
+    );
 
     if (existing) {
       return res.status(400).json({ error: 'App with this name already exists' });
     }
 
+    const activeFlag = isActive ?? true;
+
     // If isActive is true, deactivate all other apps of the same type
-    if (isActive) {
-      await prisma.notificationApp.updateMany({
-        where: { type, isActive: true },
-        data: { isActive: false, updatedAt: new Date() },
-      });
+    if (activeFlag) {
+      await query(
+        `UPDATE "NotificationApp" SET "isActive" = false, "updatedAt" = $1
+         WHERE type = $2 AND "isActive" = true`,
+        [new Date(), type]
+      );
     }
 
-    const app = await prisma.notificationApp.create({
-      data: {
-        id: randomUUID(),
-        name,
-        type,
-        config,
-        isActive: isActive ?? true,
-        updatedAt: new Date(),
-      },
-    });
+    const app = await queryOne<any>(
+      `INSERT INTO "NotificationApp" (id, name, type, config, "isActive", "createdAt", "updatedAt")
+       VALUES ($1, $2, $3, $4, $5, $6, $6)
+       RETURNING *`,
+      [randomUUID(), name, type, config, activeFlag, new Date()]
+    );
 
     res.status(201).json(app);
   } catch (error: any) {
@@ -178,9 +179,10 @@ export const updateNotificationApp = async (req: AuthRequest, res: Response) => 
     const { id } = req.params;
     const { name, type, config, isActive } = req.body;
 
-    const existing = await prisma.notificationApp.findUnique({
-      where: { id },
-    });
+    const existing = await queryOne<any>(
+      `SELECT * FROM "NotificationApp" WHERE id = $1`,
+      [id]
+    );
 
     if (!existing) {
       return res.status(404).json({ error: 'Notification app not found' });
@@ -197,26 +199,44 @@ export const updateNotificationApp = async (req: AuthRequest, res: Response) => 
 
     // If isActive is true, deactivate all other apps of the same type
     if (isActive) {
-      await prisma.notificationApp.updateMany({
-        where: {
-          type: type || existing.type,
-          isActive: true,
-          id: { not: id }
-        },
-        data: { isActive: false, updatedAt: new Date() },
-      });
+      const effectiveType = type || existing.type;
+      await query(
+        `UPDATE "NotificationApp" SET "isActive" = false, "updatedAt" = $1
+         WHERE type = $2 AND "isActive" = true AND id != $3`,
+        [new Date(), effectiveType, id]
+      );
     }
 
-    const app = await prisma.notificationApp.update({
-      where: { id },
-      data: {
-        name,
-        type,
-        config,
-        isActive,
-        updatedAt: new Date(),
-      },
-    });
+    // Build dynamic SET clause
+    const setClauses: string[] = [];
+    const params: any[] = [];
+    let paramIndex = 1;
+
+    if (name !== undefined) {
+      setClauses.push(`name = $${paramIndex++}`);
+      params.push(name);
+    }
+    if (type !== undefined) {
+      setClauses.push(`type = $${paramIndex++}`);
+      params.push(type);
+    }
+    if (config !== undefined) {
+      setClauses.push(`config = $${paramIndex++}`);
+      params.push(config);
+    }
+    if (isActive !== undefined) {
+      setClauses.push(`"isActive" = $${paramIndex++}`);
+      params.push(isActive);
+    }
+    setClauses.push(`"updatedAt" = $${paramIndex++}`);
+    params.push(new Date());
+
+    params.push(id);
+
+    const app = await queryOne<any>(
+      `UPDATE "NotificationApp" SET ${setClauses.join(', ')} WHERE id = $${paramIndex} RETURNING *`,
+      params
+    );
 
     res.json(app);
   } catch (error: any) {
@@ -230,17 +250,16 @@ export const deleteNotificationApp = async (req: AuthRequest, res: Response) => 
   try {
     const { id } = req.params;
 
-    const existing = await prisma.notificationApp.findUnique({
-      where: { id },
-    });
+    const existing = await queryOne<any>(
+      `SELECT id FROM "NotificationApp" WHERE id = $1`,
+      [id]
+    );
 
     if (!existing) {
       return res.status(404).json({ error: 'Notification app not found' });
     }
 
-    await prisma.notificationApp.delete({
-      where: { id },
-    });
+    await query(`DELETE FROM "NotificationApp" WHERE id = $1`, [id]);
 
     res.json({ message: 'Notification app deleted successfully' });
   } catch (error: any) {
@@ -357,12 +376,17 @@ export const sendMessageByEmail = async (req: AuthRequest, res: Response) => {
     }
 
     // Get active app of specified type (or first active app)
-    const query: any = { isActive: true };
+    let app: any;
     if (type) {
-      query.type = type;
+      app = await queryOne<any>(
+        `SELECT * FROM "NotificationApp" WHERE "isActive" = true AND type = $1 LIMIT 1`,
+        [type]
+      );
+    } else {
+      app = await queryOne<any>(
+        `SELECT * FROM "NotificationApp" WHERE "isActive" = true LIMIT 1`
+      );
     }
-
-    const app = await prisma.notificationApp.findFirst({ where: query });
 
     if (!app) {
       return res.status(404).json({ error: 'No active notification app found' });
