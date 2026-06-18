@@ -191,9 +191,9 @@ function App() {
       locale={koKR}
       theme={{
         token: {
-          colorPrimary: 'rgb(0, 140, 214)', // 더존테크윌 메인 블루
+          colorPrimary: 'rgb(0, 140, 214)',
           colorLink: 'rgb(0, 140, 214)',
-          colorLinkHover: 'rgb(0, 91, 172)', // 더존테크윌 다크 블루
+          colorLinkHover: 'rgb(0, 91, 172)',
           borderRadius: 4,
         },
         components: {

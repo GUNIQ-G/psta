@@ -316,7 +316,7 @@ export const ClientManagement: React.FC = () => {
             label="고객명"
             rules={[{ required: true, message: '고객명을 입력해주세요' }]}
           >
-            <Input placeholder="예: 더존테크윌" size="large" />
+            <Input placeholder="예: ABC 주식회사" size="large" />
           </Form.Item>
 
           <Form.Item

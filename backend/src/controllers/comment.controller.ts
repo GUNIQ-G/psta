@@ -168,7 +168,7 @@ export const createComment = async (req: AuthRequest, res: Response): Promise<an
         dateRange = `${formatDate(startDate)} ~ ${formatDate(endDate)}`;
       }
 
-      const messageContent = `${content}\n\n━━━━━━━━━━━━━━━━━━━━\n[ITEM_INFO]${typeLabel}|${statusLabel}|${item?.name || '항목'}|${assigneeName}|${dateRange}|${progress}[/ITEM_INFO]\n[LINK]${process.env.FRONTEND_URL || 'http://192.168.1.250:3000'}/psta?itemId=${itemId}[/LINK]`;
+      const messageContent = `${content}\n\n━━━━━━━━━━━━━━━━━━━━\n[ITEM_INFO]${typeLabel}|${statusLabel}|${item?.name || '항목'}|${assigneeName}|${dateRange}|${progress}[/ITEM_INFO]\n[LINK]${process.env.FRONTEND_URL || 'http://localhost:3000'}/psta?itemId=${itemId}[/LINK]`;
 
       await prisma.message.create({
         data: {

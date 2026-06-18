@@ -57,7 +57,7 @@ export class NotificationSlackService {
    */
   private static async generateLink(data: NotificationData): Promise<string | null> {
     // Get frontend URL from system settings
-    let baseUrl = process.env.FRONTEND_URL || 'http://192.168.1.250:3000';
+    let baseUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
 
     try {
       const frontendUrlSetting = await prisma.systemSetting.findUnique({

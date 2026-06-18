@@ -12,7 +12,7 @@ export const LoginPage: React.FC = () => {
   const [systemError, setSystemError] = useState<string | null>(null);
   const [copyrightText, setCopyrightText] = useState('PSTA System. All rights reserved.');
   const [systemName, setSystemName] = useState('PSTA 프로젝트 일정 관리');
-  const [systemDescription, setSystemDescription] = useState('더존테크윌');
+  const [systemDescription, setSystemDescription] = useState('');
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
   const [adminEmail, setAdminEmail] = useState('');
   const navigate = useNavigate();

@@ -27,7 +27,7 @@ export const GeneralSettings: React.FC = () => {
         systemDescription: settings.systemDescription || '프로젝트 일정 관리 시스템',
         adminEmail: settings.adminEmail || '',
         copyrightText: settings.copyrightText || 'PSTA System. All rights reserved.',
-        frontendUrl: settings.frontendUrl || 'https://psta.dztechwill.com',
+        frontendUrl: settings.frontendUrl || '',
       });
 
       if (settings.systemLogo) {
@@ -286,9 +286,9 @@ export const GeneralSettings: React.FC = () => {
               { type: 'url', message: '올바른 URL을 입력해주세요' },
               { required: true, message: 'URL을 입력해주세요' },
             ]}
-            help="Slack 알림 등 외부 링크에 사용될 도메인 주소 (예: https://psta.dztechwill.com)"
+            help="Slack 알림 등 외부 링크에 사용될 도메인 주소 (예: https://psta.your-company.com)"
           >
-            <Input placeholder="https://psta.dztechwill.com" />
+            <Input placeholder="https://psta.your-company.com" />
           </Form.Item>
         </Card>
 

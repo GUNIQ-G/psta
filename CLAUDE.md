@@ -20,7 +20,6 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
     ├── guides/
     │   ├── development/DEVELOPMENT_GUIDE.md
     │   ├── installation/INSTALLATION_GUIDE.md
-    │   ├── migration/LDAP_HIERARCHICAL_MIGRATION.md
     │   └── user/USER_GUIDE.md
     ├── features/
     │   ├── FEATURES.md

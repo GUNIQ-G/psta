@@ -163,7 +163,7 @@ Project (프로젝트)
 - ✅ **통합 대시보드**
   - 활성 팀/사용자 통계
   - LDAP 연동 현황
-  - 심플한 더존테크윌 디자인
+  - 심플한 대시보드 디자인
 - ✅ **역할 관리** ⭐ NEW (v1.1.24)
   - ADMIN이 조직도에서 PO/PM/MEMBER 역할 직접 변경
   - 팀 멤버 정렬: 역할(PO→PM→MEMBER) > 직급 > 이름순
@@ -464,8 +464,6 @@ Client | Level | Type | Name | Path | Status | Progress | Start Date | End Date 
 
 - **GitHub**: https://github.com/GUNIQ-G/psta
 - **이슈 보고**: https://github.com/GUNIQ-G/psta/issues
-- **문서**: http://psta.dztechwill.com/docs
-
 ---
 
 **PSTA v1.1.29 - 프로젝트 관리를 더 쉽게**

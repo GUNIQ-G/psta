@@ -1078,7 +1078,7 @@ export class LdapSyncService {
         let userOrgDn = '';
 
         // Method 1: Parse DN to find the closest OU
-        // DN example: uid=xxx,ou=서울본부,ou=organization,dc=ldap,dc=dztechwill,dc=com
+        // DN example: uid=xxx,ou=Engineering,ou=organization,dc=ldap,dc=example,dc=com
         if (ldapUser.dn) {
           const dnParts = ldapUser.dn.split(',');
           // Find the first OU part (skip the uid= part)

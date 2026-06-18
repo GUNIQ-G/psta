@@ -12,8 +12,8 @@
 ./bin/server.sh status
 
 # 접속
-# Frontend: http://192.168.1.250:3000
-# Login: admin / proadmin
+# Frontend: http://<서버IP>:3000
+# Login: 설치 시 설정한 admin 계정으로 로그인
 ```
 
 ## 📚 문서

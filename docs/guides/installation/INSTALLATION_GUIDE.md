@@ -488,7 +488,7 @@ proxy: {
 nano vite.config.ts
 
 # target을 실제 백엔드 주소로 변경
-# 예: target: 'http://192.168.1.250:3001'
+# 예: target: 'http://your-server-ip:3001'
 ```
 
 ### 4. 빌드

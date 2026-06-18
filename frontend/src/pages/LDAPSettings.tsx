@@ -130,39 +130,6 @@ const LDAP_TEMPLATES = {
       rootOu: 'Organizations',
     },
   },
-  dztechwill: {
-    name: '더존테크윌',
-    description: '더존테크윌 LDAP 서버',
-    icon: '🏢',
-    config: {
-      host: '192.168.1.212',
-      port: 10389,
-      protocol: 'LDAP' as const,
-      bindDn: 'cn=admin,dc=ldap,dc=dztechwill,dc=com',
-      searchBase: 'dc=ldap,dc=dztechwill,dc=com',
-      searchFilter: '',
-      timeout: 30,
-      enableDynamicUserCreation: true,
-      attributeLoginId: 'uid',
-      attributeName: 'cn',
-      attributeSurname: 'sn',
-      attributeEmail: 'mail',
-      rootOu: 'people',
-      userBaseDn: 'ou=people,dc=ldap,dc=dztechwill,dc=com',
-      orgBaseDn: 'ou=organization,dc=ldap,dc=dztechwill,dc=com',
-      searchScope: 'sub',
-      filterActiveOnly: true,
-      filterEmailRequired: false,
-      hiddenOrgs: '퇴사자',
-      maxDepth: 10,
-      showRootOu: false,
-      sortOrder: 'name',
-      displayNameFormat: '{sn}{cn}',
-      attributeTitle: 'title',
-      attributeDepartment: 'ou',
-      attributeDeptNumber: 'departmentNumber',
-    },
-  },
 };
 
 export const LDAPSettings: React.FC = () => {
@@ -539,7 +506,7 @@ export const LDAPSettings: React.FC = () => {
                     label="설정 이름"
                     rules={[{ required: true, message: '설정 이름을 입력하세요' }]}
                   >
-                    <Input placeholder="더존테크윌 LDAP" />
+                    <Input placeholder="회사 LDAP" />
                   </Form.Item>
                 </Col>
                 <Col span={12}>
@@ -562,9 +529,9 @@ export const LDAPSettings: React.FC = () => {
                     name="host"
                     label="서버 주소"
                     rules={[{ required: true, message: '서버 주소를 입력하세요' }]}
-                    extra="예: ldap.company.com 또는 192.168.1.212"
+                    extra="예: ldap.your-company.com 또는 192.168.x.x"
                   >
-                    <Input placeholder="192.168.1.212" />
+                    <Input placeholder="ldap.your-company.com" />
                   </Form.Item>
                 </Col>
                 <Col span={4}>
@@ -603,7 +570,7 @@ export const LDAPSettings: React.FC = () => {
                     extra="예: cn=admin,dc=ldap,dc=example,dc=com"
                     hasFeedback
                   >
-                    <Input placeholder="cn=admin,dc=ldap,dc=dztechwill,dc=com" />
+                    <Input placeholder="cn=admin,dc=ldap,dc=example,dc=com" />
                   </Form.Item>
                 </Col>
                 <Col span={12}>
@@ -643,7 +610,7 @@ export const LDAPSettings: React.FC = () => {
                 extra="LDAP 전체 구조의 루트 경로"
                 hasFeedback
               >
-                <Input placeholder="dc=ldap,dc=dztechwill,dc=com" />
+                <Input placeholder="dc=ldap,dc=example,dc=com" />
               </Form.Item>
 
               <Row gutter={16}>
@@ -660,7 +627,7 @@ export const LDAPSettings: React.FC = () => {
                     }
                     extra="비워두면 Base DN 사용"
                   >
-                    <Input placeholder="ou=people,dc=ldap,dc=dztechwill,dc=com" />
+                    <Input placeholder="ou=people,dc=ldap,dc=example,dc=com" />
                   </Form.Item>
                 </Col>
                 <Col span={12}>
@@ -676,7 +643,7 @@ export const LDAPSettings: React.FC = () => {
                     }
                     extra="비워두면 Base DN 사용"
                   >
-                    <Input placeholder="ou=organization,dc=ldap,dc=dztechwill,dc=com" />
+                    <Input placeholder="ou=organization,dc=ldap,dc=example,dc=com" />
                   </Form.Item>
                 </Col>
               </Row>

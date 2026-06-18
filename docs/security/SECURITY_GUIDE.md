@@ -341,11 +341,10 @@ git clone --mirror https://github.com/YOUR_ORG/psta.git psta-backup
 # 3. 민감 정보 제거
 java -jar bfg-1.14.0.jar --replace-text passwords.txt psta.git
 
-# passwords.txt 내용:
-# literal:xoxb-0000000000000-0000000000000-xxxxxxxxxxxxxxxxxxxxxxxx
-# literal:xapp-1-XXXXXXXXXX-0000000000000-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-# 67903bbcaeb42820fee68f9d9e67424d
-# 56ba0f336e777eee46120e6c661d9ddb
+# passwords.txt 내용 (예시 — 실제 유출된 값으로 교체):
+# xoxb-0000000000000-0000000000000-xxxxxxxxxxxxxxxxxxxxxxxx
+# xapp-1-XXXXXXXXXX-0000000000000-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+# xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 
 # 4. Garbage collection
 cd psta.git

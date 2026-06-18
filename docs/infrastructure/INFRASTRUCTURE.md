@@ -159,41 +159,33 @@ sudo logrotate --debug /etc/logrotate.d/psta-nginx
 
 ### 4.4 Nginx 리버스 프록시 (프로덕션)
 
-#### 서버 정보
-| 항목 | 값 |
+외부에 HTTPS로 서비스할 때는 별도 Nginx 리버스 프록시를 앞단에 두는 구성이 일반적입니다.
+
+#### 구성 예시
+| 항목 | 예시 |
 |------|-----|
-| **Nginx 서버** | 192.168.1.151 |
-| **App 서버** | 192.168.1.250 |
-| **도메인** | psta.dztechwill.com |
-| **SSL 인증서** | dztechwill.com (Let's Encrypt) |
-| **실행 방식** | Docker Compose |
+| **도메인** | psta.your-company.com |
+| **SSL 인증서** | Let's Encrypt (Certbot) |
+| **Backend** | 127.0.0.1:3001 (psta-backend systemd) |
+| **Frontend** | 127.0.0.1:3000 (psta-frontend Docker) |
 
-#### 파일 구조
-```
-/home/dztechwill/docker-nginx/
-├── docker-compose.yml          # Docker Compose 설정
-└── conf.d/
-    └── 250.conf                # PSTA Nginx 설정 파일
-```
-
-#### Nginx 설정 파일
-**위치**: `/home/dztechwill/docker-nginx/conf.d/250.conf`
+#### Nginx 설정 예시
 
 ```nginx
 server {
     listen 443 ssl;
-    server_name psta.dztechwill.com;
+    server_name psta.your-company.com;
     server_tokens off;
 
-    # SSL 인증서 (dztechwill.com 와일드카드)
-    ssl_certificate /etc/letsencrypt/live/dztechwill.com/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/dztechwill.com/privkey.pem;
+    # SSL 인증서 (Let's Encrypt)
+    ssl_certificate /etc/letsencrypt/live/your-company.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/your-company.com/privkey.pem;
     include /etc/letsencrypt/options-ssl-nginx.conf;
     ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
 
-    # API 요청 → Backend (192.168.1.250:3001)
+    # API 요청 → Backend
     location /api/ {
-        proxy_pass http://192.168.1.250:3001;
+        proxy_pass http://127.0.0.1:3001;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection 'upgrade';
@@ -204,9 +196,9 @@ server {
         proxy_cache_bypass $http_upgrade;
     }
 
-    # 업로드 파일 → Backend (192.168.1.250:3001)
+    # 업로드 파일 → Backend
     location /uploads/ {
-        proxy_pass http://192.168.1.250:3001;
+        proxy_pass http://127.0.0.1:3001;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
@@ -214,9 +206,9 @@ server {
         proxy_set_header X-Forwarded-Proto $scheme;
     }
 
-    # 프론트엔드 → Frontend (192.168.1.250:3000)
+    # 프론트엔드 → Frontend
     location / {
-        proxy_pass http://192.168.1.250:3000;
+        proxy_pass http://127.0.0.1:3000;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection 'upgrade';
@@ -227,38 +219,31 @@ server {
 ```
 
 #### 프록시 라우팅
-| 경로 | 대상 서버 | 설명 |
-|------|----------|------|
-| `/api/*` | 192.168.1.250:3001 | Backend API |
-| `/uploads/*` | 192.168.1.250:3001 | 업로드 파일 |
-| `/*` | 192.168.1.250:3000 | Frontend SPA |
+| 경로 | 대상 | 설명 |
+|------|------|------|
+| `/api/*` | :3001 | Backend API |
+| `/uploads/*` | :3001 | 업로드 파일 |
+| `/*` | :3000 | Frontend SPA |
 
 #### Nginx 관리 명령어
 ```bash
-# 192.168.1.151 서버에서 실행
-cd /home/dztechwill/docker-nginx
-
-# 설정 파일 편집
-vi conf.d/250.conf
-
 # 설정 검증 (중요!)
-sudo docker-compose exec nginx nginx -t
+sudo nginx -t
 
 # 재시작 (설정 반영)
-sudo docker-compose down
-sudo docker-compose up -d
+sudo systemctl restart nginx
 
 # 또는 리로드 (무중단)
-sudo docker-compose exec nginx nginx -s reload
+sudo nginx -s reload
 
 # 로그 확인
-sudo docker-compose logs -f nginx
+sudo tail -f /var/log/nginx/error.log
 ```
 
 **주의사항**:
 - 설정 파일 수정 후 **반드시 `nginx -t`로 검증**
-- 검증 실패 시 Docker 재시작하지 말 것 (서비스 중단 방지)
-- HTTP → HTTPS 리다이렉트는 별도 설정 없음 (Certbot 자동 처리)
+- 검증 실패 시 재시작하지 말 것 (서비스 중단 방지)
+- HTTP → HTTPS 리다이렉트는 Certbot 자동 처리
 
 ---
 
@@ -442,8 +427,8 @@ sudo firewall-cmd --reload
 ```
 
 ### 9.3 접속 URL
-- **프로덕션**: http://psta.dztechwill.com (Nginx 프록시)
-- **개발 (외부)**: http://192.168.1.250:3000
+- **프로덕션**: https://psta.your-company.com (Nginx 프록시)
+- **개발 (외부)**: http://your-server-ip:3000
 - **개발 (로컬)**: http://localhost:3000
 
 ---
@@ -602,7 +587,7 @@ chmod 600 /app/psta/backend/.env
 # .env 파일 내용 (예시)
 DATABASE_URL="postgresql://psta_user:psta_password@localhost:5432/psta"
 JWT_SECRET="<강력한-랜덤-문자열-32자-이상>"
-FRONTEND_URL="http://psta.dztechwill.com"
+FRONTEND_URL="https://psta.your-company.com"
 ```
 
 ### 12.5 방화벽 권장 설정

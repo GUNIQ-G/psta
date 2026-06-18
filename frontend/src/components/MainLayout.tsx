@@ -446,7 +446,7 @@ export const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
           left: 0,
           top: 0,
           bottom: 0,
-          background: 'rgb(0, 91, 172)', // 더존테크윌 다크 블루
+          background: 'rgb(0, 91, 172)',
         }}
       >
         <div

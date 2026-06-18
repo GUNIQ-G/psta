@@ -56,6 +56,9 @@ _tmp_logo+fav/
 # Internal dev/migration scripts (may contain environment-specific data)
 backend/src/scripts/
 
+# Site-specific migration guides (contain internal server/org info)
+docs/guides/migration/
+
 # PM2
 .pm2/
 

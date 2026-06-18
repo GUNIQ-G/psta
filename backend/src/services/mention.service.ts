@@ -30,7 +30,7 @@ export const sendDescriptionMentionNotifications = async (
   });
   const typeLabel = item?.type ? typeLabels[item.type] : '항목';
 
-  const link = `${process.env.FRONTEND_URL || 'http://192.168.1.250:3000'}/psta?itemId=${itemId}`;
+  const link = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/psta?itemId=${itemId}`;
   const messageBase = `[LINK]${link}[/LINK]`;
 
   for (const toUserId of newMentionIds) {

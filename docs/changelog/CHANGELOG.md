@@ -786,7 +786,7 @@
   - 실행 결과: 3개 팀 업데이트 (개발팀→DEPT013, 기획디자인팀→DEPT014, 서비스개발본부→DEPT010)
 
 #### 기타 수정
-- ✅ **User displayName 수정**: yg.kim "여겸" → "김여겸" (sn+cn 형식으로 수정)
+- ✅ **User displayName 수정**: sn+cn 형식 displayName 포맷 수정
 
 #### 변경된 파일
 - `backend/prisma/schema.prisma`
@@ -801,9 +801,8 @@
 ### 📋 LDAP 계층형 마이그레이션 계획 문서 작성
 
 #### 새로운 문서
-- ✅ **[LDAP 계층형 마이그레이션 가이드](../guides/migration/LDAP_HIERARCHICAL_MIGRATION.md)** (상세 계획서):
-  - **무중단 마이그레이션 전략** (5 Phase, 예상 11시간)
-  - 기존 LDAP (3.34.115.117) → 신규 LDAP (192.168.1.212:10389) 전환
+- ✅ **LDAP 계층형 마이그레이션 가이드** (내부 문서):
+  - **무중단 마이그레이션 전략** (5 Phase)
   - 평면 구조 → 4단계 계층 구조 (Organizations → Company → Department → Team)
 
 #### 마이그레이션 개요
@@ -822,8 +821,8 @@
   - 백엔드 재시작 및 연결 테스트
 
 - ✅ **Phase 4**: 선택적 동기화 실행
-  - 36명의 사용자 안전 마이그레이션
-  - 7개 팀 생성 (Organizations, 더존테크윌, 서비스개발본부, 개발팀, 기획디자인팀, 퇴사자, admins)
+  - 기존 사용자 안전 마이그레이션
+  - 기존 팀 계층 구조 생성
   - 기존 사용자 username/password 동일 → 로그인 불편 없음
 
 - ✅ **Phase 5**: UI 계층 구조 표시

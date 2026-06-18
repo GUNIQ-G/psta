@@ -186,7 +186,7 @@ DATABASE_URL="postgresql://psta_user:psta_password@localhost:5432/psta"
 JWT_SECRET="your-strong-secret-key"
 JWT_EXPIRES_IN="24h"
 PORT=3001
-FRONTEND_URL="http://192.168.1.250:3000"
+FRONTEND_URL="http://localhost:3000"
 ```
 
 ### 2.3 서버 실행
