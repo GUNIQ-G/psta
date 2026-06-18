@@ -27,10 +27,10 @@ async function buildFullWorkRequest(id: string): Promise<any | null> {
             row_to_json(asgn.*) AS "Assignee",
             row_to_json(appr.*) AS "ApprovedBy",
             row_to_json(act.*) AS "Action",
-            json_build_object('id', proj.id, 'name', proj.name) FILTER (WHERE proj.id IS NOT NULL) AS "Project",
-            json_build_object('id', svc.id, 'name', svc.name) FILTER (WHERE svc.id IS NOT NULL) AS "Service",
-            json_build_object('id', tm.id, 'name', tm.name) FILTER (WHERE tm.id IS NOT NULL) AS "Team",
-            json_build_object('id', at.id, 'name', at.name, 'description', at.description) FILTER (WHERE at.id IS NOT NULL) AS "AssigneeTeam"
+            CASE WHEN proj.id IS NOT NULL THEN json_build_object('id', proj.id, 'name', proj.name) ELSE NULL END AS "Project",
+            CASE WHEN svc.id IS NOT NULL THEN json_build_object('id', svc.id, 'name', svc.name) ELSE NULL END AS "Service",
+            CASE WHEN tm.id IS NOT NULL THEN json_build_object('id', tm.id, 'name', tm.name) ELSE NULL END AS "Team",
+            CASE WHEN at.id IS NOT NULL THEN json_build_object('id', at.id, 'name', at.name, 'description', at.description) ELSE NULL END AS "AssigneeTeam"
      FROM "WorkRequest" wr
      LEFT JOIN (SELECT ${USER_COLS} FROM "User") req ON req.id = wr."requesterId"
      LEFT JOIN (SELECT ${USER_COLS} FROM "User") asgn ON asgn.id = wr."assigneeId"
@@ -55,7 +55,7 @@ async function buildStateTransitionWorkRequest(id: string): Promise<any | null> 
     `SELECT wr.*,
             row_to_json(req.*) AS "Requester",
             row_to_json(asgn.*) AS "Assignee",
-            json_build_object('id', at.id, 'name', at.name, 'description', at.description) FILTER (WHERE at.id IS NOT NULL) AS "AssigneeTeam",
+            CASE WHEN at.id IS NOT NULL THEN json_build_object('id', at.id, 'name', at.name, 'description', at.description) ELSE NULL END AS "AssigneeTeam",
             row_to_json(appr.*) AS "ApprovedBy"
      FROM "WorkRequest" wr
      LEFT JOIN (SELECT ${USER_COLS} FROM "User") req ON req.id = wr."requesterId"
@@ -75,7 +75,7 @@ async function buildBasicWorkRequest(id: string): Promise<any | null> {
     `SELECT wr.*,
             row_to_json(req.*) AS "Requester",
             row_to_json(asgn.*) AS "Assignee",
-            json_build_object('id', at.id, 'name', at.name, 'description', at.description) FILTER (WHERE at.id IS NOT NULL) AS "AssigneeTeam"
+            CASE WHEN at.id IS NOT NULL THEN json_build_object('id', at.id, 'name', at.name, 'description', at.description) ELSE NULL END AS "AssigneeTeam"
      FROM "WorkRequest" wr
      LEFT JOIN (SELECT ${USER_COLS} FROM "User") req ON req.id = wr."requesterId"
      LEFT JOIN (SELECT ${USER_COLS} FROM "User") asgn ON asgn.id = wr."assigneeId"
@@ -93,7 +93,7 @@ async function buildWorkRequestWithAction(id: string): Promise<any | null> {
     `SELECT wr.*,
             row_to_json(req.*) AS "Requester",
             row_to_json(asgn.*) AS "Assignee",
-            json_build_object('id', at.id, 'name', at.name, 'description', at.description) FILTER (WHERE at.id IS NOT NULL) AS "AssigneeTeam",
+            CASE WHEN at.id IS NOT NULL THEN json_build_object('id', at.id, 'name', at.name, 'description', at.description) ELSE NULL END AS "AssigneeTeam",
             row_to_json(appr.*) AS "ApprovedBy",
             row_to_json(act.*) AS "Action"
      FROM "WorkRequest" wr
@@ -144,10 +144,10 @@ export const getWorkRequests = async (req: AuthRequest, res: Response) => {
               row_to_json(asgn.*) AS "Assignee",
               row_to_json(appr.*) AS "ApprovedBy",
               row_to_json(act.*) AS "Action",
-              json_build_object('id', proj.id, 'name', proj.name) FILTER (WHERE proj.id IS NOT NULL) AS "Project",
-              json_build_object('id', svc.id, 'name', svc.name) FILTER (WHERE svc.id IS NOT NULL) AS "Service",
-              json_build_object('id', tm.id, 'name', tm.name) FILTER (WHERE tm.id IS NOT NULL) AS "Team",
-              json_build_object('id', at.id, 'name', at.name, 'description', at.description) FILTER (WHERE at.id IS NOT NULL) AS "AssigneeTeam"
+              CASE WHEN proj.id IS NOT NULL THEN json_build_object('id', proj.id, 'name', proj.name) ELSE NULL END AS "Project",
+              CASE WHEN svc.id IS NOT NULL THEN json_build_object('id', svc.id, 'name', svc.name) ELSE NULL END AS "Service",
+              CASE WHEN tm.id IS NOT NULL THEN json_build_object('id', tm.id, 'name', tm.name) ELSE NULL END AS "Team",
+              CASE WHEN at.id IS NOT NULL THEN json_build_object('id', at.id, 'name', at.name, 'description', at.description) ELSE NULL END AS "AssigneeTeam"
        FROM "WorkRequest" wr
        LEFT JOIN (SELECT ${USER_COLS} FROM "User") req ON req.id = wr."requesterId"
        LEFT JOIN (SELECT ${USER_COLS} FROM "User") asgn ON asgn.id = wr."assigneeId"
@@ -673,12 +673,12 @@ export const getTeamWorkRequests = async (req: AuthRequest, res: Response) => {
       `SELECT wr.*,
               row_to_json(req.*) AS "Requester",
               row_to_json(asgn.*) AS "Assignee",
-              json_build_object('id', at.id, 'name', at.name, 'description', at.description) FILTER (WHERE at.id IS NOT NULL) AS "AssigneeTeam",
+              CASE WHEN at.id IS NOT NULL THEN json_build_object('id', at.id, 'name', at.name, 'description', at.description) ELSE NULL END AS "AssigneeTeam",
               row_to_json(appr.*) AS "ApprovedBy",
               row_to_json(act.*) AS "Action",
-              json_build_object('id', proj.id, 'name', proj.name) FILTER (WHERE proj.id IS NOT NULL) AS "Project",
-              json_build_object('id', svc.id, 'name', svc.name) FILTER (WHERE svc.id IS NOT NULL) AS "Service",
-              json_build_object('id', tm.id, 'name', tm.name) FILTER (WHERE tm.id IS NOT NULL) AS "Team"
+              CASE WHEN proj.id IS NOT NULL THEN json_build_object('id', proj.id, 'name', proj.name) ELSE NULL END AS "Project",
+              CASE WHEN svc.id IS NOT NULL THEN json_build_object('id', svc.id, 'name', svc.name) ELSE NULL END AS "Service",
+              CASE WHEN tm.id IS NOT NULL THEN json_build_object('id', tm.id, 'name', tm.name) ELSE NULL END AS "Team"
        FROM "WorkRequest" wr
        LEFT JOIN (SELECT ${USER_COLS} FROM "User") req ON req.id = wr."requesterId"
        LEFT JOIN (SELECT ${USER_COLS} FROM "User") asgn ON asgn.id = wr."assigneeId"
@@ -1132,12 +1132,12 @@ export const getAllWorkRequests = async (req: AuthRequest, res: Response) => {
       `SELECT wr.*,
               row_to_json(req.*) AS "Requester",
               row_to_json(asgn.*) AS "Assignee",
-              json_build_object('id', at.id, 'name', at.name, 'description', at.description) FILTER (WHERE at.id IS NOT NULL) AS "AssigneeTeam",
+              CASE WHEN at.id IS NOT NULL THEN json_build_object('id', at.id, 'name', at.name, 'description', at.description) ELSE NULL END AS "AssigneeTeam",
               row_to_json(appr.*) AS "ApprovedBy",
               row_to_json(act.*) AS "Action",
-              json_build_object('id', proj.id, 'name', proj.name) FILTER (WHERE proj.id IS NOT NULL) AS "Project",
-              json_build_object('id', svc.id, 'name', svc.name) FILTER (WHERE svc.id IS NOT NULL) AS "Service",
-              json_build_object('id', tm.id, 'name', tm.name) FILTER (WHERE tm.id IS NOT NULL) AS "Team"
+              CASE WHEN proj.id IS NOT NULL THEN json_build_object('id', proj.id, 'name', proj.name) ELSE NULL END AS "Project",
+              CASE WHEN svc.id IS NOT NULL THEN json_build_object('id', svc.id, 'name', svc.name) ELSE NULL END AS "Service",
+              CASE WHEN tm.id IS NOT NULL THEN json_build_object('id', tm.id, 'name', tm.name) ELSE NULL END AS "Team"
        FROM "WorkRequest" wr
        LEFT JOIN (SELECT ${USER_COLS} FROM "User") req ON req.id = wr."requesterId"
        LEFT JOIN (SELECT ${USER_COLS} FROM "User") asgn ON asgn.id = wr."assigneeId"

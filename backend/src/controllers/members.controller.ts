@@ -212,6 +212,9 @@ export const updateProfile = async (req: AuthRequest, res: Response) => {
     res.json({ ok: true, user: { displayName: user!.displayName, email: user!.email, phoneNumber: user!.phoneNumber } });
   } catch (err: any) {
     errorLogger.error('updateProfile error', { err });
+    if (err.code === '23505' && err.constraint === 'User_email_key') {
+      return res.status(409).json({ error: '이미 사용 중인 이메일입니다.' });
+    }
     res.status(500).json({ error: 'Internal server error' });
   }
 };
