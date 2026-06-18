@@ -15,6 +15,7 @@ import {
 import { NotificationService } from '../services/notification.service';
 import { USER_SELECT, CREATOR_SELECT } from '../utils/prisma-selects';
 import { extractDescriptionMentionIds, sendDescriptionMentionNotifications } from '../services/mention.service';
+import { UPLOADS_DIR } from '../config/paths';
 
 export const getItems = async (req: AuthRequest, res: Response) => {
   try {
@@ -1233,7 +1234,7 @@ export const uploadItemImage = async (req: AuthRequest, res: Response): Promise<
 export const getItemImage = async (req: AuthRequest, res: Response): Promise<any> => {
   try {
     const { filename } = req.params;
-    const filepath = path.join('/data/psta/uploads/item-images', filename);
+    const filepath = path.join(UPLOADS_DIR, 'item-images', filename);
     if (!fs.existsSync(filepath)) return res.status(404).json({ message: 'Image not found' });
     res.sendFile(filepath);
   } catch (error) {

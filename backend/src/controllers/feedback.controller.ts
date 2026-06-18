@@ -5,6 +5,7 @@ import { randomUUID } from 'crypto';
 import { FeedbackStatus, FeedbackType, UserRole } from '@prisma/client';
 import fs from 'fs';
 import appLogger, { errorLogger } from '../config/logger';
+import { UPLOADS_DIR } from '../config/paths';
 
 /**
  * Get all feedbacks (with filtering)
@@ -387,7 +388,7 @@ export const uploadImage = async (req: AuthRequest, res: Response) => {
 export const getImage = async (req: AuthRequest, res: Response) => {
   try {
     const { filename } = req.params;
-    const filepath = `/data/psta/uploads/feedback-images/${filename}`;
+    const filepath = `${UPLOADS_DIR}/feedback-images/${filename}`;
 
     // Check if file exists
     if (!fs.existsSync(filepath)) {

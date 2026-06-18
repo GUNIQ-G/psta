@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
+import { DATA_DIR } from './paths';
 
-const DATA_DIR = process.env.INSTALL_DATA_DIR || '/data/psta';
 const INSTALL_FLAG = path.join(DATA_DIR, '.installed');
 
 export const isInstalled = (): boolean => {
