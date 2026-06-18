@@ -70,5 +70,5 @@ docs/guides/development/WBS_REFACTORING_PLAN.md
 # PM2
 .pm2/
 
-# Prisma
-backend/prisma/migrations/migration_lock.toml
+# Prisma migrations (스키마는 schema.sql로 관리)
+backend/prisma/migrations/

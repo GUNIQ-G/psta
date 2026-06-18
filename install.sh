@@ -216,11 +216,12 @@ build() {
     success "빌드 완료"
 }
 
-# ─── DB 마이그레이션 ───────────────────────────────────────────────────────────
+# ─── DB 스키마 적용 ────────────────────────────────────────────────────────────
 run_migrations() {
-    header "데이터베이스 마이그레이션"
-    sudo -u "$PSTA_USER" bash -c "cd $INSTALL_DIR/backend && npx prisma migrate deploy"
-    success "마이그레이션 완료"
+    header "데이터베이스 스키마 적용"
+    local schema_file="$INSTALL_DIR/backend/prisma/schema.sql"
+    PGPASSWORD="$DB_PASS" psql -U "$DB_USER" -h "$DB_HOST" -p "$DB_PORT" "$DB_NAME" -f "$schema_file"
+    success "스키마 적용 완료"
 }
 
 # ─── systemd 서비스 등록 ────────────────────────────────────────────────────────

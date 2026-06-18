@@ -1,3 +1,0 @@
--- AlterTable
-ALTER TABLE "User" ADD COLUMN "authType" TEXT NOT NULL DEFAULT 'LDAP';
-ALTER TABLE "User" ADD COLUMN "passwordHash" TEXT;
