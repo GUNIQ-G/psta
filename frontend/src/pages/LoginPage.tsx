@@ -103,13 +103,14 @@ export const LoginPage: React.FC = () => {
             <div
               style={{
                 margin: '0 auto',
-                padding: '32px',
+                padding: '20px 32px',
                 background: 'rgb(0, 140, 214)',
                 borderRadius: 12,
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
                 boxShadow: '0 4px 12px rgba(0, 140, 214, 0.2)',
+                overflow: 'hidden',
               }}
             >
               <img
@@ -117,6 +118,11 @@ export const LoginPage: React.FC = () => {
                 alt="System Logo"
                 style={{
                   display: 'block',
+                  maxWidth: '100%',
+                  maxHeight: 60,
+                  width: 'auto',
+                  height: 'auto',
+                  objectFit: 'contain',
                 }}
               />
             </div>
