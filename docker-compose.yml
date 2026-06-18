@@ -1,23 +1,62 @@
-version: '3.8'
-
 services:
-  postgres:
-    image: postgres:16-alpine
-    container_name: psta-postgres
-    restart: unless-stopped
+
+  # ── PostgreSQL ──────────────────────────────────────────────────────────────
+  db:
+    image: postgres:14-alpine
+    container_name: psta-db
     environment:
-      POSTGRES_USER: psta_user
-      POSTGRES_PASSWORD: psta_password
-      POSTGRES_DB: psta
-    ports:
-      - "5432:5432"
+      POSTGRES_DB: ${DB_NAME:-psta}
+      POSTGRES_USER: ${DB_USER:-psta_user}
+      POSTGRES_PASSWORD: ${DB_PASS:-psta_password}
     volumes:
-      - psta-postgres-data:/var/lib/postgresql/data
+      - psta-db-data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U psta_user -d psta"]
-      interval: 10s
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-psta_user} -d ${DB_NAME:-psta}"]
+      interval: 5s
       timeout: 5s
-      retries: 5
+      retries: 10
+    restart: unless-stopped
+
+  # ── Backend ─────────────────────────────────────────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: psta-backend
+    environment:
+      NODE_ENV: production
+      PORT: ${BACKEND_PORT:-3001}
+      DATABASE_URL: postgresql://${DB_USER:-psta_user}:${DB_PASS:-psta_password}@db:5432/${DB_NAME:-psta}
+      JWT_SECRET: ${JWT_SECRET:-change-this-secret-in-production}
+      JWT_EXPIRES_IN: "24h"
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
+      INSTALL_DATA_DIR: /app/data
+    volumes:
+      - psta-uploads:/app/data/uploads
+      - psta-config:/app/data
+      - psta-logs:/app/logs
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ── Frontend (nginx + React 빌드 포함) ─────────────────────────────────────
+  frontend:
+    build:
+      context: .
+      dockerfile: nginx/Dockerfile
+    container_name: psta-frontend
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"
+    environment:
+      BACKEND_HOST: backend
+      BACKEND_PORT: ${BACKEND_PORT:-3001}
+    depends_on:
+      - backend
+    restart: unless-stopped
 
 volumes:
-  psta-postgres-data:
+  psta-db-data:
+  psta-uploads:
+  psta-config:
+  psta-logs:

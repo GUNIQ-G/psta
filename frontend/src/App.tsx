@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { ConfigProvider, App as AntdApp } from 'antd';
 import koKR from 'antd/locale/ko_KR';
@@ -29,11 +29,13 @@ import LdapSyncManagement from './pages/LdapSyncManagement';
 import OrganizationManagement from './pages/OrganizationManagement';
 import { TeamStatusOverview } from './pages/TeamStatusOverview';
 import { FeedbackList } from './pages/FeedbackList';
+import Install from './pages/Install';
 import { MainLayout } from './components/MainLayout';
 import { useAuthStore } from './store/authStore';
 import { usePermissionStore } from './store/permissionStore';
-import { Result, Button } from 'antd';
+import { Result, Button, Spin } from 'antd';
 import { systemSettingsApi } from './api/system-settings';
+import { getInstallStatus } from './api/install';
 
 // Map routes to resource names for permission checking
 const ROUTE_RESOURCE_MAP: { [key: string]: string } = {
@@ -111,9 +113,19 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode; resource?: string }>
 
 function App() {
   const fetchUser = useAuthStore((state) => state.fetchUser);
+  const [installChecked, setInstallChecked] = useState(false);
+  const [needsInstall, setNeedsInstall] = useState(false);
 
   useEffect(() => {
-    fetchUser();
+    getInstallStatus().then(s => {
+      setNeedsInstall(!s.installed);
+      setInstallChecked(true);
+      if (s.installed) fetchUser();
+    }).catch(() => {
+      // API 오류 시 일반 앱으로 진행
+      setInstallChecked(true);
+      fetchUser();
+    });
   }, []);
 
   // 시스템 설정에서 사이트 제목 및 파비콘 불러오기
@@ -150,6 +162,28 @@ function App() {
     };
     loadSiteSettings();
   }, []);
+
+  if (!installChecked) {
+    return (
+      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <Spin size="large" />
+      </div>
+    );
+  }
+
+  if (needsInstall) {
+    return (
+      <ConfigProvider locale={koKR}>
+        <AntdApp>
+          <BrowserRouter>
+            <Routes>
+              <Route path="*" element={<Install />} />
+            </Routes>
+          </BrowserRouter>
+        </AntdApp>
+      </ConfigProvider>
+    );
+  }
 
   return (
     <ConfigProvider

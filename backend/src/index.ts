@@ -3,6 +3,8 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import path from 'path';
 import appLogger, { logHttpRequest, errorLogger } from './config/logger';
+import { isInstalled } from './config/install';
+import installRoutes from './routes/install.routes';
 import authRoutes from './routes/auth.routes';
 import itemRoutes from './routes/item.routes';
 import clientRoutes from './routes/client.routes';
@@ -38,8 +40,20 @@ app.use((req, res, next) => {
   next();
 });
 
-// Serve static files from /data/psta/uploads
-app.use('/uploads', express.static('/data/psta/uploads'));
+// Install 라우트 (항상 열려 있음)
+app.use('/api/install', installRoutes);
+
+// 미설치 상태이면 install 외 모든 API 차단
+app.use((req, res, next) => {
+  if (!isInstalled() && !req.path.startsWith('/api/install') && req.path !== '/health') {
+    return res.status(503).json({ error: 'not_installed', message: 'PSTA가 아직 설치되지 않았습니다. /install 페이지에서 설치를 완료해 주세요.' });
+  }
+  next();
+});
+
+// Serve static files from uploads
+const uploadsDir = process.env.INSTALL_DATA_DIR ? `${process.env.INSTALL_DATA_DIR}/uploads` : '/data/psta/uploads';
+app.use('/uploads', express.static(uploadsDir));
 
 app.use('/api/auth', authRoutes);
 app.use('/api/items', itemRoutes);
