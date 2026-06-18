@@ -42,7 +42,7 @@ JWT_SECRET="${JWT_SECRET:-}"
 FRONTEND_URL="${FRONTEND_URL:-}"
 
 NODE_VERSION="24"
-PG_VERSION="14"
+PG_VERSION="${PG_VERSION:-}"
 
 # ─── OS 확인 ──────────────────────────────────────────────────────────────────
 check_os() {
@@ -72,10 +72,16 @@ install_postgresql() {
     if systemctl is-active --quiet postgresql 2>/dev/null; then
         success "PostgreSQL 이미 실행 중"; return
     fi
-    info "PostgreSQL $PG_VERSION 설치 중..."
-    apt-get install -y postgresql-$PG_VERSION postgresql-client-$PG_VERSION
+    if [[ -n "$PG_VERSION" ]]; then
+        local pkg="postgresql-$PG_VERSION postgresql-client-$PG_VERSION"
+        info "PostgreSQL $PG_VERSION 설치 중..."
+    else
+        local pkg="postgresql postgresql-client"
+        info "PostgreSQL 최신 버전 설치 중..."
+    fi
+    apt-get install -y $pkg
     systemctl enable postgresql && systemctl start postgresql
-    success "PostgreSQL $PG_VERSION 설치 완료"
+    success "PostgreSQL 설치 완료 ($(psql --version | head -1))"
 }
 
 # ─── Docker 설치 ──────────────────────────────────────────────────────────────
