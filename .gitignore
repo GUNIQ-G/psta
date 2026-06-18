@@ -59,6 +59,15 @@ backend/src/scripts/
 # Site-specific migration guides (contain internal server/org info)
 docs/guides/migration/
 
+# Claude Code configuration (local only)
+CLAUDE.md
+
+# Internal planning/report documents
+DOCUMENT_MAP.md
+docs/reports/
+docs/guides/development/TEAM_ASSIGNMENT_PLAN.md
+docs/guides/development/WBS_REFACTORING_PLAN.md
+
 # PM2
 .pm2/
 

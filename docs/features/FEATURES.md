@@ -1,7 +1,7 @@
 # PSTA 기능 소개서
 
-**버전**: v1.1.29
-**작성일**: 2025-12-31
+**버전**: v1.1.32
+**최종 수정**: 2026-06-18
 **대상**: 관리자, 의사결정자, 신규 사용자
 
 ---
@@ -119,7 +119,33 @@ Project (프로젝트)
 
 ---
 
-### 4. LDAP 인증 및 조직 관리
+### 4. 인증 & 멤버 관리 ⭐ NEW (v1.1.32)
+
+**두 가지 인증 방식 지원**:
+
+| 방식 | 설명 |
+|------|------|
+| **로컬 인증** | admin이 계정 직접 생성·관리. bcrypt 해시 저장. LDAP 없는 환경에 적합 |
+| **LDAP 인증** | 사내 Active Directory / OpenLDAP 연동. 조직 구조 자동 동기화 |
+
+> LDAP 활성화 시 로컬 계정 생성 비활성화. 두 방식은 동시 사용 불가.
+
+**로컬 인증 기능**:
+- ✅ 설치 시 admin 비밀번호 직접 설정 (bcrypt 해시 저장)
+- ✅ 멤버 관리 탭에서 계정 생성·수정·비밀번호 초기화·활성화/비활성화
+- ✅ 프로필 페이지에서 본인 정보(이름·이메일·전화번호) 및 비밀번호 변경
+
+**메뉴 구조**: 시스템 설정 → 멤버 관리
+```
+멤버 관리
+├─ 멤버 조회 탭  ← 로컬 계정 CRUD (LDAP 비활성화 시만 활성화)
+├─ LDAP 인증 탭  ← LDAP 설정 + 동기화 관리 통합
+└─ 기타
+```
+
+---
+
+### 5. LDAP 조직 관리
 
 **기존 사내 계정 연동**:
 - ✅ LDAP 서버 통합
@@ -171,7 +197,7 @@ Project (프로젝트)
 
 ---
 
-### 5. 일정관리 및 WBS
+### 6. 일정관리 및 WBS
 
 **탭 통합 구조** ✅ (v1.1.13):
 - 📋 **프로젝트 트리 탭**
@@ -250,7 +276,7 @@ Project (프로젝트)
 
 ---
 
-### 6. Excel 연동
+### 7. Excel 연동
 
 **데이터 내보내기**:
 - ✅ 선택한 고객의 PSTA 데이터
@@ -270,7 +296,7 @@ Client | Level | Type | Name | Path | Status | Progress | Start Date | End Date 
 
 ---
 
-### 7. 파일 및 링크 관리
+### 8. 파일 및 링크 관리
 
 **파일 첨부**:
 - 📎 액션별 파일 첨부 (최대 20MB)
@@ -303,7 +329,7 @@ Client | Level | Type | Name | Path | Status | Progress | Start Date | End Date 
 
 ---
 
-### 8. 권한 관리
+### 9. 권한 관리
 
 **4단계 역할**:
 1. **ADMIN** (최고 관리자): 모든 권한
@@ -330,7 +356,7 @@ Client | Level | Type | Name | Path | Status | Progress | Start Date | End Date 
 
 ---
 
-### 9. 보고서 생성
+### 10. 보고서 생성
 
 **날짜 범위별 통계**:
 - 📊 전체 업무 수
@@ -350,7 +376,7 @@ Client | Level | Type | Name | Path | Status | Progress | Start Date | End Date 
 
 ---
 
-### 10. 버그/건의 게시판 ⭐ NEW (v1.1.27)
+### 11. 버그/건의 게시판 ⭐ NEW (v1.1.27)
 
 **사용자 피드백 및 버그 신고 시스템**
 
@@ -466,4 +492,4 @@ Client | Level | Type | Name | Path | Status | Progress | Start Date | End Date 
 - **이슈 보고**: https://github.com/GUNIQ-G/psta/issues
 ---
 
-**PSTA v1.1.29 - 프로젝트 관리를 더 쉽게**
+**PSTA v1.1.32 - 프로젝트 관리를 더 쉽게**
