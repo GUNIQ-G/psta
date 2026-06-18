@@ -37,7 +37,7 @@ import { usePermissionStore } from './store/permissionStore';
 import { Result, Button, Spin } from 'antd';
 import { systemSettingsApi } from './api/system-settings';
 import { getInstallStatus } from './api/install';
-import { ROUTE_RESOURCE_MAP } from './constants/routeResourceMap';
+import { ROUTE_RESOURCE_MAP } from './constants/menuConfig';
 
 const ProtectedRoute: React.FC<{ children: React.ReactNode; resource?: string }> = ({
   children,

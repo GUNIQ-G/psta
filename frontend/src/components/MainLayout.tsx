@@ -32,7 +32,7 @@ import { ActionCreateDrawer } from './ActionCreateDrawer';
 import { TrashModal } from './TrashModal';
 import { systemSettingsApi } from '../api/system-settings';
 import type { MenuProps } from 'antd';
-import { ROUTE_RESOURCE_MAP } from '../constants/routeResourceMap';
+import { ROUTE_RESOURCE_MAP, SIDEBAR_GROUPS } from '../constants/menuConfig';
 
 const { Header, Sider, Content } = Layout;
 
@@ -194,160 +194,23 @@ export const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
       .filter(Boolean);
   };
 
-  const menuItems: MenuProps['items'] = [
-    {
-      type: 'group',
-      label: '개인 작업',
-      children: [
-        {
-          key: '/dashboard',
-          icon: <DashboardOutlined />,
-          label: '대시보드',
-          onClick: () => navigate('/dashboard'),
-        },
-        {
-          key: '/requests',
-          icon: <FormOutlined />,
-          label: '작업요청',
-          onClick: () => navigate('/requests'),
-        },
-      ],
-    },
-    {
-      type: 'group',
-      label: '프로젝트 일정',
-      children: [
-        {
-          key: '/psta',
-          icon: <CalendarOutlined />,
-          label: '일정관리',
-          onClick: () => navigate('/psta'),
-        },
-        {
-          key: '/report',
-          icon: <FileTextOutlined />,
-          label: '보고서 작성',
-          onClick: () => navigate('/report'),
-        },
-      ],
-    },
-    {
-      type: 'group',
-      label: '프로젝트 조직',
-      children: [
-        {
-          key: '/organization',
-          icon: <TeamOutlined />,
-          label: '조직도',
-          onClick: () => navigate('/organization'),
-        },
-      ],
-    },
-    {
-      type: 'group',
-      label: '데이터 관리',
-      children: [
-        {
-          key: '/clients',
-          icon: <ShopOutlined />,
-          label: '클라이언트 관리',
-          onClick: () => navigate('/clients'),
-        },
-        {
-          key: '/projects',
-          icon: <FolderOutlined />,
-          label: (
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
-              <span>프로젝트 관리</span>
-              <Tag color="#722ed1" style={{ marginLeft: 8, marginRight: 0, fontSize: 10 }}>P</Tag>
-            </div>
-          ),
-          onClick: () => navigate('/projects'),
-        },
-        {
-          key: '/services',
-          icon: <AppstoreOutlined />,
-          label: (
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
-              <span>서비스 관리</span>
-              <Tag color="#1890ff" style={{ marginLeft: 8, marginRight: 0, fontSize: 10 }}>S</Tag>
-            </div>
-          ),
-          onClick: () => navigate('/services'),
-        },
-        {
-          key: '/team-status',
-          icon: <TeamOutlined />,
-          label: (
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
-              <span>팀별 현황</span>
-              <Tag color="#52c41a" style={{ marginLeft: 8, marginRight: 0, fontSize: 10 }}>T</Tag>
-            </div>
-          ),
-          onClick: () => navigate('/team-status'),
-        },
-        {
-          key: '/actions',
-          icon: <CheckCircleOutlined />,
-          label: (
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
-              <span>액션 관리</span>
-              <Tag color="#fa8c16" style={{ marginLeft: 8, marginRight: 0, fontSize: 10 }}>A</Tag>
-            </div>
-          ),
-          onClick: () => navigate('/actions'),
-        },
-        {
-          key: '/integrated-files',
-          icon: <FileSearchOutlined />,
-          label: '통합 파일 관리',
-          onClick: () => navigate('/integrated-files'),
-        },
-      ],
-    },
-    {
-      type: 'group',
-      label: '시스템 지원',
-      children: [
-        {
-          key: '/feedback',
-          icon: <CommentOutlined />,
-          label: '버그/건의',
-          onClick: () => navigate('/feedback'),
-        },
-      ],
-    },
-    {
-      type: 'group',
-      label: '시스템 설정',
-      children: [
-        {
-          key: '/general-settings',
-          icon: <SettingOutlined />,
-          label: '일반',
-          onClick: () => navigate('/general-settings'),
-        },
-        {
-          key: '/members',
-          icon: <IdcardOutlined />,
-          label: '멤버 관리',
-          onClick: () => navigate('/members'),
-        },
-        {
-          key: '/notification-apps',
-          icon: <ApiOutlined />,
-          label: '알림앱 연동',
-          onClick: () => navigate('/notification-apps'),
-        },
-        {
-          key: '/permissions',
-          icon: <KeyOutlined />,
-          label: '권한 관리',
-          onClick: () => navigate('/permissions'),
-        },
-      ],
-    },
-  ];
+  const menuItems: MenuProps['items'] = SIDEBAR_GROUPS.map(({ title, items }) => ({
+    type: 'group' as const,
+    label: title,
+    children: items.map(entry => ({
+      key: entry.route,
+      icon: entry.icon,
+      label: entry.badge ? (
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
+          <span>{entry.label}</span>
+          <Tag color={entry.badge.color} style={{ marginLeft: 8, marginRight: 0, fontSize: 10 }}>
+            {entry.badge.text}
+          </Tag>
+        </div>
+      ) : entry.label,
+      onClick: () => navigate(entry.route),
+    })),
+  }));
 
   const profileMenuItems: MenuProps['items'] = [
     {

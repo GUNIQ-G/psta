@@ -12,6 +12,7 @@ import {
 import { SaveOutlined, ReloadOutlined } from '@ant-design/icons';
 import { Permission, UserRole } from '../types';
 import { permissionApi } from '../api/permissions';
+import { PERMISSION_GROUPS } from '../constants/menuConfig';
 
 const { Title, Text } = Typography;
 const { Option } = Select;
@@ -27,55 +28,7 @@ interface PermissionRow {
   canDelete: boolean;
 }
 
-const RESOURCE_GROUPS = [
-  {
-    title: '개인 작업',
-    resources: [
-      { key: 'dashboard', label: '대시보드' },
-      { key: 'requests', label: '작업요청' },
-    ],
-  },
-  {
-    title: '프로젝트 일정',
-    resources: [
-      { key: 'psta', label: '일정관리 (PSTA)' },
-      { key: 'wbs', label: 'WBS' },
-      { key: 'report', label: '보고서 작성' },
-      { key: 'integrated-files', label: '통합 파일 리스트' },
-    ],
-  },
-  {
-    title: '데이터 관리',
-    resources: [
-      { key: 'clients', label: '클라이언트 관리' },
-      { key: 'projects', label: '프로젝트 관리' },
-      { key: 'services', label: '서비스 관리' },
-      { key: 'actions', label: '액션 관리' },
-    ],
-  },
-  {
-    title: '조직 관리',
-    resources: [
-      { key: 'teams', label: '팀 관리' },
-      { key: 'users', label: '회원 관리 (LDAP)' },
-      { key: 'organization', label: '조직도' },
-      { key: 'team-status', label: '팀 현황' },
-      { key: 'user-approval', label: '사용자 승인' },
-      { key: 'feedback', label: '버그/건의 게시판' },
-    ],
-  },
-  {
-    title: '시스템 설정',
-    resources: [
-      { key: 'general-settings', label: '일반' },
-      { key: 'members', label: '멤버 관리' },
-      { key: 'ldap-auth', label: 'LDAP 인증' },
-      { key: 'ldap-sync', label: 'LDAP 동기화' },
-      { key: 'notification-apps', label: '알림앱 연동' },
-      { key: 'permissions', label: '권한 관리' },
-    ],
-  },
-];
+const RESOURCE_GROUPS = PERMISSION_GROUPS;
 
 const ROLE_LABELS: { [key in UserRole]: { label: string; color: string } } = {
   [UserRole.ADMIN]: { label: '최고 관리자', color: 'red' },
