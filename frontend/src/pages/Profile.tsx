@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Typography, Card, Descriptions, Avatar, Space, Form, Input, Button, message } from 'antd';
+import { Typography, Card, Descriptions, Avatar, Space, Form, Input, Button, App } from 'antd';
 import { UserOutlined, MailOutlined, PhoneOutlined, TeamOutlined, LockOutlined, EditOutlined } from '@ant-design/icons';
 import { useAuthStore } from '../store/authStore';
 import axiosInstance from '../api/axios';
@@ -7,6 +7,7 @@ import axiosInstance from '../api/axios';
 const { Title } = Typography;
 
 export const Profile: React.FC = () => {
+  const { message } = App.useApp();
   const user = useAuthStore((state) => state.user);
   const fetchUser = useAuthStore((state) => state.fetchUser);
 

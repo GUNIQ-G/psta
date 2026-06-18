@@ -175,7 +175,7 @@ export const me = async (req: AuthRequest, res: Response) => {
     }
 
     const row = await queryOne<any>(
-      `SELECT u."id", u."username", u."email", u."displayName", u."role", u."teamId",
+      `SELECT u."id", u."username", u."email", u."displayName", u."phoneNumber", u."role", u."teamId",
               u."authType", u."isVerified", u."isActive", u."approvalRequested",
               u."approvalRequestedAt", u."approvalMessage", u."createdAt",
               t."id" AS "team_id", t."name" AS "team_name", t."description" AS "team_description"
@@ -194,6 +194,7 @@ export const me = async (req: AuthRequest, res: Response) => {
       username: row.username,
       email: row.email,
       displayName: row.displayName,
+      phoneNumber: row.phoneNumber,
       role: row.role,
       teamId: row.teamId,
       authType: row.authType,
