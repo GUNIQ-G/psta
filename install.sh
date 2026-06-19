@@ -209,6 +209,7 @@ build() {
     sudo -u "$PSTA_USER" bash -c "cd $INSTALL_DIR/backend && NODE_ENV=development npm run build"
     info "프론트엔드 빌드 중..."
     sudo -u "$PSTA_USER" bash -c "cd $INSTALL_DIR/frontend && NODE_ENV=development npm run build"
+    mkdir -p "$INSTALL_DIR/nginx/dist"
     rm -rf "$INSTALL_DIR/nginx/dist/"*
     cp -r "$INSTALL_DIR/frontend/dist/." "$INSTALL_DIR/nginx/dist/"
     info "백엔드 devDependencies 정리 중..."
