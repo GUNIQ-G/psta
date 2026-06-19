@@ -1,6 +1,6 @@
 # PSTA 인프라 명세서
 
-**문서 버전**: v1.1.32
+**문서 버전**: v1.1.33
 **최종 수정**: 2026-06-18
 **대상**: 인프라 담당자, 시스템 관리자
 
@@ -86,17 +86,23 @@ Encoding: UTF-8
 Locale: en_US.UTF-8
 ```
 
-### 3.3 Prisma ORM
-- **버전**: ^5.7.1
-- **역할**: Database ORM 및 마이그레이션 도구
-- **CLI**: Prisma CLI 포함
+### 3.3 pg (node-postgres)
 
-**주요 명령어**:
+PSTA 백엔드는 ORM 없이 `pg` (node-postgres)를 직접 사용합니다.
+
+- **버전**: pg ^8.21.0
+- **연결**: Pool 방식 (max 20 연결)
+- **패턴**: `query()`, `queryOne()`, `transaction()` 헬퍼
+- **스키마**: `backend/prisma/schema.sql` (pg_dump --schema-only 결과물)
+
 ```bash
-npx prisma generate      # 클라이언트 생성
-npx prisma migrate dev   # 개발 마이그레이션
-npx prisma migrate deploy # 프로덕션 마이그레이션
-npx prisma studio        # DB GUI (5555 포트)
+# 스키마 적용 (설치 시 자동 실행됨)
+psql "${DATABASE_URL}" -f backend/prisma/schema.sql
+```
+
+Prisma Studio (포트 5555) 는 제거되었습니다. DB 관리는 직접 psql 또는 Docker exec 사용:
+```bash
+docker exec -it psta-postgres psql -U psta_user -d psta
 ```
 
 ---
@@ -290,7 +296,7 @@ sudo apt-get install -y \
 ### 6.1 운영 의존성 (dependencies)
 | 패키지 | 버전 | 용도 |
 |--------|------|------|
-| `@prisma/client` | ^5.7.1 | Prisma ORM 클라이언트 |
+| `pg` | ^8.21.0 | PostgreSQL 드라이버 |
 | `@slack/web-api` | ^7.0.2 | Slack API 클라이언트 |
 | `@types/multer` | ^2.0.0 | Multer 타입 정의 |
 | `cors` | ^2.8.5 | CORS 미들웨어 |
@@ -316,7 +322,6 @@ sudo apt-get install -y \
 | `@types/passport` | ^1.0.16 | Passport 타입 정의 |
 | `@types/passport-jwt` | ^4.0.0 | Passport-JWT 타입 정의 |
 | `nodemon` | ^3.0.2 | 개발 서버 핫 리로드 |
-| `prisma` | ^5.7.1 | Prisma CLI 도구 |
 | `ts-node` | ^10.9.2 | TypeScript 실행 도구 |
 | `typescript` | ^5.3.3 | TypeScript 컴파일러 |
 
@@ -411,7 +416,6 @@ npm install
 | **3000** | Frontend | HTTP | ✅ (0.0.0.0) | 사용자 UI |
 | **3001** | Backend | HTTP | ✅ (0.0.0.0) | REST API |
 | **5432** | PostgreSQL | PostgreSQL | ❌ (localhost) | 데이터베이스 |
-| **5555** | Prisma Studio | HTTP | ❌ (localhost) | DB 관리 GUI |
 
 ### 9.2 방화벽 설정
 ```bash
@@ -441,7 +445,7 @@ sudo firewall-cmd --reload
 ├── backend/                     # 백엔드 코드
 │   ├── src/                     # TypeScript 소스
 │   ├── dist/                    # 컴파일된 JavaScript
-│   ├── prisma/                  # 데이터베이스 스키마
+│   ├── prisma/                  # schema.sql (설치용 스키마 덤프)
 │   └── node_modules/            # 백엔드 의존성
 │
 ├── frontend/                    # 프론트엔드 코드
@@ -533,16 +537,7 @@ sudo chmod -R 755 /log/psta
 - **버전**: v3.0.2
 - **용도**: 개발 서버 핫 리로드
 
-### 11.4 Prisma CLI
-- **버전**: ^5.7.1
-- **명령어**:
-  ```bash
-  npx prisma generate       # 클라이언트 생성
-  npx prisma migrate dev    # 마이그레이션
-  npx prisma studio         # DB GUI
-  ```
-
-### 11.5 Git
+### 11.4 Git
 - **버전**: v2.34.1
 - **저장소**: https://github.com/GUNIQ-G/psta.git
 
@@ -598,7 +593,6 @@ FRONTEND_URL="https://psta.your-company.com"
 
 차단:
 - 5432/tcp (PostgreSQL, 로컬만 허용)
-- 5555/tcp (Prisma Studio, 로컬만 허용)
 ```
 
 ---

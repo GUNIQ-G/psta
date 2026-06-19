@@ -42,7 +42,7 @@ curl -fsSL https://raw.githubusercontent.com/GUNIQ-G/psta/main/install.sh | sudo
 | 5 | `.env` 파일 자동 생성 (JWT_SECRET, ENCRYPTION_KEY 랜덤 생성) |
 | 6 | `npm ci` 의존성 설치 |
 | 7 | 백엔드/프론트엔드 빌드 |
-| 8 | Prisma DB 마이그레이션 |
+| 8 | DB 스키마 적용 (psql로 schema.sql 실행) |
 | 9 | systemd 서비스 등록 (`psta-backend`) |
 | 10 | nginx Docker 컨테이너 시작 (`psta-frontend`) |
 
@@ -244,11 +244,11 @@ mkdir -p /app/psta/nginx/dist
 cp -r /app/psta/frontend/dist/. /app/psta/nginx/dist/
 ```
 
-### 4.7 DB 마이그레이션
+### 4.7 DB 스키마 적용
 
 ```bash
 cd /app/psta/backend
-npx prisma migrate deploy
+psql "${DATABASE_URL}" -f prisma/schema.sql
 ```
 
 ### 4.8 systemd 서비스 등록
@@ -304,11 +304,16 @@ git pull
 
 백엔드 재시작 스크립트가 빌드와 DB 마이그레이션을 자동으로 처리합니다.
 
-### DB 마이그레이션 수동 실행
+### DB 스키마 수동 적용
+
+스키마 변경이 있는 경우 직접 SQL을 실행합니다:
 
 ```bash
-cd /app/psta/backend
-npx prisma migrate deploy
+# 전체 스키마 재적용 (신규 설치 시)
+psql "${DATABASE_URL}" -f /app/psta/backend/prisma/schema.sql
+
+# 특정 컬럼/테이블 변경 (업그레이드 시)
+psql "${DATABASE_URL}" -c "ALTER TABLE ..."
 ```
 
 ---

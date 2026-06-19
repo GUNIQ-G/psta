@@ -1,6 +1,6 @@
 # PSTA 개발 가이드
 
-**문서 버전**: v1.1.32
+**문서 버전**: v1.1.33
 **최종 수정**: 2026-06-18
 **대상**: 백엔드/프론트엔드 개발자
 
@@ -34,8 +34,7 @@
 │   │   ├── routes/         # 라우트 정의
 │   │   └── index.ts        # 진입점
 │   ├── prisma/
-│   │   ├── schema.prisma   # 데이터베이스 스키마
-│   │   └── migrations/     # 마이그레이션 히스토리
+│   │   └── schema.sql      # DB 스키마 (설치 시 psql로 적용)
 │   ├── scripts/            # 유틸리티 스크립트
 │   ├── dist/               # 컴파일된 JavaScript
 │   └── node_modules/
@@ -62,7 +61,7 @@
 ```
 backend/src/
 ├── config/                 # 설정 모듈
-│   ├── database.ts         # Prisma 클라이언트
+│   ├── database.ts         # pg Pool 기반 query/queryOne/transaction 헬퍼
 │   ├── ldap.ts             # LDAP 서비스
 │   ├── multer.ts           # 파일 업로드 설정
 │   └── slack.ts            # Slack 클라이언트
@@ -171,8 +170,8 @@ cd backend
 cp .env.example .env
 # .env 파일 편집 (DATABASE_URL, JWT_SECRET 등)
 npm install
-npx prisma generate
-npx prisma migrate dev
+# DB 스키마 적용 (DATABASE_URL이 .env에 설정된 후)
+psql "${DATABASE_URL}" -f prisma/schema.sql
 
 # 프론트엔드 설정
 cd ../frontend
@@ -205,7 +204,6 @@ cd /app/psta/frontend && npm run dev # 터미널 2 (개발 모드)
 ### 2.4 개발 서버 포트
 - Backend: http://localhost:3001
 - Frontend: http://localhost:3000 (nginx Docker 컨테이너)
-- Prisma Studio: http://localhost:5555 (수동 시작)
 
 ### 2.5 server.sh 스크립트 사용법
 
@@ -285,11 +283,11 @@ npx ts-node src/scripts/<script-name>.ts
 `backend/src/controllers/example.controller.ts`:
 ```typescript
 import { Request, Response } from 'express';
-import prisma from '../config/database';
+import { query, queryOne } from '../config/database';
 
 export const getExamples = async (req: Request, res: Response) => {
   try {
-    const examples = await prisma.example.findMany();
+    const examples = await query<Example>('SELECT * FROM "Example" ORDER BY "createdAt" DESC');
     res.json(examples);
   } catch (error) {
     res.status(500).json({ error: 'Failed to fetch examples' });
@@ -299,9 +297,10 @@ export const getExamples = async (req: Request, res: Response) => {
 export const createExample = async (req: Request, res: Response) => {
   try {
     const { name, description } = req.body;
-    const example = await prisma.example.create({
-      data: { name, description },
-    });
+    const example = await queryOne<Example>(
+      'INSERT INTO "Example" (name, description) VALUES ($1, $2) RETURNING *',
+      [name, description]
+    );
     res.status(201).json(example);
   } catch (error) {
     res.status(500).json({ error: 'Failed to create example' });
@@ -332,35 +331,49 @@ import exampleRoutes from './routes/example.routes';
 app.use('/api/examples', exampleRoutes);
 ```
 
-### 3.2 Prisma 스키마 변경
+### 3.2 DB 쿼리 패턴 (pg 드라이버)
 
-#### Step 1: Schema 수정
-`backend/prisma/schema.prisma`:
-```prisma
-model Example {
-  id          String   @id @default(uuid())
-  name        String
-  description String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-}
+PSTA 백엔드는 Prisma ORM 없이  (node-postgres)를 직접 사용합니다.
+
+**헬퍼 함수** ():
+
+```typescript
+import { query, queryOne, transaction } from '../config/database';
+
+// 여러 행 조회
+const items = await query<Item>('SELECT * FROM "Item" WHERE "isDeleted" = false');
+
+// 단일 행 조회 (없으면 null)
+const item = await queryOne<Item>('SELECT * FROM "Item" WHERE id = $1', [id]);
+
+// 트랜잭션
+const result = await transaction(async (client) => {
+  await client.query('UPDATE "Item" SET name = $1 WHERE id = $2', [name, id]);
+  return client.query('SELECT * FROM "Item" WHERE id = $1', [id]);
+});
 ```
 
-#### Step 2: 마이그레이션 생성
-```bash
-cd /app/psta/backend
-npx prisma migrate dev --name add_example_model
-```
+**주의사항**:
+- PostgreSQL camelCase 컬럼은 반드시 큰따옴표: , 
+- 파라미터는 ,  ... 순서 (SQL injection 방지)
+- Enum 값은 에서 import
 
-#### Step 3: 클라이언트 재생성
-```bash
-npx prisma generate
-```
+**스키마 변경 시**:
+1.  직접 수정 (DDL ALTER TABLE 등)
+2. 운영 DB에 수동 적용: , 또는 psql로 파일 실행
+3. 백엔드 재시작: [0;34m===================================================[0m
+[0;34m          Restarting PSTA Components[0m
+[0;34m===================================================[0m
 
-#### Step 4: 백엔드 재시작
-```bash
-/app/psta/bin/server.sh restart backend
-```
+[1;33mStopping Backend...[0m
+[0;36mStopping backend via systemd...[0m
+[0;32m✓ Backend stopped (systemd)[0m
+[1;33mStarting Backend...[0m
+[0;36mBuilding backend...[0m
+[0;32m✓ Build complete[0m
+[0;36mStarting backend via systemd...[0m
+Waiting for backend to start.
+[0;32m✓ Backend started successfully (systemd)[0m
 
 ### 3.3 비즈니스 로직 분리
 
@@ -368,7 +381,7 @@ npx prisma generate
 
 `backend/src/services/example.service.ts`:
 ```typescript
-import prisma from '../config/database';
+import { queryOne } from '../config/database';
 
 export class ExampleService {
   static async processExample(data: any) {
@@ -376,9 +389,10 @@ export class ExampleService {
     const processed = await this.someComplexOperation(data);
 
     // 데이터베이스 저장
-    return await prisma.example.create({
-      data: processed,
-    });
+    return await queryOne(
+      'INSERT INTO "Example" (name, description) VALUES ($1, $2) RETURNING *',
+      [processed.name, processed.description]
+    );
   }
 
   private static async someComplexOperation(data: any) {
@@ -577,44 +591,30 @@ Project (PROJECT)
           └─ Action (ACTION)
 ```
 
-**Item 모델**:
-```prisma
-model Item {
-  id          String      @id @default(uuid())
-  type        ItemType
-  name        String
-  status      ItemStatus  @default(NOT_STARTED)
-  progress    Float       @default(0)
-  startDate   DateTime?
-  endDate     DateTime?
-  description String?
-  timeSpent   Int?        // 분 단위
-  isOnHold    Boolean     @default(false)
+**Item 테이블 주요 컬럼** ():
+```sql
+CREATE TABLE "Item" (
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  type          "ItemType" NOT NULL,      -- PROJECT | SERVICE | TEAM | ACTION
+  name          TEXT NOT NULL,
+  status        "ItemStatus" DEFAULT 'NOT_STARTED',
+  progress      FLOAT DEFAULT 0,
+  "startDate"   TIMESTAMPTZ,
+  "endDate"     TIMESTAMPTZ,
+  description   TEXT,
+  "timeSpent"   INT,                      -- 분 단위
+  "isOnHold"    BOOLEAN DEFAULT false,
+  "parentId"    UUID REFERENCES "Item"(id),
+  "clientId"    UUID,
+  "assigneeId"  UUID,
+  "createdById" UUID NOT NULL
+);
+```
 
-  // 계층 관계
-  parentId    String?
-  parent      Item?       @relation("ItemHierarchy", fields: [parentId], references: [id])
-  children    Item[]      @relation("ItemHierarchy")
-
-  // 외래 키
-  clientId    String?
-  assigneeId  String?
-  createdById String
-}
-
-enum ItemType {
-  PROJECT
-  SERVICE
-  TEAM
-  ACTION
-}
-
-enum ItemStatus {
-  NOT_STARTED
-  IN_PROGRESS
-  COMPLETED
-  ON_HOLD
-}
+**Enum 타입** ():
+```typescript
+export type ItemType = 'PROJECT' | 'SERVICE' | 'TEAM' | 'ACTION';
+export type ItemStatus = 'NOT_STARTED' | 'IN_PROGRESS' | 'COMPLETED' | 'ON_HOLD';
 ```
 
 ### 5.2 상태/진행률 자동 산정
@@ -708,16 +708,18 @@ export const someController = async (req: AuthRequest, res: Response) => {
 export const getItems = async (req: Request, res: Response) => {
   const page = Number(req.query.page) || 1;
   const limit = Number(req.query.limit) || 10;
-  const skip = (page - 1) * limit;
+  const offset = (page - 1) * limit;
 
-  const [items, total] = await Promise.all([
-    prisma.item.findMany({
-      skip,
-      take: limit,
-      orderBy: { createdAt: 'desc' },
-    }),
-    prisma.item.count(),
+  const [items, countResult] = await Promise.all([
+    query<Item>(
+      'SELECT * FROM "Item" ORDER BY "createdAt" DESC LIMIT $1 OFFSET $2',
+      [limit, offset]
+    ),
+    queryOne<{ count: string }>(
+      'SELECT COUNT(*) as count FROM "Item"'
+    ),
   ]);
+  const total = Number(countResult?.count ?? 0);
 
   res.json({
     data: items,
@@ -803,7 +805,7 @@ if (!canUserEdit(req.user, item)) {
 async syncFromLdap(dryRun: boolean = false) {
   // DB 쓰기 작업을 조건부로 실행
   if (!dryRun) {
-    await prisma.team.create({ data });
+    await queryOne('INSERT INTO "Team" (id, name) VALUES ($1, $2) RETURNING *', [id, name]);
   }
   // 결과는 항상 반환 (미리보기용)
   return { teamsCreated: count, ... };
@@ -983,12 +985,6 @@ console.log('Debug:', variable);
 debugger;  // Chrome DevTools 연결 시 중단점
 ```
 
-**Prisma 쿼리 로그**:
-`.env`에 추가:
-```env
-DEBUG="prisma:query"
-```
-
 ### 11.2 프론트엔드 디버깅
 
 **React Developer Tools**:
@@ -1011,7 +1007,6 @@ console.table(data);  // 배열 데이터 시각화
 |------|------|------|
 | "Cannot find module" | 패키지 미설치 | `npm install` |
 | "Port already in use" | 포트 충돌 | `lsof -i :3001` → 프로세스 종료 |
-| "Prisma Client not found" | 클라이언트 미생성 | `npx prisma generate` |
 | "CORS error" | CORS 설정 오류 | `backend/src/index.ts` 확인 |
 | "401 Unauthorized" | 토큰 만료/없음 | 재로그인 |
 

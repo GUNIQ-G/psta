@@ -4,6 +4,30 @@
 
 ---
 
+## v1.1.33 (2026-06-18)
+
+### 🏗️ 아키텍처 개선
+- ✅ Prisma ORM 완전 제거 → pg (node-postgres) + raw SQL 전환
+  - `database.ts`: query/queryOne/transaction 헬퍼 패턴
+  - `types/enums.ts`: Prisma enum 대체 파일 신규
+  - `env.ts`: dotenv 로드 순서 보장 (import hoisting 문제 해결)
+- ✅ DB 설치 방식: prisma migrate → schema.sql + psql 방식으로 변경
+- ✅ 메뉴/권한 시스템 단일 파일(`menuConfig.tsx`)로 통합
+  - 사이드바, 라우트 보호, 권한관리 UI 모두 MENU_ENTRIES에서 자동 파생
+
+### 🔒 보안/권한
+- ✅ /members 페이지 ADMIN 전용 제한 (adminOnly 미들웨어 + ROUTE_RESOURCE_MAP)
+- ✅ ROUTE_RESOURCE_MAP 이중 정의 버그 수정 (App.tsx vs MainLayout.tsx 불일치)
+
+### 🐛 버그 수정
+- ✅ /auth/me 응답에 phoneNumber 필드 누락 수정
+- ✅ work requests SQL: json_build_object()에 FILTER 사용 불가 → CASE WHEN으로 수정
+- ✅ profile 이메일 unique constraint 위반 시 500 → 409 + 친화적 메시지
+- ✅ antd message 정적 API → App.useApp() hook으로 교체 (context 경고 제거)
+- ✅ 새 서버 install.sh: Ubuntu 24.04 호환 (PG_VERSION=16, npm ci 순서 등)
+
+---
+
 ## v1.1.32 (2026-06-18)
 
 ### 🔐 로컬 인증 & 멤버 관리
