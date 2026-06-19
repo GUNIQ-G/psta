@@ -1,6 +1,7 @@
 # PSTA 보안 가이드
 
-**최종 업데이트**: 2025-10-28
+**최종 업데이트**: 2026-06-19
+**문서 버전**: v1.1.32
 
 이 문서는 PSTA 프로젝트의 보안 모범 사례와 민감 정보 관리 방법을 설명합니다.
 
@@ -175,6 +176,30 @@ chmod 600 /app/psta/backend/.env
 # 소유자 확인
 ls -la /app/psta/backend/.env
 ```
+
+---
+
+## 로컬 인증 및 멤버 관리 보안 (v1.1.32)
+
+### 로컬 계정 비밀번호 정책
+
+v1.1.32에서 로컬 계정(authType=LOCAL)이 도입되었습니다.
+
+- **비밀번호 해싱**: bcryptjs 사용 (평문 저장 금지)
+- **최소 길이**: 6자 이상 (설치 마법사 기준)
+- **관리자 초기화**: ADMIN은 `/api/admin/members/:id/reset-password`로 LOCAL 계정 비밀번호 초기화 가능 (LDAP 계정 불가)
+
+### 이중 인증 보안 고려사항
+
+LOCAL 우선 → LDAP fallback 인증 흐름에서:
+
+- LOCAL 계정이 존재하면 LDAP는 시도하지 않습니다.
+- LDAP가 활성화된 상태에서 `admin` 계정은 LOCAL 계정이므로 LDAP 서버 장애와 무관하게 항상 로그인 가능합니다.
+- LDAP 활성화 상태에서 관리자가 새 로컬 계정을 추가하려면 `/members` 페이지에서 명시적으로 생성해야 합니다 (LDAP 활성 시 UI 경고 Alert 표시).
+
+### 계정 비활성화 즉시 차단
+
+`authMiddleware`가 JWT 검증 후 DB에서 `User.isActive`를 재조회합니다. 토큰이 유효해도 비활성화된 계정은 즉시 401 반환됩니다. 퇴직자 계정은 `/members`에서 비활성화하면 해당 세션의 다음 API 요청부터 즉시 차단됩니다.
 
 ---
 
@@ -478,11 +503,11 @@ echo "✓ Pre-commit hook installed successfully"
 
 보안 취약점을 발견한 경우:
 - **GitHub Security Advisory**: https://github.com/GUNIQ-G/psta/security/advisories
-- **이메일**: security@your-domain.com (설정 필요)
+- **이메일**: gunique.co.kr@gmail.com
 
 **절대로 공개 Issue에 보안 취약점을 게시하지 마세요!**
 
 ---
 
-**최종 업데이트**: 2025-10-28
-**버전**: v1.1.2
+**최종 업데이트**: 2026-06-19
+**버전**: v1.1.32

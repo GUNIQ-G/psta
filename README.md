@@ -110,26 +110,14 @@ curl -fsSL https://raw.githubusercontent.com/GUNIQ-G/psta/main/install.sh | sudo
 
 ```
 psta/
-├── backend/              # Express + TypeScript API 서버
-│   ├── src/
-│   │   ├── controllers/  # 라우트 핸들러
-│   │   ├── services/     # 비즈니스 로직
-│   │   ├── middleware/   # 인증, 권한 미들웨어
-│   │   ├── config/       # DB, Logger, LDAP 설정
-│   │   └── routes/       # 라우트 정의
-│   └── prisma/           # 스키마 & 마이그레이션
-├── frontend/             # React 18 + Vite SPA
-│   └── src/
-│       ├── pages/        # 페이지 컴포넌트
-│       ├── components/   # 공통 컴포넌트
-│       ├── api/          # Axios API 클라이언트
-│       └── store/        # Zustand 상태 관리
-├── nginx/                # nginx Docker (프론트엔드 서빙)
-├── bin/                  # 서버 관리 스크립트
-├── install.sh            # Ubuntu 자동 설치 스크립트
-├── docs/                 # 상세 문서
-└── LICENSE
+├── backend/    # Express + TypeScript API 서버
+├── frontend/   # React 18 + Vite SPA
+├── nginx/      # nginx Docker (프론트엔드 서빙)
+├── bin/        # 서버 관리 스크립트
+└── docs/       # 상세 문서
 ```
+
+자세한 구조: [개발 가이드 §1](docs/guides/development/DEVELOPMENT_GUIDE.md)
 
 ---
 
@@ -149,19 +137,7 @@ psta/
 
 ## ⚡ 서버 관리
 
-```bash
-# 상태 확인
-./bin/server.sh status
-
-# 전체 시작 / 중지 / 재시작
-./bin/server.sh start | stop | restart
-
-# 백엔드만 재시작 (코드 수정 후)
-./bin/server.sh restart backend
-
-# 프론트엔드만 재시작
-./bin/server.sh restart frontend
-```
+`./bin/server.sh --help` 또는 [서버 관리 가이드](docs/guides/installation/INSTALLATION_GUIDE.md#6-서버-관리) 참조
 
 ---
 

@@ -4,7 +4,7 @@
 
 ---
 
-## v1.1.33 (2026-06-18)
+## v1.1.33 (2026-06-19)
 
 ### 🏗️ 아키텍처 개선
 - ✅ Prisma ORM 완전 제거 → pg (node-postgres) + raw SQL 전환
@@ -18,13 +18,25 @@
 ### 🔒 보안/권한
 - ✅ /members 페이지 ADMIN 전용 제한 (adminOnly 미들웨어 + ROUTE_RESOURCE_MAP)
 - ✅ ROUTE_RESOURCE_MAP 이중 정의 버그 수정 (App.tsx vs MainLayout.tsx 불일치)
+- ✅ 공개 오픈소스 전환: 내부 회사 정보 및 하드코딩 값 전체 제거
+- ✅ LICENSE 추가 (공개 레포 전 보안 강화)
+- ✅ 공개 오픈소스용 문서 전면 개선
 
 ### 🐛 버그 수정
 - ✅ /auth/me 응답에 phoneNumber 필드 누락 수정
 - ✅ work requests SQL: json_build_object()에 FILTER 사용 불가 → CASE WHEN으로 수정
 - ✅ profile 이메일 unique constraint 위반 시 500 → 409 + 친화적 메시지
 - ✅ antd message 정적 API → App.useApp() hook으로 교체 (context 경고 제거)
-- ✅ 새 서버 install.sh: Ubuntu 24.04 호환 (PG_VERSION=16, npm ci 순서 등)
+- ✅ dotenv 로드 순서 수정: ENCRYPTION_KEY 환경변수 누락 방지 (import hoisting 문제)
+- ✅ Comment 테이블 생성 마이그레이션 누락 추가
+
+### 🔧 설치 스크립트 개선
+- ✅ install.sh 재설치 시 로컬 변경사항 초기화 방식 개선 (git stash + pull 방식)
+- ✅ 재설치 시 origin/main 기준 강제 리셋으로 git 충돌 방지
+- ✅ PostgreSQL 기본 버전 16으로 상향 (Ubuntu 24.04 호환)
+- ✅ package-lock.json 커밋 포함으로 npm ci 재현성 보장
+- ✅ 백엔드 빌드 시 tsc not found 오류 수정
+- ✅ 빌드 시 NODE_ENV=development 명시
 
 ---
 
@@ -1212,4 +1224,4 @@
 
 ---
 
-**최종 업데이트**: 2025-12-08
+**최종 업데이트**: 2026-06-19

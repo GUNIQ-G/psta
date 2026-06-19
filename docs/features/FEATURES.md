@@ -1,7 +1,7 @@
 # PSTA 기능 소개서
 
 **버전**: v1.1.32
-**최종 수정**: 2026-06-18
+**최종 수정**: 2026-06-19
 **대상**: 관리자, 의사결정자, 신규 사용자
 
 ---
@@ -29,6 +29,12 @@ Project (프로젝트)
 
 **특징**:
 - ✅ Notion 스타일 트리 뷰
+- ✅ **미정(Unassigned) 가상 컨테이너**
+  - 하드코딩 UUID (`UNASSIGNED_PROJECT_ID` / `UNASSIGNED_SERVICE_ID`)로 미배정 항목 집합 관리
+  - 미정 프로젝트 숨기기 필터 지원
+  - 통합 미정 서비스는 클라이언트 사이드에서 가상 행(`isUnified=true`) 생성
+- ✅ **계층 레벨별 토글 버튼 (P/S/T/A)**
+  - 글로벌 제어 (전체 열기/닫기) 및 행 단위 개별 제어
 - ✅ 상태/진행률 자동 산정
   - SERVICE/PROJECT는 하위 항목 기반으로 자동 계산
   - ACTION만 수동 입력
@@ -44,11 +50,14 @@ Project (프로젝트)
   - 액션/서비스를 다른 부모로 이동
   - 계층 구조 검증 (ACTION→SERVICE, SERVICE→PROJECT)
   - 이동 후 진행률 자동 재계산
+  - **빠른선택/검색 탭** 전환 지원
+  - **최근 이동 이력** localStorage 저장
+  - **내 팀만 보기** 필터
 - ✅ **휴지통 기능 (Soft Delete)** ⭐ 대폭 개선 (v1.1.10)
   - 삭제된 항목 논리적 보존 및 복원 가능
   - 재귀적 soft delete (하위 항목 포함)
   - **권한별 조회**: 관리자는 전체, 일반 사용자는 본인 관련 항목만
-  - **역할별 복원/삭제 권한**: ADMIN/PO/PM/MEMBER 차등 적용
+  - **역할별 복원/삭제 권한**: ADMIN 전체, PO는 PROJECT, PM은 SERVICE/TEAM, MEMBER는 본인 생성 ACTION만 가능
   - **통계 대시보드**: 전체/7일 이내/5일 이내 삭제 항목
   - **필터 및 검색**: PSTA 타입별 + 항목명 검색
   - **일괄 작업**: 다중 선택 후 일괄 복원/삭제
@@ -76,14 +85,39 @@ Project (프로젝트)
 
 1. 팀원이 작업 요청 생성
 2. 팀장이 승인/거부/협의
-3. 승인 시 → 액션으로 자동 변환
+3. 승인 시 → 액션으로 자동 변환 (계층 구조 검증 후)
 4. 양방향 링크로 추적 가능
+
+**상태 전이 (15개 전환 엔드포인트)**:
+```
+PENDING
+  ├─ 승인 → ACTION 자동 생성 → PSTA 편집으로 이동
+  ├─ 반려 → REJECTED
+  ├─ 협의 → IN_DISCUSSION
+  ├─ 취소 → CANCELLED
+  └─ 전달 → (담당자 재위임, 개인간 forward)
+
+IN_DISCUSSION
+  ├─ 재요청 → PENDING
+  ├─ 승인취소 → PENDING
+  └─ 취소 → CANCELLED
+
+APPROVED
+  └─ 승인취소 → PENDING
+```
+
+**계층 검증 및 HierarchyRequestModal**:
+- ACTION 생성 시 SERVICE/TEAM 미완성이면 HierarchyRequestModal 표시
+- **기존 항목 선택** 또는 **생성 요청** 중 선택하는 다단계 흐름
+- validateActionCreation API 호출 후 분기 처리
 
 **특징**:
 - ✅ 우선순위 설정 (낮음/보통/높음/긴급)
 - ✅ 마감일 설정
 - ✅ 요청 회수 기능
 - ✅ 작업 요청 ↔ 액션 연결
+- ✅ **전달(forward)**: 개인간 담당자 재위임
+- ✅ **URL 딥링크**: ?workRequestId= 파라미터로 특정 요청 자동 오픈
 - ✅ **관리자 전용 모니터링** ⭐ NEW
   - "모든 요청" 탭으로 시스템 전체 요청 조회
   - 문제 요청 강제 삭제 가능
@@ -95,12 +129,12 @@ Project (프로젝트)
 
 ### 3. 스마트 알림
 
-**멀티 플랫폼 지원**:
-- 📱 Slack
+**멀티 플랫폼 외부 알림**:
+- 📱 Slack (전용 설정 관리: /api/slack-configs 레거시 엔드포인트)
 - 📱 Telegram
 - 📱 Discord
-- 📱 LINE (준비 중)
-- 📱 KakaoTalk (준비 중)
+- 📱 LINE ✅ (설정 및 테스트 DM 구현 완료)
+- 📱 KakaoTalk ✅ (설정 및 테스트 DM 구현 완료)
 
 **자동 알림** (DM 발송):
 - 💬 댓글 멘션 시 → 해당 사용자에게 DM
@@ -112,10 +146,22 @@ Project (프로젝트)
 - 🔄 작업 요청 협의 시 → 관련자에게 DM
 
 **커스터마이징**:
-- ✅ 플랫폼별 설정
+- ✅ 플랫폼별 설정 (JSON 템플릿 제공)
 - ✅ 이메일 기반 사용자 조회
 - ✅ DM 자동 전송
 - ✅ Block Kit 메시지 포맷
+- ✅ 언마스크 토큰으로 테스트 DM 발송
+
+**인앱 알림 (notificationStore)**:
+- ✅ 30초 폴링으로 미읽음 카운트 실시간 갱신
+- ✅ 알림 타입별 해당 페이지로 이동
+- ✅ 전체 읽음 처리
+
+**내부 메시지 (messageStore)**:
+- ✅ 30초 폴링 (startPolling/stopPolling)
+- ✅ 받은함/보낸함 탭 구조
+- ✅ unreadCount 배지 표시
+- ✅ **커스텀 메시지 파서**: `[ITEM_INFO]...[/ITEM_INFO]` 파이프 구분 태그와 `[LINK]` 태그를 React 컴포넌트로 렌더링
 
 ---
 
@@ -147,6 +193,29 @@ Project (프로젝트)
 
 ### 5. LDAP 조직 관리
 
+**다중 서버 설정**:
+- ✅ OpenLDAP / Active Directory 프리셋 템플릿
+- ✅ DN 형식 검증기
+- ✅ 응답 시간 측정
+- ✅ 연결 상태 컬러 카드 (green=성공/red=실패)
+- ✅ 접이식 고급 섹션 (검색 필터/속성 매핑)
+
+**LDAP 계층형 미리보기**:
+- ✅ 체크 가능한 Ant Design Tree
+- ✅ 가상 스크롤 (대규모 조직 지원)
+- ✅ useMemo 기반 검색
+- ✅ 선택적 적용 (전체 OR 선택 항목만)
+
+**LDAP 동기화**:
+- ✅ **드라이런(Dry-run) 모드**: 실제 변경 없이 변경 결과 미리보기
+- ✅ 상세 변경 결과 표시 (ldapGroups/ldapUsers/pstaTeams/활성·비활성 사용자)
+- ✅ 마지막 동기화 상대 시간 표시 (dayjs.fromNow)
+- ✅ **수동 동기화만 지원** (자동 동기화 제거 - v1.1.24)
+
+**LDAP 서버 직접 접근 관리** (LDAPAdmin):
+- ✅ 사용자/그룹/조직 3탭 구조
+- ✅ 그룹 멤버 DN 선택 관리
+
 **기존 사내 계정 연동**:
 - ✅ LDAP 서버 통합
 - ✅ 비밀번호 AES-256-CBC 암호화
@@ -159,10 +228,11 @@ Project (프로젝트)
 3. 로그인 시마다 팀 정보 업데이트
 
 **사용자 승인 절차**:
-1. 신규 사용자 첫 로그인
-2. 자동으로 승인 요청 페이지
+1. 신규 사용자 회원가입 또는 첫 로그인
+2. 승인 요청 메시지 입력 후 전송 → 관리자에게 알림
 3. 관리자가 승인/거부
-4. 승인 후 → 시스템 접근 가능
+4. 승인 후 → `fetchUser()` 폴링으로 완료 감지 → 자동 진입
+5. 거부 시 → 재요청 가능
 
 **직책 기반 역할 자동 매핑** ⭐ NEW (v1.1.20):
 - ✅ **LDAP 직책 → 시스템 역할 자동 매핑**
@@ -208,10 +278,15 @@ Project (프로젝트)
 - 📅 **WBS 타임라인 탭** ✅
   - 노션 스타일 타임라인 뷰
   - 리사이즈 가능한 계층 트리 (200-800px)
-  - ViewMode 지원: 주/2주/월/분기/년/5년
+  - **ViewMode 6종**: 주(week)/2주(biweek)/월(month)/분기(quarter)/년(year)/5년(fiveyear)
   - 정밀한 날짜 위치 계산 (셀 내 오프셋)
   - 타임라인 바: 항목명, 담당자, 상태, 진행률, 기간
+  - 리사이즈 핸들로 바 기간 직접 조정
   - 호버 효과: 계층 구조 ↔ 타임라인 연동
+- 📅 **카드뷰 타임라인 (TimelineCardView)**
+  - 인라인 Gantt 바
+  - 월단위 헤더
+  - 재귀 renderItem 구조
 - 🔄 **탭 간 필터 공유**
   - 고객/프로젝트/내 작업/미정/빈팀 필터 동기화
   - 일관된 UX 제공
@@ -228,8 +303,8 @@ Project (프로젝트)
 
 **상세보기 기능** (v1.1.3 신규):
 - ✅ **댓글 시스템**
-  - 사용자 멘션 (@username)
-  - 이모지 지원
+  - 사용자 멘션 (@username 자동완성)
+  - 이모지 리액션 5종 (카운트 및 반응자 툴팁)
   - 실시간 댓글 추가/삭제
 - ✅ **관련 문서**
   - 현재 항목 + 하위 항목 파일/링크 계층 표시
@@ -242,6 +317,11 @@ Project (프로젝트)
 - ✅ **작업 요청 연동**
   - ACTION 타입에 연결된 WorkRequest 표시
   - 클릭으로 작업 요청 페이지 이동
+
+**딥링크 (URL 파라미터)**:
+- ✅ `/psta?itemId=<id>&edit=true` → 특정 항목 자동 오픈 및 편집 모드 진입
+- ✅ `/requests?workRequestId=<id>` → 특정 작업 요청 자동 오픈
+- ✅ 오픈 후 URL에서 파라미터 자동 제거 (`setSearchParams({})`)
 
 **UI 최적화** (v1.1.3):
 - ✅ 페이지 제목/설명 제거로 공간 확보
@@ -327,39 +407,35 @@ Client | Level | Type | Name | Path | Status | Progress | Start Date | End Date 
 | 일반 웹페이지 | ✅ | title 태그에서 제목 추출 |
 | Nextcloud 내부 링크 (`/f/...`) | ⚠️ | JS 렌더링으로 수동 입력 필요 |
 
+**링크 제목 자동 조회 트리거**:
+- URL 입력 필드 onBlur 시 자동 조회 (links.ts fetchTitle)
+- 수동 조회 버튼도 제공
+
+**통합 파일/링크 목록 페이지** ⭐ NEW:
+- ✅ 파일과 URL 링크를 단일 테이블에서 통합 관리
+- ✅ PSTA 태그(P/S/T/A)로 계층 위치 표시
+- ✅ `getHierarchyNames()`로 부모 체인 이름 자동 생성
+- ✅ 일괄 다운로드(파일) / 새 탭 열기(링크)
+- ✅ 고유 값 기반 자동 컬럼 필터
+
 ---
 
 ### 9. 권한 관리
 
-**4단계 역할**:
-1. **ADMIN** (최고 관리자): 모든 권한
-2. **PO** (프로젝트 책임자): 조직 관리/시스템 설정 제외
-3. **PM** (프로젝트 관리자): PO + 클라이언트/프로젝트 읽기 전용
-4. **MEMBER** (일반 사용자): 대시보드/작업요청 전체, 프로젝트 읽기, 서비스/액션 전체 ⭐ 변경
+권한별 기능 요약(ADMIN/PO/PM/MEMBER)은 **[사용자 가이드 §6 권한별 기능 요약](../guides/user/USER_GUIDE.md#6-권한별-기능-요약)** 참조.
 
-**16개 리소스**:
-- 개인 작업: dashboard, requests
-- 프로젝트 일정: psta, wbs, report
-- 데이터 관리: clients, projects, services, team-status, actions
-- 조직 관리: teams, users, organization, user-approval
-- 시스템 설정: ldap-auth, ldap-sync, permissions
-
-**페이지별 CRUD 권한**:
-- ✅ View (보기)
-- ✅ Create (생성)
-- ✅ Update (수정)
-- ✅ Delete (삭제)
-
-**자동 메뉴 필터링**:
-- 권한 없는 메뉴는 자동 숨김
-- 권한 없는 페이지 접근 시 403 에러
+**시스템 특징**:
+- 4단계 역할: ADMIN / PO / PM / MEMBER
+- 페이지별 CRUD 권한 (View/Create/Update/Delete)
+- 권한 없는 메뉴 자동 숨김, 미인가 페이지 접근 시 403 반환
+- 관리자가 **권한 관리 페이지**(`/permissions`)에서 역할별 on/off 직접 설정 가능
 
 ---
 
-### 10. 보고서 생성
+### 10. 보고서 생성 및 스냅샷
 
 **날짜 범위별 통계**:
-- 📊 전체 업무 수
+- 📊 전체 업무 수 (ACTION 기준)
 - ✅ 완료된 업무 수
 - 🔄 진행중인 업무 수
 - 📈 평균 진행률
@@ -369,10 +445,17 @@ Client | Level | Type | Name | Path | Status | Progress | Start Date | End Date 
 - ✅ 완료 건수 및 평균 진행률
 - ✅ 상세 테이블 (Type, 업무명, 담당자, 상태, 진행률, 기간)
 
+**스냅샷 시스템** ⭐ NEW:
+- ✅ **보고서 저장**: 현재 보고서 상태를 스냅샷으로 저장 (report-snapshots.ts)
+- ✅ **스냅샷 조회**: 저장된 스냅샷 목록 조회 및 불러오기
+- ✅ **스냅샷 삭제**: 불필요한 스냅샷 삭제
+- ✅ **'주차 보고서' 제목 자동 생성**: 날짜 기반 주차 계산하여 보고서 제목 자동 생성
+
 **인쇄 최적화**:
-- ✅ Print CSS 적용
+- ✅ @media print CSS 1000+ 라인 적용
 - ✅ 그라디언트 헤더
 - ✅ 전문적인 디자인
+- ✅ 1400px 와이드 레이아웃
 
 ---
 
@@ -404,6 +487,23 @@ Client | Level | Type | Name | Path | Status | Progress | Start Date | End Date 
 시스템 지원
 └─ 버그/건의
 ```
+
+---
+
+### 12. 설치 마법사 ⭐ NEW (v1.1.31)
+
+**WordPress 스타일 4단계 웹 설치 마법사**:
+
+1. **DB 연결 확인**: 데이터베이스 접속 상태 검증. 실패 시 다음 단계 차단
+2. **프론트엔드 URL 설정**: `window.location` 기반 자동 입력
+3. **관리자 비밀번호 설정**: 초기 admin 계정 비밀번호 설정
+4. **설치 실행**: 최종 설치 완료
+
+**특징**:
+- ✅ 비인증 순수 axios 사용 (JWT 불필요)
+- ✅ `installChecked` 게이트 패턴: 설치 상태 확인 전까지 Spin 표시
+- ✅ 미설치 시 모든 Route → `/install` 리다이렉트
+- ✅ ProtectedRoute 3단계 검증: token 없음→/login, !isVerified→/approval-request, !hasPermission→403
 
 ---
 
@@ -442,11 +542,21 @@ Client | Level | Type | Name | Path | Status | Progress | Start Date | End Date 
 
 ### 주요 컴포넌트
 - ✅ ItemTree (트리 뷰)
-- ✅ WbsGanttCustom (Gantt 차트)
-- ✅ ProjectWizardModal (프로젝트 위자드)
+- ✅ WbsGanttCustom / WbsTimeline (Gantt 차트)
+- ✅ TimelineCardView (카드뷰 타임라인)
+- ✅ ProjectWizardModal / ServiceWizardModal (위자드 3단계 Steps + Drawer)
 - ✅ ActionCreateDrawer (액션 생성)
-- ✅ PstaFilterDropdown (필터)
-- ✅ HierarchyToggleButtons (계층 토글)
+- ✅ PstaFilterDropdown (멀티 선택 필터)
+- ✅ HierarchyToggleButtons (P/S/T/A 계층 토글 - 글로벌 및 행 단위)
+- ✅ HierarchyRequestModal (계층 요청 모달)
+- ✅ PermissionButton + useHasPermission (역할 기반 UI 렌더링)
+- ✅ TrashModal (휴지통 - 역할별 권한 행렬)
+
+### 테마 및 설정
+- ✅ Ant Design ConfigProvider: `colorPrimary=#008CD6`, `koKR` 로케일 전역 적용
+- ✅ 시스템 로고/파비콘 실시간 DOM 업데이트
+- ✅ `document.title` 동적 적용
+- ✅ 점검 모드 토글
 
 ---
 
