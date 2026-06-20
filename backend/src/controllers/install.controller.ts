@@ -56,7 +56,8 @@ export const runInstall = async (req: Request, res: Response) => {
     // 1. 스키마 적용
     appLogger.info('[Install] applying schema.sql...');
     const schemaPath = path.join(process.cwd(), 'prisma', 'schema.sql');
-    execSync(`psql "${process.env.DATABASE_URL}" -f "${schemaPath}"`, {
+    const dbUrl = (process.env.DATABASE_URL || '').replace(/\?.*$/, '');
+    execSync(`psql "${dbUrl}" -f "${schemaPath}"`, {
       env: { ...process.env },
       stdio: 'pipe',
     });
