@@ -4,6 +4,32 @@
 
 ---
 
+## v1.1.34 (2026-06-20)
+
+### 👥 팀 관리 탭 추가
+- ✅ 멤버 관리 페이지에 **팀 관리 탭** 추가 (LDAP 미사용 시 팀 CRUD 가능)
+- ✅ LDAP 활성화 시 팀 추가·수정·삭제 비활성화 + 안내 메시지 (LDAP 동기화로 관리)
+- ✅ 팀 추가 모달에서 LDAP DN 필드·LDAP 동기화 버튼 제거
+
+### 🔒 권한 기본값 개선
+- ✅ 설치 시 MEMBER/PM/PO에 시스템 설정 리소스 `canView: false`로 시드
+  - 대상: `general-settings`, `members`, `ldap-auth`, `ldap-sync`, `notification-apps`, `permissions`, `user-approval`, `users`, `teams`
+  - 기존: 전체 리소스 동일 권한 적용 → 일반 팀원이 시스템 설정 메뉴 노출되는 버그
+
+### 🐛 신규 서버 설치 버그 수정
+- ✅ DB 패스워드 불일치(재설치 시): `.env` 읽어 `ALTER USER` 항상 실행
+- ✅ `PSTA_USER=root` 오류: `SUDO_USER` 우선 사용 (`${SUDO_USER:-$(whoami)}`)
+- ✅ docker 권한 오류(설치 중): `setup_nginx()` root 직접 실행으로 변경
+- ✅ nginx가 구 서버 IP 바라보는 문제: `BACKEND_HOST` 자동 감지 (`ip route` default gateway)
+- ✅ `psql ?schema=public` URI 오류: `DATABASE_URL`에서 query string 제거 후 실행
+- ✅ Permission 테이블 비어 빈 화면: ADMIN 역할 권한 DB 우회 + 설치 시 시드 추가
+
+### 🐳 인프라
+- ✅ nginx Docker 로그 볼륨 마운트 제거 (`/log/nginx:/var/log/nginx`)
+  - logrotate가 매일 새벽 로그 파일을 `root:644`로 재생성 → 컨테이너 재시작 루프 버그 수정
+
+---
+
 ## v1.1.33 (2026-06-19)
 
 ### 🏗️ 아키텍처 개선
