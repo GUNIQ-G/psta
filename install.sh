@@ -147,6 +147,12 @@ setup_directories() {
 # ─── DB 설정 ───────────────────────────────────────────────────────────────────
 setup_database() {
     header "PostgreSQL 데이터베이스 설정"
+    # 재설치/업그레이드 시 기존 .env에서 DB 패스워드 복원
+    if [[ -z "$DB_PASS" && -f "$INSTALL_DIR/backend/.env" ]]; then
+        DB_PASS=$(grep '^DATABASE_URL=' "$INSTALL_DIR/backend/.env" \
+            | sed 's|.*://[^:]*:\([^@]*\)@.*|\1|')
+        [[ -n "$DB_PASS" ]] && info "기존 .env에서 DB 비밀번호를 읽었습니다."
+    fi
     if [[ -z "$DB_PASS" ]]; then
         DB_PASS=$(openssl rand -base64 24 | tr -d '=/+' | head -c 20)
         warn "DB 비밀번호 자동 생성됨 (아래 .env 파일에서 확인)"
