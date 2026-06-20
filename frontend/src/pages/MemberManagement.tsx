@@ -5,13 +5,14 @@ import {
 } from 'antd';
 import {
   PlusOutlined, EditOutlined, LockOutlined, PoweroffOutlined,
-  UserOutlined, ApiOutlined, SyncOutlined, IdcardOutlined,
+  UserOutlined, ApiOutlined, SyncOutlined, IdcardOutlined, TeamOutlined,
 } from '@ant-design/icons';
 import axiosInstance from '../api/axios';
 import { teamApi } from '../api/team';
 import { UserRole, ROLE_DISPLAY_NAMES } from '../types/user';
 import { LDAPAuth } from './LDAPAuth';
 import LdapSyncManagement from './LdapSyncManagement';
+import { TeamManagement } from './TeamManagement';
 
 const { Title, Text } = Typography;
 const { Option } = Select;
@@ -341,19 +342,14 @@ export const MemberManagement: React.FC = () => {
       children: <MemberListTab />,
     },
     {
+      key: 'teams',
+      label: <Space><TeamOutlined />팀 관리</Space>,
+      children: <TeamManagement />,
+    },
+    {
       key: 'ldap',
       label: <Space><ApiOutlined />LDAP 인증</Space>,
       children: <LdapTab />,
-    },
-    {
-      key: 'etc',
-      label: '기타',
-      children: (
-        <div style={{ textAlign: 'center', padding: '60px 0', color: '#aaa' }}>
-          준비 중입니다.
-        </div>
-      ),
-      disabled: false,
     },
   ];
 

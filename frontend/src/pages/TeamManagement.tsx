@@ -9,7 +9,6 @@ import {
   Space,
   Tag,
   Popconfirm,
-  Card,
   Descriptions,
 } from 'antd';
 import {
@@ -171,25 +170,18 @@ export const TeamManagement: React.FC = () => {
 
   return (
     <div>
-      <Card
-        title={
-          <Space>
-            <TeamOutlined />
-            <span>팀 관리</span>
-          </Space>
-        }
-        extra={
-          <Button
-            type="primary"
-            icon={<SyncOutlined />}
-            onClick={handleSync}
-            loading={loading}
-          >
+      <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <span style={{ color: '#888' }}>전체 {teams.length}개 팀</span>
+        <Space>
+          <Button icon={<SyncOutlined />} onClick={handleSync} loading={loading}>
             LDAP 동기화
           </Button>
-        }
-      >
-        <Table
+          <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>
+            팀 추가
+          </Button>
+        </Space>
+      </div>
+      <Table
           columns={columns}
           dataSource={teams}
           rowKey="id"
@@ -215,7 +207,6 @@ export const TeamManagement: React.FC = () => {
             ),
           }}
         />
-      </Card>
 
       <Modal
         title={editingTeam ? '팀 수정' : '팀 추가'}
