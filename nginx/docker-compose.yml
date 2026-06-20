@@ -11,5 +11,4 @@ services:
       - BACKEND_PORT=${BACKEND_PORT:-3001}
     volumes:
       - /app/psta/nginx/dist:/usr/share/nginx/html:ro
-      - /log/nginx:/var/log/nginx
     restart: unless-stopped
