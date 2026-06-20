@@ -25,7 +25,7 @@ NGINX_LOG_DIR="${NGINX_LOG_DIR:-/log/nginx}"    # nginx 로그
 
 # ─── 기타 설정 ────────────────────────────────────────────────────────────────
 PSTA_VERSION="${PSTA_VERSION:-latest}"
-PSTA_USER="${PSTA_USER:-$(whoami)}"
+PSTA_USER="${PSTA_USER:-${SUDO_USER:-$(whoami)}}"
 GITHUB_REPO="GUNIQ-G/psta"
 
 BACKEND_PORT="${BACKEND_PORT:-3001}"
