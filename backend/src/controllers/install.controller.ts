@@ -91,15 +91,23 @@ export const runInstall = async (req: Request, res: Response) => {
       'ldap-auth', 'ldap-sync', 'notification-apps', 'permissions',
     ];
     const roles = ['ADMIN', 'PO', 'PM', 'MEMBER'] as const;
+    // ADMIN만 접근 가능한 시스템 관리 리소스
+    const adminOnlyResources = new Set([
+      'general-settings', 'members', 'ldap-auth', 'ldap-sync',
+      'notification-apps', 'permissions', 'user-approval', 'users', 'teams',
+    ]);
     const roleDefaults: Record<string, { canView: boolean; canCreate: boolean; canUpdate: boolean; canDelete: boolean }> = {
       ADMIN:  { canView: true,  canCreate: true,  canUpdate: true,  canDelete: true  },
       PO:     { canView: true,  canCreate: true,  canUpdate: true,  canDelete: false },
       PM:     { canView: true,  canCreate: true,  canUpdate: true,  canDelete: false },
       MEMBER: { canView: true,  canCreate: false, canUpdate: false, canDelete: false },
     };
+    const noAccess = { canView: false, canCreate: false, canUpdate: false, canDelete: false };
     for (const role of roles) {
-      const perms = roleDefaults[role];
       for (const resource of resources) {
+        const perms = (role !== 'ADMIN' && adminOnlyResources.has(resource))
+          ? noAccess
+          : roleDefaults[role];
         await query(
           `INSERT INTO "Permission" (id, role, resource, "canView", "canCreate", "canUpdate", "canDelete", "createdAt", "updatedAt")
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8)
