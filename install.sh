@@ -159,6 +159,8 @@ setup_database() {
     fi
     sudo -u postgres psql -tc "SELECT 1 FROM pg_roles WHERE rolname='$DB_USER'" | grep -q 1 || \
         sudo -u postgres psql -c "CREATE USER $DB_USER WITH PASSWORD '$DB_PASS';"
+    # 패스워드 항상 동기화 (재설치/업그레이드 시 불일치 방지)
+    sudo -u postgres psql -c "ALTER USER $DB_USER WITH PASSWORD '$DB_PASS';"
     sudo -u postgres psql -tc "SELECT 1 FROM pg_database WHERE datname='$DB_NAME'" | grep -q 1 || \
         sudo -u postgres psql -c "CREATE DATABASE $DB_NAME OWNER $DB_USER;"
     sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE $DB_NAME TO $DB_USER;"
@@ -177,7 +179,11 @@ setup_env() {
     [[ -z "$FRONTEND_URL" ]] && FRONTEND_URL="http://$host_ip:$FRONTEND_PORT"
 
     if [[ -f "$INSTALL_DIR/backend/.env" ]]; then
-        warn "backend/.env 이미 존재합니다. 덮어쓰지 않습니다."; return
+        # DATABASE_URL만 현재 DB_PASS로 업데이트 (나머지 설정은 보존)
+        sed -i "s|DATABASE_URL=.*|DATABASE_URL=\"postgresql://$DB_USER:$DB_PASS@$DB_HOST:$DB_PORT/$DB_NAME?schema=public\"|" \
+            "$INSTALL_DIR/backend/.env"
+        info "backend/.env DATABASE_URL 업데이트 완료"
+        return
     fi
 
     cat > "$INSTALL_DIR/backend/.env" <<EOF
