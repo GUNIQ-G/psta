@@ -10,18 +10,23 @@ import {
   Tag,
   Popconfirm,
   Descriptions,
+  Alert,
 } from 'antd';
 import {
   PlusOutlined,
   EditOutlined,
   DeleteOutlined,
-  SyncOutlined,
   TeamOutlined,
+  ApiOutlined,
 } from '@ant-design/icons';
 import { teamApi } from '../api/team';
 import { Team } from '../types/user';
 
-export const TeamManagement: React.FC = () => {
+interface Props {
+  ldapEnabled?: boolean;
+}
+
+export const TeamManagement: React.FC<Props> = ({ ldapEnabled = false }) => {
   const [teams, setTeams] = useState<Team[]>([]);
   const [loading, setLoading] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
@@ -44,24 +49,6 @@ export const TeamManagement: React.FC = () => {
     }
   };
 
-  const handleSync = async () => {
-    setLoading(true);
-    try {
-      const result = await teamApi.syncFromLDAP();
-      message.success(
-        `LDAP 동기화 완료: ${result.created}개 생성, ${result.updated}개 업데이트`
-      );
-      if (result.errors.length > 0) {
-        message.warning(`${result.errors.length}개 오류 발생`);
-      }
-      fetchTeams();
-    } catch (error: any) {
-      message.error('LDAP 동기화 실패: ' + error.message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const handleCreate = () => {
     setEditingTeam(null);
     form.resetFields();
@@ -70,11 +57,7 @@ export const TeamManagement: React.FC = () => {
 
   const handleEdit = (team: Team) => {
     setEditingTeam(team);
-    form.setFieldsValue({
-      name: team.name,
-      ldapDn: team.ldapDn,
-      description: team.description,
-    });
+    form.setFieldsValue({ name: team.name, description: team.description });
     setModalVisible(true);
   };
 
@@ -135,22 +118,14 @@ export const TeamManagement: React.FC = () => {
       dataIndex: 'isActive',
       key: 'isActive',
       render: (isActive: boolean) =>
-        isActive ? (
-          <Tag color="success">활성</Tag>
-        ) : (
-          <Tag color="default">비활성</Tag>
-        ),
+        isActive ? <Tag color="success">활성</Tag> : <Tag color="default">비활성</Tag>,
     },
-    {
+    ...(!ldapEnabled ? [{
       title: '작업',
       key: 'action',
       render: (_: any, record: Team) => (
         <Space>
-          <Button
-            type="link"
-            icon={<EditOutlined />}
-            onClick={() => handleEdit(record)}
-          >
+          <Button type="link" icon={<EditOutlined />} onClick={() => handleEdit(record)}>
             수정
           </Button>
           <Popconfirm
@@ -159,54 +134,54 @@ export const TeamManagement: React.FC = () => {
             okText="예"
             cancelText="아니오"
           >
-            <Button type="link" danger icon={<DeleteOutlined />}>
-              삭제
-            </Button>
+            <Button type="link" danger icon={<DeleteOutlined />}>삭제</Button>
           </Popconfirm>
         </Space>
       ),
-    },
+    }] : []),
   ];
 
   return (
     <div>
+      {ldapEnabled && (
+        <Alert
+          type="info"
+          showIcon
+          icon={<ApiOutlined />}
+          style={{ marginBottom: 16 }}
+          message="LDAP 인증 사용 중"
+          description="LDAP이 활성화되어 있습니다. 팀 추가·수정·삭제는 LDAP 동기화를 통해 관리됩니다."
+        />
+      )}
+
       <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <span style={{ color: '#888' }}>전체 {teams.length}개 팀</span>
-        <Space>
-          <Button icon={<SyncOutlined />} onClick={handleSync} loading={loading}>
-            LDAP 동기화
-          </Button>
+        {!ldapEnabled && (
           <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>
             팀 추가
           </Button>
-        </Space>
+        )}
       </div>
+
       <Table
-          columns={columns}
-          dataSource={teams}
-          rowKey="id"
-          loading={loading}
-          expandable={{
-            expandedRowRender: (record: Team) => (
-              <Descriptions bordered size="small">
-                <Descriptions.Item label="팀 ID" span={3}>
-                  {record.id}
-                </Descriptions.Item>
-                {record.ldapDn && (
-                  <Descriptions.Item label="LDAP DN" span={3}>
-                    {record.ldapDn}
-                  </Descriptions.Item>
-                )}
-                <Descriptions.Item label="생성일" span={1.5}>
-                  {new Date(record.createdAt).toLocaleString('ko-KR')}
-                </Descriptions.Item>
-                <Descriptions.Item label="수정일" span={1.5}>
-                  {new Date(record.updatedAt).toLocaleString('ko-KR')}
-                </Descriptions.Item>
-              </Descriptions>
-            ),
-          }}
-        />
+        columns={columns}
+        dataSource={teams}
+        rowKey="id"
+        loading={loading}
+        expandable={{
+          expandedRowRender: (record: Team) => (
+            <Descriptions bordered size="small">
+              <Descriptions.Item label="팀 ID" span={3}>{record.id}</Descriptions.Item>
+              <Descriptions.Item label="생성일" span={1.5}>
+                {new Date(record.createdAt).toLocaleString('ko-KR')}
+              </Descriptions.Item>
+              <Descriptions.Item label="수정일" span={1.5}>
+                {new Date(record.updatedAt).toLocaleString('ko-KR')}
+              </Descriptions.Item>
+            </Descriptions>
+          ),
+        }}
+      />
 
       <Modal
         title={editingTeam ? '팀 수정' : '팀 추가'}
@@ -217,15 +192,8 @@ export const TeamManagement: React.FC = () => {
         cancelText="취소"
       >
         <Form form={form} layout="vertical">
-          <Form.Item
-            name="name"
-            label="팀명"
-            rules={[{ required: true, message: '팀명을 입력하세요' }]}
-          >
+          <Form.Item name="name" label="팀명" rules={[{ required: true, message: '팀명을 입력하세요' }]}>
             <Input placeholder="예: 개발팀" />
-          </Form.Item>
-          <Form.Item name="ldapDn" label="LDAP DN (선택)">
-            <Input placeholder="cn=developers,ou=groups,dc=example,dc=com" />
           </Form.Item>
           <Form.Item name="description" label="설명">
             <Input.TextArea rows={3} placeholder="팀 설명을 입력하세요" />

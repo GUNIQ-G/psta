@@ -34,10 +34,9 @@ interface Member {
 interface Team { id: string; name: string; }
 
 // ─── 멤버 조회 탭 ───────────────────────────────────────────────────────────
-const MemberListTab: React.FC = () => {
+const MemberListTab: React.FC<{ ldapEnabled: boolean }> = ({ ldapEnabled }) => {
   const [members, setMembers] = useState<Member[]>([]);
   const [teams, setTeams] = useState<Team[]>([]);
-  const [ldapEnabled, setLdapEnabled] = useState(false);
   const [loading, setLoading] = useState(false);
 
   const [createOpen, setCreateOpen] = useState(false);
@@ -58,7 +57,6 @@ const MemberListTab: React.FC = () => {
         teamApi.getAll(),
       ]);
       setMembers(res.data.users);
-      setLdapEnabled(res.data.ldapEnabled);
       setTeams(teamsData);
     } catch {
       message.error('데이터 로드 실패');
@@ -335,16 +333,24 @@ const LdapTab: React.FC = () => {
 
 // ─── 메인 컴포넌트 ──────────────────────────────────────────────────────────
 export const MemberManagement: React.FC = () => {
+  const [ldapEnabled, setLdapEnabled] = useState(false);
+
+  useEffect(() => {
+    axiosInstance.get('/admin/members').then(res => {
+      setLdapEnabled(res.data.ldapEnabled);
+    }).catch(() => {});
+  }, []);
+
   const tabs = [
     {
       key: 'members',
       label: <Space><IdcardOutlined />멤버 조회</Space>,
-      children: <MemberListTab />,
+      children: <MemberListTab ldapEnabled={ldapEnabled} />,
     },
     {
       key: 'teams',
       label: <Space><TeamOutlined />팀 관리</Space>,
-      children: <TeamManagement />,
+      children: <TeamManagement ldapEnabled={ldapEnabled} />,
     },
     {
       key: 'ldap',
