@@ -276,10 +276,9 @@ setup_nginx() {
     header "nginx Docker 시작"
     local host_ip; host_ip=$(hostname -I | awk '{print $1}')
     [[ -z "$BACKEND_HOST" ]] && BACKEND_HOST="$host_ip"
-    sudo -u "$PSTA_USER" bash -c "
-        cd $INSTALL_DIR/nginx
-        BACKEND_HOST=$BACKEND_HOST BACKEND_PORT=$BACKEND_PORT FRONTEND_PORT=$FRONTEND_PORT docker compose up -d --build
-    "
+    # root로 실행 (설치 중 PSTA_USER가 아직 docker 그룹 세션 미적용)
+    BACKEND_HOST=$BACKEND_HOST BACKEND_PORT=$BACKEND_PORT FRONTEND_PORT=$FRONTEND_PORT \
+        docker compose -f "$INSTALL_DIR/nginx/docker-compose.yml" up -d --build
     success "nginx 컨테이너(psta-frontend) 시작"
 }
 
