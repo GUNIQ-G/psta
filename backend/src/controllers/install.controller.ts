@@ -83,7 +83,34 @@ export const runInstall = async (req: Request, res: Response) => {
       );
     }
 
-    // 3. admin 계정 생성
+    // 3. 기본 권한 seed
+    const resources = [
+      'dashboard', 'requests', 'psta', 'wbs', 'report', 'integrated-files',
+      'organization', 'clients', 'projects', 'services', 'team-status', 'actions',
+      'teams', 'users', 'feedback', 'user-approval', 'general-settings', 'members',
+      'ldap-auth', 'ldap-sync', 'notification-apps', 'permissions',
+    ];
+    const roles = ['ADMIN', 'PO', 'PM', 'MEMBER'] as const;
+    const roleDefaults: Record<string, { canView: boolean; canCreate: boolean; canUpdate: boolean; canDelete: boolean }> = {
+      ADMIN:  { canView: true,  canCreate: true,  canUpdate: true,  canDelete: true  },
+      PO:     { canView: true,  canCreate: true,  canUpdate: true,  canDelete: false },
+      PM:     { canView: true,  canCreate: true,  canUpdate: true,  canDelete: false },
+      MEMBER: { canView: true,  canCreate: false, canUpdate: false, canDelete: false },
+    };
+    for (const role of roles) {
+      const perms = roleDefaults[role];
+      for (const resource of resources) {
+        await query(
+          `INSERT INTO "Permission" (id, role, resource, "canView", "canCreate", "canUpdate", "canDelete", "createdAt", "updatedAt")
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8)
+           ON CONFLICT (role, resource) DO NOTHING`,
+          [randomUUID(), role, resource, perms.canView, perms.canCreate, perms.canUpdate, perms.canDelete, now]
+        );
+      }
+    }
+    appLogger.info('[Install] default permissions seeded');
+
+    // 4. admin 계정 생성
     const passwordHash = await bcrypt.hash(adminPassword, 10);
     await query(
       `INSERT INTO "User" (id, username, email, "displayName", "authType", "passwordHash", role, "isVerified", "isActive", "updatedAt")

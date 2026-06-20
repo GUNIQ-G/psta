@@ -28,7 +28,8 @@ export const usePermissionStore = create<PermissionStore>((set, get) => ({
   },
 
   hasPermission: (resource: string, action: 'canView' | 'canCreate' | 'canUpdate' | 'canDelete') => {
-    const { permissions } = get();
+    const { role, permissions } = get();
+    if (role === 'ADMIN') return true;
     if (!permissions) return false;
     const resourcePermissions = permissions[resource];
     if (!resourcePermissions) return false;
