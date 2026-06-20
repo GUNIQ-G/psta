@@ -7,7 +7,7 @@ services:
     ports:
       - "${FRONTEND_PORT:-3000}:3000"
     environment:
-      - BACKEND_HOST=${BACKEND_HOST:-10.0.31.71}
+      - BACKEND_HOST=${BACKEND_HOST:-}
       - BACKEND_PORT=${BACKEND_PORT:-3001}
     volumes:
       - /app/psta/nginx/dist:/usr/share/nginx/html:ro
